@@ -3894,10 +3894,37 @@ var sha = (s) => crypto.createHash("sha256").update(s).digest("hex");
 var rid = (n = 12) => crypto.randomBytes(n).toString("base64url");
 function newNumber() {
   for (; ; ) {
-    const n = `FY 7${String(crypto.randomInt(0, 1e3)).padStart(3, "0")} ${String(crypto.randomInt(0, 1e4)).padStart(4, "0")}`;
+    const n = `+2040-${crypto.randomInt(200, 1e3)}-${String(crypto.randomInt(0, 1e4)).padStart(4, "0")}`;
     if (!Object.values(db.users).some((u) => u.number === n)) return n;
   }
 }
+var digits = (s) => String(s || "").replace(/\D/g, "");
+var findByNumber = (n) => {
+  const d = digits(n);
+  if (d.length < 7) return void 0;
+  return Object.values(db.users).find((u) => {
+    const ud = digits(u.number);
+    return ud === d || ud.slice(-7) === d.slice(-7);
+  });
+};
+{
+  let moved = 0;
+  for (const u of Object.values(db.users)) if (!u.number.startsWith("+2040")) {
+    const d = digits(u.number).slice(-7);
+    const n = `+2040-${d.slice(0, 3)}-${d.slice(3)}`;
+    u.number = Object.values(db.users).some((x) => x.number === n) ? newNumber() : n;
+    moved++;
+  }
+  if (moved) {
+    console.log("moved", moved, "numbers to +2040");
+    try {
+      fs.writeFileSync(dbFile, JSON.stringify(db));
+    } catch {
+    }
+  }
+}
+var alias = (u) => "Citizen #X" + String(parseInt(sha(u.id).slice(0, 6), 16) % 1e3).padStart(3, "0");
+var shown = (u) => u.stealth ? alias(u) : u.name;
 var clean = (s, n) => String(s ?? "").replace(/[\u0000-\u001f]/g, " ").trim().slice(0, n);
 var BAD = ["fuck", "shit", "bitch", "bastard", "cunt", "dick", "asshole", "slut", "whore", "nigger", "faggot", "retard", "madarchod", "behenchod", "bhenchod", "chutiya", "chutia", "harami", "haramzada", "kutta", "kutiya", "gandu", "randi", "bhosdi", "lund", "kanjar"];
 var badRe = new RegExp(`\\b(${BAD.join("|")})\\w*`, "gi");
@@ -3932,7 +3959,7 @@ var live = /* @__PURE__ */ new Map();
 var send = (ws, m) => {
   if (ws.readyState === import_websocket.default.OPEN) ws.send(JSON.stringify(m));
 };
-var pub = (u) => ({ id: u.id, name: u.name, color: u.color, number: u.number });
+var pub = (u) => ({ id: u.id, name: shown(u), color: u.stealth ? "#8a8f98" : u.color, number: u.number, stealth: !!u.stealth });
 var blocked = (a, b) => a.blocks.includes(b.id) || b.blocks.includes(a.id);
 var threadId = (a, b) => "dm:" + [a, b].sort().join(":");
 async function deliver(from, to, m) {
@@ -3944,7 +3971,7 @@ async function deliver(from, to, m) {
   });
   await Promise.all([...byLang].map(async ([lang, ls]) => {
     const tr = await translate(m.text, lang);
-    ls.forEach((l) => send(l.ws, { t: "msg", ...m, from: from.id, fromName: from.name, color: from.color, number: from.number, text: tr && tr !== m.text ? tr : m.text, orig: tr && tr !== m.text ? m.text : void 0, lang }));
+    ls.forEach((l) => send(l.ws, { t: "msg", ...m, from: from.id, fromName: shown(from), color: from.stealth ? "#8a8f98" : from.color, number: from.number, text: tr && tr !== m.text ? tr : m.text, orig: tr && tr !== m.text ? m.text : void 0, lang }));
   }));
 }
 function onMessage(me, raw) {
@@ -3988,11 +4015,11 @@ function onMessage(me, raw) {
         return;
       }
       if (m.channel === "dm") {
-        const target = Object.values(db.users).find((x) => x.id === m.to || x.number === m.to);
+        const target = db.users[m.to] || findByNumber(String(m.to || ""));
         if (!target) return send(me.ws, { t: "err", text: "No citizen has that number." });
         if (blocked(u, target)) return send(me.ws, { t: "err", text: "You cannot message this person." });
         const th = threadId(u.id, target.id);
-        const rec = { id, from: u.id, fromName: u.name, text, at: now };
+        const rec = { id, from: u.id, fromName: shown(u), text, at: now };
         db.threads[th] = [...db.threads[th] || [], rec].slice(-200);
         save();
         const tl = live.get(target.id);
@@ -4003,7 +4030,7 @@ function onMessage(me, raw) {
         const g = db.groups[m.group];
         if (!g || !g.members.includes(u.id)) return;
         const th = "group:" + g.id;
-        db.threads[th] = [...db.threads[th] || [], { id, from: u.id, fromName: u.name, text, at: now }].slice(-300);
+        db.threads[th] = [...db.threads[th] || [], { id, from: u.id, fromName: shown(u), text, at: now }].slice(-300);
         save();
         deliver(u, g.members.map((id2) => live.get(id2)).filter(Boolean), { channel: "group", group: g.id, thread: th, text, id, at: now });
         return;
@@ -4029,8 +4056,8 @@ function onMessage(me, raw) {
       return;
     }
     case "lookup": {
-      const n = clean(m.number, 20).toUpperCase().replace(/\s+/g, " ");
-      const x = Object.values(db.users).find((v) => v.number.replace(/\s/g, "") === n.replace(/\s/g, ""));
+      const n = clean(m.number, 24);
+      const x = findByNumber(n);
       send(me.ws, { t: "lookup", number: n, user: x ? { ...pub(x), online: live.has(x.id) } : null });
       return;
     }
@@ -4038,6 +4065,7 @@ function onMessage(me, raw) {
       if (m.name) u.name = clean(m.name, 24) || u.name;
       if (m.color) u.color = clean(m.color, 9);
       if (m.lang && LANGS.some((l) => l.code === m.lang)) u.lang = m.lang;
+      if (typeof m.stealth === "boolean") u.stealth = m.stealth;
       if (m.passport) u.passport = { no: +m.passport.no || 0, interest: clean(m.passport.interest, 20) };
       save();
       send(me.ws, { t: "me", me: { ...pub(u), lang: u.lang, blocks: u.blocks } });
@@ -4063,7 +4091,7 @@ function onMessage(me, raw) {
       return;
     }
     case "group_create": {
-      const members = [u.id, ...(m.numbers || []).map((n) => Object.values(db.users).find((x) => x.number.replace(/\s/g, "") === String(n).replace(/\s/g, ""))?.id).filter(Boolean)];
+      const members = [u.id, ...(m.numbers || []).map((n) => findByNumber(String(n))?.id).filter(Boolean)];
       const g = { id: rid(6), name: clean(m.name, 40) || "Group", owner: u.id, members: [...new Set(members)], at: Date.now() };
       db.groups[g.id] = g;
       save();
@@ -4076,7 +4104,7 @@ function onMessage(me, raw) {
     case "group_add": {
       const g = db.groups[m.group];
       if (!g || !g.members.includes(u.id)) return;
-      const x = Object.values(db.users).find((v) => v.number.replace(/\s/g, "") === String(m.number).replace(/\s/g, ""));
+      const x = findByNumber(String(m.number));
       if (x && !g.members.includes(x.id)) {
         g.members.push(x.id);
         save();
@@ -4094,7 +4122,7 @@ function onMessage(me, raw) {
     case "rtc": {
       const to = live.get(clean(m.to, 40));
       if (!to || blocked(u, to.u)) return;
-      send(to.ws, { t: "rtc", from: u.id, fromName: u.name, number: u.number, kind: clean(m.kind, 20), data: m.data });
+      send(to.ws, { t: "rtc", from: u.id, fromName: shown(u), number: u.number, kind: clean(m.kind, 20), data: m.data });
       return;
     }
     case "plot": {
@@ -4109,7 +4137,7 @@ function onMessage(me, raw) {
         return;
       }
       if (cur && cur.owner !== u.id && !(cur.forSale && m.buy)) return send(me.ws, { t: "plot_taken", id, owner: cur });
-      db.plots[id] = { owner: u.id, ownerName: u.name, use: clean(m.use, 30) || void 0, sign: clean(m.sign, 28) || void 0, forSale: m.forSale ? Math.max(1, Math.round(+m.forSale)) : void 0, at: Date.now() };
+      db.plots[id] = { owner: u.id, ownerName: shown(u), use: clean(m.use, 30) || void 0, sign: clean(m.sign, 28) || void 0, forSale: m.forSale ? Math.max(1, Math.round(+m.forSale)) : void 0, at: Date.now() };
       save();
       broadcast({ t: "plots", plots: { [id]: db.plots[id] } });
       return;
@@ -4119,7 +4147,7 @@ function onMessage(me, raw) {
 var broadcast = (m) => live.forEach((l) => send(l.ws, m));
 setInterval(() => {
   if (!live.size) return;
-  const list = [...live.values()].map((l) => ({ id: l.u.id, name: l.u.name, color: l.u.color, x: l.x, z: l.z, y: l.y, ry: l.ry, sc: l.scene, o: l.o, v: l.v, vc: l.voice, ph: l.u.photo }));
+  const list = [...live.values()].map((l) => ({ id: l.u.id, name: shown(l.u), color: l.u.stealth ? "#8a8f98" : l.u.color, x: l.x, z: l.z, y: l.y, ry: l.ry, sc: l.scene, o: l.o, v: l.v, vc: l.voice, ph: l.u.stealth ? void 0 : l.u.photo, mk: l.u.stealth ? 1 : void 0 }));
   const withPhoto = Date.now() % 4e3 < 130;
   live.forEach((l) => send(l.ws, { t: "peers", list: list.filter((p) => p.id !== l.u.id).map((p) => withPhoto ? p : { ...p, ph: void 0 }) }));
 }, 125);
