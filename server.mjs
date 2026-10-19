@@ -3908,7 +3908,7 @@ function createEdu(d) {
   const sign = (c) => crypto.createHmac("sha256", SECRET).update(JSON.stringify([c.code, c.student, c.studentName, c.teacher, c.teacherName, c.instName || "", c.course, c.courseTitle, c.skills, c.level, c.lessons, c.issuedAt])).digest("hex").slice(0, 32);
   const valid = (c) => !!c && c.sig === sign(c);
   const forStudent = (c) => ({ ...c, lessons: c.lessons.map((l) => ({ title: l.title, body: l.body, video: l.video, q: l.q, opts: l.opts })) });
-  const nameOf = (id) => id === ACADEMY ? E.teachers[ACADEMY].name : d.db.users[id]?.name || "Citizen";
+  const nameOf2 = (id) => id === ACADEMY ? E.teachers[ACADEMY].name : d.db.users[id]?.name || "Citizen";
   const canTeachAt = (uid, instId) => !instId || E.inst[instId] && (E.inst[instId].owner === uid || E.inst[instId].staff.includes(uid));
   const changed = () => {
     d.save();
@@ -3921,7 +3921,7 @@ function createEdu(d) {
     if (!en.completedAt) return "The student has not finished every lesson yet.";
     if (en.cert && E.certs[en.cert]) return E.certs[en.cert];
     const i = c.inst ? E.inst[c.inst] : void 0;
-    const base = { code: newCode(), student: en.user, studentName: d.db.users[en.user]?.name || en.userName, teacher: c.teacher, teacherName: nameOf(c.teacher), inst: i?.id, instName: i?.name, instType: i?.type, instVerified: i?.verified, course: c.id, courseTitle: c.title, skills: c.skills, level: c.level, lessons: c.lessons.length, issuedAt: Date.now() };
+    const base = { code: newCode(), student: en.user, studentName: d.db.users[en.user]?.name || en.userName, teacher: c.teacher, teacherName: nameOf2(c.teacher), inst: i?.id, instName: i?.name, instType: i?.type, instVerified: i?.verified, course: c.id, courseTitle: c.title, skills: c.skills, level: c.level, lessons: c.lessons.length, issuedAt: Date.now() };
     const cert = { ...base, sig: sign(base) };
     E.certs[cert.code] = cert;
     en.cert = cert.code;
@@ -4062,9 +4062,18 @@ function createEdu(d) {
           reply(mine(u.id));
           return true;
         }
+        if (c.fee > 0 && c.teacher !== ACADEMY) {
+          if (d.pay) {
+            const share = Math.round(c.fee * 0.9 * 100) / 100;
+            if (!d.pay(u.id, c.teacher, share, `Course fee: ${c.title}`)) {
+              err("Not enough FYC for this course.");
+              return true;
+            }
+            d.pay(u.id, "treasury", Math.round((c.fee - share) * 100) / 100, `Education levy 10%: ${c.title}`);
+          } else E.earn[c.teacher] = (E.earn[c.teacher] || 0) + Math.round(c.fee * 0.9);
+        }
         E.enr[k] = { course: c.id, user: u.id, userName: u.name, at: Date.now(), done: [] };
         c.students++;
-        if (c.fee > 0 && c.teacher !== ACADEMY) E.earn[c.teacher] = (E.earn[c.teacher] || 0) + Math.round(c.fee * 0.9);
         {
           const l = d.liveOf(c.teacher);
           if (l) d.send(l.ws, mine(c.teacher));
@@ -4148,6 +4157,611 @@ function createEdu(d) {
     return true;
   }
   return { onMessage: onMessage2, http: http2 };
+}
+
+// server/bank.ts
+var OPENING_CAP = 5e4;
+var DAILY_GAME_CAP = 15e4;
+var SPECIAL = /* @__PURE__ */ new Set(["treasury", "escrow"]);
+var r2 = (n) => Math.round(n * 100) / 100;
+function createBank(d) {
+  if (!d.db.bank) {
+    d.db.bank = { acct: {}, ledger: [], seq: 1 };
+    d.save();
+  }
+  const B = d.db.bank;
+  const today = () => (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+  const acct = (id) => B.acct[id] ||= { bal: 0, opened: Date.now(), day: today(), dayIn: 0, bond: 0, strikes: 0, sales: 0, bought: 0 };
+  const has = (id) => !!B.acct[id];
+  const bal = (id) => B.acct[id] ? B.acct[id].bal : 0;
+  const notify = (id) => {
+    if (SPECIAL.has(id)) return;
+    const l = d.liveOf(id);
+    const a = B.acct[id];
+    if (l && a) d.send(l.ws, { t: "bank", bal: a.bal, bond: a.bond, held: heldFor(id), strikes: a.strikes, banned: !!a.banned, sales: a.sales });
+  };
+  let heldFor = () => 0;
+  function log(from, to, amount, memo) {
+    B.ledger.push({ id: B.seq++, at: Date.now(), from, to, amount: r2(amount), memo: memo.slice(0, 120) });
+    if (B.ledger.length > 2e4) B.ledger.splice(0, B.ledger.length - 2e4);
+  }
+  function transfer(from, to, amount, memo) {
+    amount = r2(amount);
+    if (!(amount > 0) || from === to) return false;
+    if (from !== "mint") {
+      const a = acct(from);
+      if (a.bal + 1e-9 < amount) return false;
+      a.bal = r2(a.bal - amount);
+    }
+    if (to !== "burn") {
+      const b = acct(to);
+      b.bal = r2(b.bal + amount);
+    }
+    log(from, to, amount, memo);
+    d.save();
+    notify(from);
+    notify(to);
+    return true;
+  }
+  function history(id, n = 60) {
+    const out = [];
+    for (let i = B.ledger.length - 1; i >= 0 && out.length < n; i--) {
+      const t = B.ledger[i];
+      if (t.from === id || t.to === id) out.push({ ...t, dir: t.to === id ? "in" : "out", other: t.to === id ? t.from : t.to, otherName: d.nameOf(t.to === id ? t.from : t.to) });
+    }
+    return out;
+  }
+  function onMessage2(me, m) {
+    if (typeof m.t !== "string" || !(m.t.startsWith("bank_") || m.t.startsWith("bond_"))) return false;
+    const u = me.u;
+    const reply = (x) => d.send(me.ws, x);
+    const err = (text) => reply({ t: "err", text });
+    switch (m.t) {
+      case "bank_hello": {
+        if (!has(u.id)) {
+          acct(u.id);
+          const open = Math.max(0, Math.min(OPENING_CAP, Math.round(+m.local || 0)));
+          if (open > 0) transfer("mint", u.id, open, "Opening balance moved from your beta wallet");
+          else d.save();
+        }
+        notify(u.id);
+        reply({ t: "bank_hist", list: history(u.id) });
+        return true;
+      }
+      case "bank_op": {
+        const amt = r2(+m.amount || 0);
+        const label = d.clean(m.label, 100) || "City payment";
+        if (!amt) return true;
+        const a = acct(u.id);
+        if (a.banned && amt > 0) {
+          notify(u.id);
+          return true;
+        }
+        if (amt < 0) {
+          if (!transfer(u.id, "treasury", -amt, label)) {
+            notify(u.id);
+            reply({ t: "note", text: "Not enough FYC in your bank account for that." });
+          }
+          return true;
+        }
+        if (a.day !== today()) {
+          a.day = today();
+          a.dayIn = 0;
+        }
+        const room = Math.max(0, DAILY_GAME_CAP - a.dayIn);
+        const ok = Math.min(room, amt);
+        if (ok > 0) {
+          a.dayIn += ok;
+          transfer("mint", u.id, ok, label);
+        }
+        if (ok < amt) {
+          notify(u.id);
+          reply({ t: "note", text: `Daily limit for rewards and test packs reached (${DAILY_GAME_CAP.toLocaleString("en-US")} FYC). It resets tomorrow.` });
+        }
+        return true;
+      }
+      case "bank_send": {
+        const to = d.findByNumber(String(m.to || ""));
+        const amt = r2(+m.amount || 0);
+        const note = d.clean(m.note, 80);
+        if (!to) {
+          err("No citizen has that number.");
+          return true;
+        }
+        if (to.id === u.id) {
+          err("That is your own number.");
+          return true;
+        }
+        if (!(amt >= 1) || amt > 1e6) {
+          err("Enter an amount between 1 and 1,000,000 FYC.");
+          return true;
+        }
+        if (acct(u.id).banned) {
+          err("This account is suspended by the Fyrus Court.");
+          return true;
+        }
+        if (!transfer(u.id, to.id, amt, `FyrusPay ${note ? "\xB7 " + note : ""}`.trim())) {
+          err("Not enough FYC.");
+          return true;
+        }
+        reply({ t: "ok", text: `Sent ${amt.toLocaleString("en-US")} FYC to ${to.name} (${to.number}).` });
+        const l = d.liveOf(to.id);
+        if (l) d.send(l.ws, { t: "note", text: `${u.name} sent you ${amt.toLocaleString("en-US")} FYC${note ? `: "${note}"` : ""}.` });
+        reply({ t: "bank_hist", list: history(u.id) });
+        return true;
+      }
+      case "bank_hist":
+        reply({ t: "bank_hist", list: history(u.id) });
+        return true;
+      case "bond_stake": {
+        const amt = Math.round(+m.amount || 0);
+        if (amt < 100) {
+          err("The smallest bond is 100 FYC.");
+          return true;
+        }
+        if (!transfer(u.id, "escrow", amt, "Seller security bond")) {
+          err("Not enough FYC for the bond.");
+          return true;
+        }
+        acct(u.id).bond += amt;
+        d.save();
+        notify(u.id);
+        reply({ t: "ok", text: `Bond is now ${acct(u.id).bond.toLocaleString("en-US")} FYC.` });
+        return true;
+      }
+      case "bond_withdraw": {
+        const a = acct(u.id);
+        if (!a.bond) return true;
+        if (busy(u.id)) {
+          err("Finish or settle your open orders first.");
+          return true;
+        }
+        const amt = a.bond;
+        a.bond = 0;
+        transfer("escrow", u.id, amt, "Seller bond returned");
+        reply({ t: "ok", text: "Bond returned to your account." });
+        return true;
+      }
+    }
+    return true;
+  }
+  let busy = () => false;
+  return { onMessage: onMessage2, transfer, bal, acct, notify, history, setHeld: (f) => {
+    heldFor = f;
+  }, setBusy: (f) => {
+    busy = f;
+  } };
+}
+
+// server/market.ts
+var TYPES2 = ["skill", "course", "digital", "physical", "brand"];
+var H = 36e5;
+var INSPECT_MS = +(process.env.INSPECT_MS || 72 * H);
+var RESPOND_MS = +(process.env.RESPOND_MS || 48 * H);
+var MIN_AUCTION_MS = +(process.env.MIN_AUCTION_MS || H);
+var SNIPE_MS = +(process.env.SNIPE_MS ?? 12e4);
+var FEE = 0.05;
+var BOND_LIMIT = 1e3;
+var bondNeeded = (price) => price > BOND_LIMIT ? Math.max(500, Math.round(price * 0.1)) : 0;
+var BANNED_GOODS = /\b(gun|guns|pistol|rifle|ammo|ammunition|explosive|grenade|cocaine|heroin|meth|weed|cannabis|marijuana|opioid|fentanyl|steroid|counterfeit|replica|fake id|fake passport|stolen|hacked account|credit card dump|cvv|malware|ransomware|keylogger|botnet|ddos|escort|adult content|porn)\b/i;
+var SCAM_WORDS = /\b(pay outside|outside fyrus|whatsapp me|telegram me|western union|gift ?card|bitcoin|crypto wallet|usdt|send your password|verify your account|seed phrase|private key|guaranteed profit|double your money)\b/i;
+var BAD_LINK = /(https?:\/\/)?(bit\.ly|tinyurl\.com|t\.co|goo\.gl|ow\.ly|is\.gd|cutt\.ly|rb\.gy|grabify|iplogger)\b|http:\/\/|\.(exe|scr|bat|cmd|msi|apk|jar|vbs|ps1)(\?|\b)/i;
+function sentinel(text, price, type) {
+  if (BANNED_GOODS.test(text)) return "Sentinel blocked this listing: prohibited goods or services.";
+  if (SCAM_WORDS.test(text)) return "Sentinel blocked this listing: it asks for payment or contact outside Fyrus, or for secrets.";
+  if (BAD_LINK.test(text)) return "Sentinel blocked a link: use https links to normal sites, no link shorteners or program files.";
+  if (!(price >= 1) || price > 1e6) return "Sentinel: price must be between 1 and 1,000,000 FYC.";
+  if (type === "digital" && price > 5e4) return "Sentinel: digital items above 50,000 FYC need a manual review. Lower the price.";
+  return null;
+}
+function createMarket(d) {
+  if (!d.db.market) {
+    d.db.market = { listings: {}, orders: {} };
+    d.save();
+  }
+  const K = d.db.market;
+  const bank2 = d.bank;
+  const note = (id, text) => {
+    const l = d.liveOf(id);
+    if (l) d.send(l.ws, { t: "note", text });
+  };
+  const pushMine = (id) => {
+    const l = d.liveOf(id);
+    if (l) d.send(l.ws, mine(id));
+  };
+  const changed = () => {
+    d.save();
+    d.broadcast({ t: "mk_changed" });
+  };
+  const pub2 = (l) => ({ ...l, delivery: void 0, hasDelivery: !!l.delivery, bids: (l.bids || []).slice(-10).map((b) => ({ name: b.name, amount: b.amount, at: b.at })), topBid: l.bids?.length ? l.bids[l.bids.length - 1].amount : void 0, trust: trustOf(l.seller) });
+  const trustOf = (id) => {
+    const a = bank2.acct(id);
+    return { sales: a.sales, bond: a.bond, strikes: a.strikes, tier: a.strikes ? "Warned" : a.sales >= 25 && a.bond >= 2e3 ? "Gold" : a.sales >= 5 ? "Trusted" : a.bond >= 500 ? "Bonded" : "New" };
+  };
+  bank2.setHeld((id) => Object.values(K.listings).reduce((s, l) => s + (l.status === "active" && l.bids?.length && l.bids[l.bids.length - 1].user === id ? l.bids[l.bids.length - 1].amount : 0), 0));
+  bank2.setBusy((id) => Object.values(K.orders).some((o) => o.seller === id && !["released", "refunded"].includes(o.status)) || Object.values(K.listings).some((l) => l.seller === id && l.status === "active" && l.price > BOND_LIMIT));
+  function mine(id) {
+    const os = Object.values(K.orders);
+    return {
+      t: "mk_mine",
+      listings: Object.values(K.listings).filter((l) => l.seller === id && l.status !== "removed").map((l) => ({ ...pub2(l), delivery: l.delivery })),
+      bought: os.filter((o) => o.buyer === id).map((o) => ({ ...o, address: o.address })).sort((a, b) => b.at - a.at),
+      sold: os.filter((o) => o.seller === id).sort((a, b) => b.at - a.at),
+      court: d.isAdmin(id) ? os.filter((o) => o.status === "review" || o.status === "disputed") : void 0,
+      admin: d.isAdmin(id),
+      trust: trustOf(id)
+    };
+  }
+  function makeOrder(l, buyer, amount, address) {
+    const days = l.type === "physical" ? (l.shipDays || 7) + 2 : l.type === "skill" ? (l.skillDays || 5) + 2 : 1;
+    const o = { id: "o" + d.rid(7), listing: l.id, title: l.title, type: l.type, buyer: buyer.id, buyerName: buyer.name, seller: l.seller, sellerName: l.sellerName, amount, status: "paid", at: Date.now(), dueBy: Date.now() + days * 24 * H, address };
+    if ((l.type === "digital" || l.type === "course") && l.delivery) {
+      o.status = "delivered";
+      o.deliveredAt = Date.now();
+      o.inspectUntil = Date.now() + INSPECT_MS;
+    }
+    K.orders[o.id] = o;
+    l.sold++;
+    if (l.type === "physical" || l.type === "brand") l.stock = Math.max(0, l.stock - 1);
+    if (l.mode === "fixed" && l.stock <= 0 && (l.type === "physical" || l.type === "brand")) l.status = "sold";
+    bank2.acct(buyer.id).bought++;
+    d.save();
+    note(l.seller, `New order: ${l.title} (${amount.toLocaleString("en-US")} FYC held in escrow).`);
+    pushMine(l.seller);
+    return o;
+  }
+  function release(o, why) {
+    if (!["paid", "delivered"].includes(o.status)) return;
+    const fee = Math.round(o.amount * FEE * 100) / 100;
+    bank2.transfer("escrow", o.seller, o.amount - fee, `Sale released: ${o.title}`);
+    if (fee > 0) bank2.transfer("escrow", "treasury", fee, `Market fee 5%: ${o.title}`);
+    o.status = "released";
+    o.closedAt = Date.now();
+    bank2.acct(o.seller).sales++;
+    d.save();
+    note(o.seller, `Payment released for "${o.title}" (${why}).`);
+    pushMine(o.seller);
+    pushMine(o.buyer);
+  }
+  function refund(o, why, strike) {
+    if (["released", "refunded"].includes(o.status)) return;
+    bank2.transfer("escrow", o.buyer, o.amount, `Refund: ${o.title}`);
+    o.status = "refunded";
+    o.closedAt = Date.now();
+    const l = K.listings[o.listing];
+    if (l && (l.type === "physical" || l.type === "brand")) l.stock++;
+    if (strike) {
+      const a = bank2.acct(o.seller);
+      a.strikes++;
+      if (a.strikes >= 3) ban(o.seller, "three court rulings against this seller");
+    }
+    d.save();
+    note(o.buyer, `Refunded ${o.amount.toLocaleString("en-US")} FYC for "${o.title}" (${why}).`);
+    note(o.seller, `Order "${o.title}" was refunded to the buyer (${why}).`);
+    pushMine(o.buyer);
+    pushMine(o.seller);
+    bank2.notify(o.seller);
+  }
+  function ban(id, why) {
+    const a = bank2.acct(id);
+    if (a.banned) return;
+    a.banned = true;
+    Object.values(K.listings).filter((l) => l.seller === id && l.status === "active").forEach((l) => {
+      refundBids(l);
+      l.status = "removed";
+    });
+    Object.values(K.orders).filter((o) => o.seller === id && ["paid", "delivered", "disputed", "review"].includes(o.status)).forEach((o) => refund(o, "seller banned", false));
+    if (a.bond) {
+      bank2.transfer("escrow", "treasury", a.bond, "Bond forfeited (seller banned)");
+      a.bond = 0;
+    }
+    d.save();
+    note(id, `Your seller account is permanently banned by the Fyrus Court: ${why}.`);
+    changed();
+  }
+  function refundBids(l) {
+    const top = l.bids?.length ? l.bids[l.bids.length - 1] : void 0;
+    if (top) bank2.transfer("escrow", top.user, top.amount, `Bid returned: ${l.title}`);
+  }
+  function finishAuction(l) {
+    if (l.status !== "active" || l.mode !== "auction") return;
+    const top = l.bids?.length ? l.bids[l.bids.length - 1] : void 0;
+    if (!top || l.reserve && top.amount < l.reserve) {
+      if (top) refundBids(l);
+      l.status = "ended";
+      note(l.seller, `Auction ended without a sale: ${l.title}${top ? " (reserve not met)" : ""}.`);
+      if (top) note(top.user, `Auction "${l.title}" ended below the reserve. Your bid is back.`);
+      changed();
+      return;
+    }
+    l.status = "sold";
+    makeOrder(l, { id: top.user, name: top.name }, top.amount);
+    note(top.user, `You won "${l.title}" for ${top.amount.toLocaleString("en-US")} FYC. It is safe in escrow.`);
+    pushMine(top.user);
+    changed();
+  }
+  setInterval(() => {
+    const now = Date.now();
+    Object.values(K.listings).forEach((l) => {
+      if (l.status === "active" && l.mode === "auction" && l.endsAt && now >= l.endsAt) finishAuction(l);
+    });
+    Object.values(K.orders).forEach((o) => {
+      if (o.status === "delivered" && o.inspectUntil && now >= o.inspectUntil) release(o, "inspection window ended");
+      else if (o.status === "disputed" && o.dispute && now >= o.dispute.respondBy && !o.dispute.sellerText) {
+        o.dispute.ruling = "Seller did not answer in time: refunded automatically.";
+        o.dispute.ruledBy = "Fyrus Court (automatic)";
+        o.dispute.ruledAt = now;
+        refund(o, "seller did not answer the dispute", true);
+      }
+    });
+  }, +(process.env.MARKET_TICK_MS || 15e3));
+  function onMessage2(me, m) {
+    if (typeof m.t !== "string" || !m.t.startsWith("mk_")) return false;
+    const u = me.u;
+    const reply = (x) => d.send(me.ws, x);
+    const err = (text) => reply({ t: "err", text });
+    const a = bank2.acct(u.id);
+    const myOrder = (id, as) => {
+      const o = K.orders[String(id)];
+      return o && o[as] === u.id ? o : void 0;
+    };
+    switch (m.t) {
+      case "mk_list":
+        reply({ t: "mk_list", listings: Object.values(K.listings).filter((l) => l.status === "active").map(pub2).sort((x, y) => y.at - x.at), now: Date.now() });
+        return true;
+      case "mk_mine":
+        reply(mine(u.id));
+        return true;
+      case "mk_create": {
+        if (a.banned) {
+          err("This account is banned from selling.");
+          return true;
+        }
+        const type = TYPES2.includes(m.type) ? m.type : null;
+        const title = d.clean(m.title, 80);
+        const desc = String(m.desc || "").replace(/[\u0000-\u0008\u000b-\u001f]/g, " ").slice(0, 2e3);
+        const price = Math.round(+m.price || 0);
+        const mode = m.mode === "auction" ? "auction" : "fixed";
+        const delivery = String(m.delivery || "").slice(0, 2e3);
+        if (!type || title.length < 4) {
+          err("Pick a seller type and a title of at least 4 letters.");
+          return true;
+        }
+        const bad = sentinel(`${title} ${desc} ${delivery}`, price, type);
+        if (bad) {
+          err(bad);
+          return true;
+        }
+        if ((type === "digital" || type === "course") && !delivery.trim()) {
+          err("Add what the buyer receives (a download link, licence key or the content itself). It stays hidden until they pay.");
+          return true;
+        }
+        const need = Math.max(bondNeeded(price), type === "brand" ? 2e3 : 0);
+        if (a.bond < need) {
+          err(`This listing needs a seller bond of ${need.toLocaleString("en-US")} FYC (you have ${a.bond.toLocaleString("en-US")}). Stake it in the Sell tab; you get it back when you stop selling.`);
+          return true;
+        }
+        if (Object.values(K.listings).filter((l2) => l2.seller === u.id && l2.status === "active").length >= 30) {
+          err("You can have up to 30 active listings.");
+          return true;
+        }
+        const hours = Math.max(MIN_AUCTION_MS / H, Math.min(168, +m.hours || 24));
+        const l = {
+          id: "l" + d.rid(7),
+          seller: u.id,
+          sellerName: u.name,
+          type,
+          title,
+          desc,
+          price,
+          mode,
+          stock: type === "physical" || type === "brand" ? Math.max(1, Math.min(9999, Math.round(+m.stock || 1))) : 9999,
+          shipDays: type === "physical" || type === "brand" ? Math.max(1, Math.min(60, Math.round(+m.shipDays || 7))) : void 0,
+          skillDays: type === "skill" ? Math.max(1, Math.min(90, Math.round(+m.skillDays || 5))) : void 0,
+          icon: d.clean(m.icon, 4) || "\u25C6",
+          color: /^#[0-9a-f]{6}$/i.test(m.color) ? m.color : "#2f6fe0",
+          delivery: delivery || void 0,
+          status: "active",
+          sold: 0,
+          at: Date.now(),
+          ...mode === "auction" ? { endsAt: Date.now() + hours * H, reserve: Math.max(0, Math.round(+m.reserve || 0)) || void 0, bids: [] } : {}
+        };
+        K.listings[l.id] = l;
+        changed();
+        reply(mine(u.id));
+        reply({ t: "ok", text: mode === "auction" ? "Auction is live." : "Listing is live in Fyrus Market." });
+        return true;
+      }
+      case "mk_remove": {
+        const l = K.listings[m.id];
+        if (!l || l.seller !== u.id) return true;
+        if (l.mode === "auction" && l.bids?.length) {
+          err("An auction with bids cannot be removed.");
+          return true;
+        }
+        l.status = "removed";
+        changed();
+        reply(mine(u.id));
+        return true;
+      }
+      case "mk_buy": {
+        const l = K.listings[m.id];
+        if (!l || l.status !== "active" || l.mode !== "fixed") {
+          err("This item is not for sale any more.");
+          return true;
+        }
+        if (l.seller === u.id) {
+          err("That is your own listing.");
+          return true;
+        }
+        if (a.banned) {
+          err("This account is suspended.");
+          return true;
+        }
+        const address = l.type === "physical" || l.type === "brand" ? d.clean(m.address, 300) : void 0;
+        if ((l.type === "physical" || l.type === "brand") && (!address || address.length < 10)) {
+          err("Add your delivery address (only the seller sees it).");
+          return true;
+        }
+        if (!bank2.transfer(u.id, "escrow", l.price, `Escrow: ${l.title}`)) {
+          err("Not enough FYC.");
+          return true;
+        }
+        const o = makeOrder(l, u, l.price, address);
+        changed();
+        reply(mine(u.id));
+        reply({ t: "ok", text: o.status === "delivered" ? "Paid into escrow. Your item is ready in My orders." : "Paid into escrow. The seller has been told." });
+        return true;
+      }
+      case "mk_bid": {
+        const l = K.listings[m.id];
+        const amount = Math.round(+m.amount || 0);
+        if (!l || l.status !== "active" || l.mode !== "auction") {
+          err("This auction is closed.");
+          return true;
+        }
+        if (l.seller === u.id) {
+          err("You cannot bid on your own auction.");
+          return true;
+        }
+        if (a.banned) {
+          err("This account is suspended.");
+          return true;
+        }
+        const top = l.bids?.length ? l.bids[l.bids.length - 1] : void 0;
+        const min = top ? top.amount + Math.max(1, Math.round(top.amount * 0.05)) : l.price;
+        if (amount < min) {
+          err(`The lowest bid now is ${min.toLocaleString("en-US")} FYC.`);
+          return true;
+        }
+        if (top && top.user === u.id) {
+          if (!bank2.transfer(u.id, "escrow", amount - top.amount, `Bid raised: ${l.title}`)) {
+            err("Not enough FYC.");
+            return true;
+          }
+        } else {
+          if (!bank2.transfer(u.id, "escrow", amount, `Bid held: ${l.title}`)) {
+            err("Not enough FYC.");
+            return true;
+          }
+          if (top) {
+            bank2.transfer("escrow", top.user, top.amount, `Outbid, bid returned: ${l.title}`);
+            note(top.user, `You were outbid on "${l.title}". Your ${top.amount.toLocaleString("en-US")} FYC is back.`);
+          }
+        }
+        l.bids.push({ user: u.id, name: u.name, amount, at: Date.now() });
+        if (l.endsAt && SNIPE_MS && l.endsAt - Date.now() < SNIPE_MS) l.endsAt += SNIPE_MS;
+        changed();
+        bank2.notify(u.id);
+        reply({ t: "ok", text: `You lead with ${amount.toLocaleString("en-US")} FYC (held in escrow until the auction ends).` });
+        return true;
+      }
+      case "mk_deliver": {
+        const o = myOrder(m.order, "seller");
+        if (!o || o.status !== "paid") {
+          err("Nothing to deliver on that order.");
+          return true;
+        }
+        o.note = d.clean(m.note, 1e3);
+        o.tracking = d.clean(m.tracking, 80) || void 0;
+        if (sentinel(o.note || "", 1, o.type)) {
+          err("Sentinel blocked this message.");
+          return true;
+        }
+        o.status = "delivered";
+        o.deliveredAt = Date.now();
+        o.inspectUntil = Date.now() + INSPECT_MS + (o.type === "physical" || o.type === "brand" ? (K.listings[o.listing]?.shipDays || 7) * 24 * H : 0);
+        d.save();
+        note(o.buyer, `"${o.title}" was ${o.type === "physical" || o.type === "brand" ? "shipped" : "delivered"}. Check it and confirm, or open a dispute before the window ends.`);
+        pushMine(o.buyer);
+        reply(mine(u.id));
+        return true;
+      }
+      case "mk_open": {
+        const o = myOrder(m.order, "buyer");
+        const l = o && K.listings[o.listing];
+        if (!o || !l) return true;
+        o.opened = true;
+        d.save();
+        reply({ t: "mk_delivery", order: o.id, content: l.delivery || o.note || "" });
+        return true;
+      }
+      case "mk_confirm": {
+        const o = myOrder(m.order, "buyer");
+        if (!o || !["paid", "delivered"].includes(o.status)) return true;
+        release(o, "buyer confirmed");
+        reply({ t: "ok", text: "Payment released to the seller. Thank you!" });
+        return true;
+      }
+      case "mk_dispute": {
+        const o = myOrder(m.order, "buyer");
+        if (!o || !["paid", "delivered"].includes(o.status)) {
+          err("This order cannot be disputed now.");
+          return true;
+        }
+        if (o.status === "paid" && Date.now() < o.dueBy && o.type !== "digital" && o.type !== "course") {
+          err(`The seller still has time to deliver (until ${new Date(o.dueBy).toUTCString().slice(5, 22)} UTC). You can dispute after that, or once it is delivered.`);
+          return true;
+        }
+        const reason = d.clean(m.reason, 600);
+        if (reason.length < 10) {
+          err("Explain what went wrong (at least 10 letters).");
+          return true;
+        }
+        o.status = "disputed";
+        o.dispute = { reason, evidence: d.clean(m.evidence, 600), at: Date.now(), respondBy: Date.now() + RESPOND_MS };
+        d.save();
+        note(o.seller, `Dispute opened on "${o.title}". Answer within 48 hours or the buyer is refunded automatically.`);
+        pushMine(o.seller);
+        reply(mine(u.id));
+        reply({ t: "ok", text: "Payment frozen. The seller has 48 hours to answer." });
+        return true;
+      }
+      case "mk_respond": {
+        const o = myOrder(m.order, "seller");
+        if (!o || o.status !== "disputed" || !o.dispute) return true;
+        if (m.refund) {
+          o.dispute.ruling = "Seller accepted the refund.";
+          o.dispute.ruledBy = o.sellerName;
+          o.dispute.ruledAt = Date.now();
+          refund(o, "seller accepted", false);
+          return true;
+        }
+        o.dispute.sellerText = d.clean(m.text, 800);
+        if (!o.dispute.sellerText) {
+          err("Write your answer.");
+          return true;
+        }
+        o.status = "review";
+        d.save();
+        note(o.buyer, `The seller answered your dispute on "${o.title}". The Fyrus Court will review it.`);
+        pushMine(o.buyer);
+        reply(mine(u.id));
+        return true;
+      }
+      case "mk_rule": {
+        if (!d.isAdmin(u.id)) {
+          err("Only Fyrus Court judges can rule.");
+          return true;
+        }
+        const o = K.orders[m.order];
+        if (!o || !["disputed", "review"].includes(o.status) || !o.dispute) return true;
+        o.dispute.ruling = d.clean(m.note, 400) || (m.refund ? "Refund to the buyer." : "Payment to the seller.");
+        o.dispute.ruledBy = `Judge ${u.name}`;
+        o.dispute.ruledAt = Date.now();
+        if (m.refund) refund(o, "Fyrus Court ruling", true);
+        else {
+          o.status = "delivered";
+          release(o, "Fyrus Court ruling");
+        }
+        if (m.ban) ban(o.seller, d.clean(m.note, 200) || "fraud proven in court");
+        reply(mine(u.id));
+        return true;
+      }
+    }
+    return true;
+  }
+  return { onMessage: onMessage2, release, refund, ban };
 }
 
 // server/index.ts
@@ -4272,7 +4886,7 @@ function onMessage(me, raw) {
     return;
   }
   const u = me.u;
-  if (edu.onMessage(me, m)) return;
+  if (edu.onMessage(me, m) || bank.onMessage(me, m) || market.onMessage(me, m)) return;
   switch (m.t) {
     case "pos": {
       me.x = +m.x || 0;
@@ -4442,9 +5056,18 @@ setInterval(() => {
   const withPhoto = Date.now() % 4e3 < 130;
   live.forEach((l) => send(l.ws, { t: "peers", list: list.filter((p) => p.id !== l.u.id).map((p) => withPhoto ? p : { ...p, ph: void 0 }) }));
 }, 125);
-var edu = createEdu({ db, save, send, broadcast, clean, rid, findByNumber, liveOf: (id) => live.get(id) });
+var ADMINS = String(process.env.FYRUS_ADMINS || "").split(",").map((s) => s.trim()).filter(Boolean);
+if (ADMINS.length) console.log("court judges:", ADMINS.length);
+var isAdmin = (id) => {
+  const u = db.users[id];
+  return !!u && ADMINS.some((a) => a === id || digits(a).length >= 7 && digits(a).slice(-7) === digits(u.number).slice(-7));
+};
+var nameOf = (id) => ({ mint: "Central Bank of Fyrus", treasury: "National Treasury", escrow: "Central Bank escrow", burn: "Central Bank" })[id] || (db.users[id] ? shown(db.users[id]) : "Citizen");
+var bank = createBank({ db, save, send, liveOf: (id) => live.get(id), findByNumber, nameOf, clean });
+var market = createMarket({ db, bank, save, send, broadcast, liveOf: (id) => live.get(id), clean, rid, isAdmin, nameOf });
+var edu = createEdu({ db, save, send, broadcast, clean, rid, findByNumber, liveOf: (id) => live.get(id), pay: bank.transfer });
 var SEC = { "X-Content-Type-Options": "nosniff", "Referrer-Policy": "strict-origin-when-cross-origin", "X-Frame-Options": "SAMEORIGIN", "Strict-Transport-Security": "max-age=31536000; includeSubDomains", "Permissions-Policy": "camera=(self), microphone=(self), geolocation=()" };
-var TYPES2 = { ".html": "text/html; charset=utf-8", ".js": "application/javascript", ".css": "text/css", ".png": "image/png", ".jpg": "image/jpeg", ".svg": "image/svg+xml", ".ico": "image/x-icon", ".json": "application/json", ".txt": "text/plain", ".xml": "application/xml", ".webmanifest": "application/manifest+json" };
+var TYPES3 = { ".html": "text/html; charset=utf-8", ".js": "application/javascript", ".css": "text/css", ".png": "image/png", ".jpg": "image/jpeg", ".svg": "image/svg+xml", ".ico": "image/x-icon", ".json": "application/json", ".txt": "text/plain", ".xml": "application/xml", ".webmanifest": "application/manifest+json" };
 var gzCache = /* @__PURE__ */ new Map();
 var server = http.createServer((req, res) => {
   const url = new URL(req.url || "/", "http://x");
@@ -4466,7 +5089,7 @@ var server = http.createServer((req, res) => {
     }
     const ext = path.extname(file);
     const gz = /\bgzip\b/.test(String(req.headers["accept-encoding"] || "")) && /html|js|css|svg|json|xml|txt/.test(ext);
-    res.writeHead(200, { ...SEC, "content-type": TYPES2[ext] || "application/octet-stream", "cache-control": ext === ".html" ? "no-cache" : "public, max-age=86400", ...gz ? { "content-encoding": "gzip", vary: "Accept-Encoding" } : {} });
+    res.writeHead(200, { ...SEC, "content-type": TYPES3[ext] || "application/octet-stream", "cache-control": ext === ".html" ? "no-cache" : "public, max-age=86400", ...gz ? { "content-encoding": "gzip", vary: "Accept-Encoding" } : {} });
     res.end(gz ? c.gz : c.raw);
   } catch {
     res.writeHead(404);
