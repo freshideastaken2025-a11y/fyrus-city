@@ -3926,6 +3926,7 @@ function createEdu(d) {
     E.certs[cert.code] = cert;
     en.cert = cert.code;
     d.save();
+    d.news?.("education", `Certificate issued: "${c.title}"${i ? ` at ${i.name}` : ""}`);
     const l = d.liveOf(en.user);
     if (l) d.send(l.ws, { t: "edu_certified", cert });
     return cert;
@@ -4043,6 +4044,7 @@ function createEdu(d) {
         const c = { id: old?.id || "c" + d.rid(6), teacher: u.id, teacherName: u.name, inst: i?.id, instName: i?.name, title, summary: d.clean(m.summary, 300), skills: (Array.isArray(m.skills) ? m.skills : String(m.skills || "").split(",")).map((s) => d.clean(s, 30)).filter(Boolean).slice(0, 6), level: ["Beginner", "Intermediate", "Advanced"].includes(m.level) ? m.level : "Beginner", fee: Math.max(0, Math.min(1e5, Math.round(+m.fee || 0))), lessons, students: old?.students || 0, at: old?.at || Date.now() };
         E.courses[c.id] = c;
         changed();
+        if (!old) d.news?.("education", `New course in Education City: "${c.title}"${c.fee ? "" : " (free)"}`);
         reply(mine(u.id));
         reply({ t: "ok", text: old ? "Course updated." : "Course published in Education City." });
         return true;
@@ -4420,6 +4422,7 @@ function createMarket(d) {
     bank2.acct(o.seller).sales++;
     d.save();
     note(o.seller, `Payment released for "${o.title}" (${why}).`);
+    d.news?.("market", `Sold on Fyrus Market: "${o.title}" for ${o.amount.toLocaleString("en-US")} FYC`);
     pushMine(o.seller);
     pushMine(o.buyer);
   }
@@ -4568,6 +4571,7 @@ function createMarket(d) {
         };
         K.listings[l.id] = l;
         changed();
+        d.news?.("market", `New on Fyrus Market: "${l.title}" \xB7 ${l.mode === "auction" ? "auction from" : ""} ${l.price.toLocaleString("en-US")} FYC`.replace("\xB7  ", "\xB7 "));
         reply(mine(u.id));
         reply({ t: "ok", text: mode === "auction" ? "Auction is live." : "Listing is live in Fyrus Market." });
         return true;
@@ -4755,6 +4759,7 @@ function createMarket(d) {
           release(o, "Fyrus Court ruling");
         }
         if (m.ban) ban(o.seller, d.clean(m.note, 200) || "fraud proven in court");
+        d.news?.("court", `Fyrus Court ruled on a market dispute: ${m.refund ? "the buyer was refunded" : "payment went to the seller"}${m.ban ? "; the seller is permanently banned" : ""}`);
         reply(mine(u.id));
         return true;
       }
@@ -4762,6 +4767,928 @@ function createMarket(d) {
     return true;
   }
   return { onMessage: onMessage2, release, refund, ban };
+}
+
+// src/data/societies.ts
+var STREET = 10;
+var rectH = (rows, sp) => 8 + rows * sp + Math.floor((rows - 1) / 2) * STREET + 8;
+var SOCIETIES = [
+  { id: "executive", code: "EX", tier: 2, name: "Executive Enclave", tagline: "Townhouses and villas for merchants, teachers and professionals", color: "#4da3ff", x0: -210, z0: 345, cols: 35, rows: 20, sp: 12, count: 700, empty: 140, base: 25e3, passport: false, gate: { x: 0, z: 333, face: { x: 0, z: 400 } } },
+  { id: "marina", code: "MB", tier: 3, name: "Marina Bay Society", tagline: "Gated oceanfront mansions with private yacht docks", color: "#45e0ae", x0: 470, z0: -366, cols: 50, rows: 10, sp: 12, count: 500, empty: 100, base: 8e4, passport: false, gate: { x: 458, z: -300, face: { x: 520, z: -300 } } },
+  { id: "royal", code: "RS", tier: 4, name: "Royal Sky Society", tagline: "Ultra-exclusive hillside mansions with AI security \u2014 passport holders and invited guests only", color: "#ffc27a", x0: -1010, z0: -150, cols: 25, rows: 17, sp: 16, count: 410, empty: 120, base: 25e4, passport: true, gate: { x: -584, z: 0, face: { x: -650, z: 0 } } }
+];
+var STARTER = { id: "starter", code: "SC", tier: 1, name: "Starter Commons", tagline: "Clean modern studio apartments \u2014 free for every visitor", color: "#a8d8ff", x: 330, z: 260, towers: 6, floors: 24, perFloor: 8 };
+var societyRect = (s) => ({ x0: s.x0, z0: s.z0, x1: s.x0 + s.cols * s.sp + 16, z1: s.z0 + rectH(s.rows, s.sp) });
+var STARTER_RECT = { x0: STARTER.x - 50, z0: STARTER.z - 60, x1: STARTER.x + 50, z1: STARTER.z + 60 };
+var ESTATE_RECTS = [...SOCIETIES.map(societyRect), STARTER_RECT].map((r) => ({ x0: r.x0 - 10, z0: r.z0 - 10, x1: r.x1 + 10, z1: r.z1 + 10 }));
+var h32 = (s) => {
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+};
+var FIRSTN = ["Ayesha", "Omar", "Lina", "Noah", "Sara", "Bilal", "Mei", "Arjun", "Zara", "Leo", "Hana", "Yusuf", "Ivy", "Kenji", "Amara", "Diego", "Nora", "Samir", "Elena", "Tariq", "Maya", "Ravi", "Chloe", "Imran", "Sofia", "Daniyal", "Aiko", "Hamza", "Lucia", "Farah"];
+var LASTN = ["Khan", "Malik", "Chen", "Silva", "Haddad", "Patel", "Rossi", "Kim", "Okafor", "Novak", "Rahman", "Tanaka", "Garcia", "Iqbal", "Larsen", "Mensah", "Costa", "Sato", "Qureshi", "Moreau"];
+var cache = {};
+function plotsOf(s) {
+  if (cache[s.id]) return cache[s.id];
+  const ids = Array.from({ length: s.count }, (_, i) => `${s.code}-${String(i + 1).padStart(4, "0")}`);
+  const empty = new Set([...ids].sort((a, b) => h32(a + "e") - h32(b + "e")).slice(0, s.empty));
+  const out = ids.map((id, i) => {
+    const col = i % s.cols, row = Math.floor(i / s.cols);
+    const h = h32(id);
+    const x = s.x0 + 8 + s.sp / 2 + col * s.sp;
+    const z = s.z0 + 8 + s.sp / 2 + row * s.sp + Math.floor(row / 2) * STREET;
+    const seaFront = s.id === "marina" && row <= 1;
+    const price = Math.round(s.base * (seaFront ? 1.6 : 1) * (0.9 + h % 200 / 1e3) / 100) * 100;
+    const isEmpty = empty.has(id);
+    return { id, soc: s.id, n: i + 1, x, z, face: row % 2 === 0 ? -1 : 1, size: s.sp - 2, price, seaFront, empty: isEmpty, resident: isEmpty ? void 0 : `${FIRSTN[h % FIRSTN.length]} ${LASTN[(h >>> 8) % LASTN.length]}`, style: (h >>> 16) % 3 };
+  });
+  return cache[s.id] = out;
+}
+var estatePlotById = (id) => {
+  const s = SOCIETIES.find((x) => id.startsWith(x.code + "-"));
+  return s ? plotsOf(s)[+id.slice(3) - 1] : void 0;
+};
+var societyById = (id) => SOCIETIES.find((s) => s.id === id);
+var RESIDENTS = SOCIETIES.reduce((a, s) => a + s.count - s.empty, 0);
+var EMPTY_PLOTS = SOCIETIES.reduce((a, s) => a + s.empty, 0);
+var STUDIOS = STARTER.towers * STARTER.floors * STARTER.perFloor;
+var studioId = (k) => {
+  const per = STARTER.floors * STARTER.perFloor;
+  const t = Math.floor(k / per), r = k % per;
+  return `SC-T${t + 1}-${String(Math.floor(r / STARTER.perFloor) + 1).padStart(2, "0")}${String.fromCharCode(65 + r % STARTER.perFloor)}`;
+};
+
+// server/estate.ts
+var H2 = 36e5;
+var RENT_PERIOD_MS = +(process.env.RENT_PERIOD_MS || 30 * 24 * H2);
+var TAX = 0.05;
+function createEstate(d) {
+  if (!d.db.estate) {
+    d.db.estate = { plots: {}, studios: {}, passes: {} };
+    d.save();
+  }
+  const E = d.db.estate;
+  const bank2 = d.bank;
+  const isPassport = (id) => {
+    const p = d.db.users[id]?.passport;
+    return !!p && p.kind !== "visa";
+  };
+  const note = (id, text) => {
+    const l = d.liveOf(id);
+    if (l) d.send(l.ws, { t: "note", text });
+  };
+  const pub2 = (id, p) => ({ id, owner: p.owner, ownerName: p.ownerName, style: p.style, sign: p.sign, sale: p.sale, rent: p.rent ? { price: p.rent.price, tenantName: p.rent.tenantName, tenant: p.rent.tenant, paidUntil: p.rent.paidUntil, ending: p.rent.ending } : void 0, auction: p.auction ? { endsAt: p.auction.endsAt, start: p.auction.start, reserve: !!p.auction.reserve, top: p.auction.bids.at(-1)?.amount, topName: p.auction.bids.at(-1)?.name, bids: p.auction.bids.length } : void 0 });
+  const state = () => ({ t: "est_state", plots: Object.fromEntries(Object.entries(E.plots).map(([k, v]) => [k, pub2(k, v)])), studios: Object.keys(E.studios).length, now: Date.now() });
+  const changed = (ids) => {
+    d.save();
+    d.broadcast({ t: "est_update", plots: Object.fromEntries(ids.map((k) => [k, E.plots[k] ? pub2(k, E.plots[k]) : null])) });
+  };
+  const mine = (uid) => ({ t: "est_mine", owned: Object.entries(E.plots).filter(([, p]) => p.owner === uid).map(([k, p]) => pub2(k, p)), renting: Object.entries(E.plots).filter(([, p]) => p.rent?.tenant === uid).map(([k, p]) => pub2(k, p)), studio: E.studios[uid] || null, passes: (E.passes[uid] || []).filter((p) => p.until > Date.now()), passport: isPassport(uid) });
+  const pushMine = (uid) => {
+    const l = d.liveOf(uid);
+    if (l) d.send(l.ws, mine(uid));
+  };
+  const canEnterRoyal = (uid) => isPassport(uid) || (E.passes[uid] || []).some((p) => p.until > Date.now()) || Object.entries(E.plots).some(([k, p]) => k.startsWith("RS-") && (p.owner === uid || p.rent?.tenant === uid));
+  function transferPlot(id, to, paid) {
+    const p = E.plots[id];
+    const prevOwner = p?.owner;
+    const tenant = p?.rent?.tenant ? p.rent : void 0;
+    E.plots[id] = { owner: to.id, ownerName: to.name, boughtAt: Date.now(), paid, style: p?.style, rent: tenant ? { ...tenant, ending: true } : void 0 };
+    if (prevOwner && prevOwner !== to.id) pushMine(prevOwner);
+    pushMine(to.id);
+  }
+  function finishAuction(id) {
+    const p = E.plots[id];
+    const a = p?.auction;
+    if (!p || !a) return;
+    const top = a.bids.at(-1);
+    p.auction = void 0;
+    if (!top || a.reserve && top.amount < a.reserve) {
+      if (top) {
+        bank2.transfer("escrow", top.user, top.amount, `Bid returned: plot ${id}`);
+        note(top.user, `Auction for plot ${id} ended below the reserve. Your bid is back.`);
+      }
+      note(p.owner, `Your auction for plot ${id} ended without a sale.`);
+      changed([id]);
+      return;
+    }
+    const tax = isPassport(p.owner) ? 0 : Math.round(top.amount * TAX);
+    const seller = p.owner;
+    bank2.transfer("escrow", seller, top.amount - tax, `Plot ${id} sold at auction`);
+    if (tax) bank2.transfer("escrow", "treasury", tax, `Land transfer tax 5%: ${id}`);
+    transferPlot(id, { id: top.user, name: top.name }, top.amount);
+    note(top.user, `You won plot ${id} for ${top.amount.toLocaleString("en-US")} FYC. The title is yours.`);
+    note(seller, `Plot ${id} sold at auction for ${top.amount.toLocaleString("en-US")} FYC.`);
+    changed([id]);
+    d.news?.("property", `Auction: plot ${id} sold for ${top.amount.toLocaleString("en-US")} FYC`);
+  }
+  function collectRent(id) {
+    const p = E.plots[id];
+    const r = p?.rent;
+    if (!p || !r?.tenant || !r.paidUntil || Date.now() < r.paidUntil) return;
+    if (r.ending || !bank2.transfer(r.tenant, p.owner, r.price, `Rent: plot ${id}`)) {
+      const t = r.tenant;
+      note(t, r.ending ? `Your lease on plot ${id} has ended.` : `Your lease on plot ${id} ended: not enough FYC for this month's rent.`);
+      note(p.owner, `The lease on plot ${id} ended. It is free to rent again.`);
+      p.rent = r.ending ? void 0 : { price: r.price };
+      pushMine(t);
+      pushMine(p.owner);
+      changed([id]);
+      return;
+    }
+    r.paidUntil += RENT_PERIOD_MS;
+    note(p.owner, `Rent received for plot ${id}: ${r.price.toLocaleString("en-US")} FYC.`);
+    d.save();
+    pushMine(p.owner);
+    pushMine(r.tenant);
+  }
+  setInterval(() => {
+    const now = Date.now();
+    for (const [id, p] of Object.entries(E.plots)) {
+      if (p.auction && now >= p.auction.endsAt) finishAuction(id);
+      if (p.rent?.tenant && p.rent.paidUntil && now >= p.rent.paidUntil) collectRent(id);
+    }
+  }, +(process.env.ESTATE_TICK_MS || 15e3));
+  function onMessage2(me, m) {
+    if (typeof m.t !== "string" || !m.t.startsWith("est_")) return false;
+    const u = me.u;
+    const reply = (x) => d.send(me.ws, x);
+    const err = (text) => reply({ t: "err", text });
+    const plot = m.plot ? estatePlotById(String(m.plot)) : void 0;
+    const rec = plot ? E.plots[plot.id] : void 0;
+    const soc = plot ? societyById(plot.soc) : void 0;
+    const banned = bank2.acct(u.id).banned;
+    switch (m.t) {
+      case "est_state":
+        reply(state());
+        reply(mine(u.id));
+        return true;
+      case "est_mine":
+        reply(mine(u.id));
+        return true;
+      case "est_buy": {
+        if (!plot || !soc) {
+          err("No such plot.");
+          return true;
+        }
+        if (banned) {
+          err("This account is suspended.");
+          return true;
+        }
+        if (soc.passport && !isPassport(u.id)) {
+          err(`${soc.name} is for Fyrus passport holders.`);
+          return true;
+        }
+        if (!rec) {
+          if (!plot.empty) {
+            err("A resident lives here. It is not for sale.");
+            return true;
+          }
+          if (!bank2.transfer(u.id, "treasury", plot.price, `Plot ${plot.id} in ${soc.name} (Land Office)`)) {
+            err(`You need ${plot.price.toLocaleString("en-US")} FYC.`);
+            return true;
+          }
+          transferPlot(plot.id, u, plot.price);
+          changed([plot.id]);
+          reply({ t: "ok", text: `Plot ${plot.id} in ${soc.name} is yours.` });
+          d.news?.("property", `Land Office sold plot ${plot.id} in ${soc.name} for ${plot.price.toLocaleString("en-US")} FYC`);
+          return true;
+        }
+        if (rec.owner === u.id) {
+          err("You already own this plot.");
+          return true;
+        }
+        if (!rec.sale) {
+          err("The owner is not selling this plot.");
+          return true;
+        }
+        const price = rec.sale;
+        const tax = isPassport(u.id) ? 0 : Math.round(price * TAX);
+        const seller = rec.owner;
+        if (!bank2.transfer(u.id, seller, price, `Plot ${plot.id} bought from ${rec.ownerName}`)) {
+          err(`You need ${price.toLocaleString("en-US")} FYC.`);
+          return true;
+        }
+        if (tax && !bank2.transfer(u.id, "treasury", tax, `Land transfer tax 5%: ${plot.id}`)) {
+        }
+        transferPlot(plot.id, u, price);
+        note(seller, `Plot ${plot.id} sold to ${u.name} for ${price.toLocaleString("en-US")} FYC.`);
+        changed([plot.id]);
+        d.news?.("property", `Plot ${plot.id} in ${soc.name} changed hands for ${price.toLocaleString("en-US")} FYC`);
+        reply({ t: "ok", text: `Plot ${plot.id} is yours.` });
+        return true;
+      }
+      case "est_list": {
+        if (!plot || !rec || rec.owner !== u.id) {
+          err("That is not your plot.");
+          return true;
+        }
+        if (rec.auction?.bids.length) {
+          err("This plot has bids. Wait for the auction to end.");
+          return true;
+        }
+        const mode = String(m.mode);
+        const price = Math.round(+m.price || 0);
+        if (mode === "none") {
+          if (rec.auction) rec.auction = void 0;
+          rec.sale = void 0;
+          if (rec.rent && !rec.rent.tenant) rec.rent = void 0;
+          changed([plot.id]);
+          reply(mine(u.id));
+          return true;
+        }
+        if (!(price >= 1 && price <= 5e7)) {
+          err("Enter a price between 1 and 50,000,000 FYC.");
+          return true;
+        }
+        if (mode === "sale") {
+          rec.sale = price;
+          rec.auction = void 0;
+        } else if (mode === "auction") {
+          const hours = Math.max(+(process.env.MIN_AUCTION_MS || H2) / H2, Math.min(168, +m.hours || 24));
+          rec.sale = void 0;
+          rec.auction = { start: price, reserve: Math.max(0, Math.round(+m.reserve || 0)) || void 0, endsAt: Date.now() + hours * H2, bids: [] };
+        } else if (mode === "rent") {
+          if (rec.rent?.tenant) {
+            err("It is already rented. End the lease first.");
+            return true;
+          }
+          rec.rent = { price };
+        } else {
+          err("Pick sale, auction or rent.");
+          return true;
+        }
+        changed([plot.id]);
+        reply(mine(u.id));
+        reply({ t: "ok", text: mode === "rent" ? `Plot ${plot.id} is up for rent at ${price.toLocaleString("en-US")} FYC a month.` : mode === "auction" ? `Auction for plot ${plot.id} is live.` : `Plot ${plot.id} is for sale.` });
+        return true;
+      }
+      case "est_bid": {
+        const a = rec?.auction;
+        const amount = Math.round(+m.amount || 0);
+        if (!plot || !rec || !a) {
+          err("This plot is not at auction.");
+          return true;
+        }
+        if (rec.owner === u.id) {
+          err("You cannot bid on your own plot.");
+          return true;
+        }
+        if (soc?.passport && !isPassport(u.id)) {
+          err(`${soc.name} is for Fyrus passport holders.`);
+          return true;
+        }
+        if (banned) {
+          err("This account is suspended.");
+          return true;
+        }
+        const top = a.bids.at(-1);
+        const min = top ? top.amount + Math.max(1, Math.round(top.amount * 0.05)) : a.start;
+        if (amount < min) {
+          err(`The lowest bid now is ${min.toLocaleString("en-US")} FYC.`);
+          return true;
+        }
+        if (top?.user === u.id) {
+          if (!bank2.transfer(u.id, "escrow", amount - top.amount, `Bid raised: plot ${plot.id}`)) {
+            err("Not enough FYC.");
+            return true;
+          }
+        } else {
+          if (!bank2.transfer(u.id, "escrow", amount, `Bid held: plot ${plot.id}`)) {
+            err("Not enough FYC.");
+            return true;
+          }
+          if (top) {
+            bank2.transfer("escrow", top.user, top.amount, `Outbid, bid returned: plot ${plot.id}`);
+            note(top.user, `You were outbid on plot ${plot.id}. Your FYC is back.`);
+          }
+        }
+        a.bids.push({ user: u.id, name: u.name, amount, at: Date.now() });
+        const snipe = +(process.env.SNIPE_MS ?? 12e4);
+        if (snipe && a.endsAt - Date.now() < snipe) a.endsAt += snipe;
+        changed([plot.id]);
+        reply({ t: "ok", text: `You lead with ${amount.toLocaleString("en-US")} FYC.` });
+        return true;
+      }
+      case "est_rent": {
+        const r = rec?.rent;
+        if (!plot || !rec || !r || r.tenant) {
+          err("This plot is not available to rent.");
+          return true;
+        }
+        if (rec.owner === u.id) {
+          err("This is your own plot.");
+          return true;
+        }
+        if (soc?.passport && !isPassport(u.id)) {
+          err(`${soc.name} is for Fyrus passport holders.`);
+          return true;
+        }
+        if (banned) {
+          err("This account is suspended.");
+          return true;
+        }
+        if (!bank2.transfer(u.id, rec.owner, r.price, `Rent (first month): plot ${plot.id}`)) {
+          err(`You need ${r.price.toLocaleString("en-US")} FYC for the first month.`);
+          return true;
+        }
+        rec.rent = { price: r.price, tenant: u.id, tenantName: u.name, since: Date.now(), paidUntil: Date.now() + RENT_PERIOD_MS };
+        note(rec.owner, `${u.name} rented plot ${plot.id} for ${r.price.toLocaleString("en-US")} FYC a month.`);
+        pushMine(rec.owner);
+        changed([plot.id]);
+        reply(mine(u.id));
+        reply({ t: "ok", text: `You rent plot ${plot.id}. Rent is paid automatically each month.` });
+        return true;
+      }
+      case "est_endlease": {
+        const r = rec?.rent;
+        if (!plot || !rec || !r?.tenant || r.tenant !== u.id && rec.owner !== u.id) return true;
+        r.ending = true;
+        note(r.tenant === u.id ? rec.owner : r.tenant, `The lease on plot ${plot.id} will end on ${new Date(r.paidUntil).toUTCString().slice(5, 16)}.`);
+        changed([plot.id]);
+        reply(mine(u.id));
+        return true;
+      }
+      case "est_build": {
+        if (!plot || !rec || rec.owner !== u.id && rec.rent?.tenant !== u.id) {
+          err("Only the owner or tenant can build.");
+          return true;
+        }
+        rec.style = Math.max(0, Math.min(3, Math.round(+m.style || 0)));
+        rec.sign = d.clean(m.sign, 24) || void 0;
+        changed([plot.id]);
+        reply(mine(u.id));
+        return true;
+      }
+      case "est_studio": {
+        if (E.studios[u.id]) {
+          reply(mine(u.id));
+          return true;
+        }
+        const used = new Set(Object.values(E.studios));
+        let k = 0;
+        while (k < STUDIOS && used.has(studioId(k))) k++;
+        if (k >= STUDIOS) {
+          err("All studios are taken. New towers are coming.");
+          return true;
+        }
+        E.studios[u.id] = studioId(k);
+        d.save();
+        reply(mine(u.id));
+        reply({ t: "ok", text: `Studio ${studioId(k)} in Starter Commons is yours, free.` });
+        return true;
+      }
+      case "est_pass": {
+        if (!canEnterRoyal(u.id)) {
+          err("Only Royal Sky residents and passport holders can invite guests.");
+          return true;
+        }
+        const g = d.findByNumber(String(m.number || ""));
+        if (!g) {
+          err("No citizen has that number.");
+          return true;
+        }
+        E.passes[g.id] = [...(E.passes[g.id] || []).filter((p) => p.until > Date.now()), { by: u.id, byName: u.name, until: Date.now() + 24 * H2 }];
+        d.save();
+        note(g.id, `${u.name} invited you to Royal Sky Society. Your gate pass is valid for 24 hours.`);
+        pushMine(g.id);
+        reply({ t: "ok", text: `${g.name} can enter Royal Sky for 24 hours.` });
+        return true;
+      }
+    }
+    return true;
+  }
+  void SOCIETIES;
+  return { onMessage: onMessage2, canEnterRoyal };
+}
+
+// src/data/media.ts
+var AD_PRICES = {
+  "ad-core-n": 900,
+  "ad-core-w": 650,
+  "ad-market-n": 800,
+  "ad-market-s": 760,
+  "ad-club": 450,
+  "ad-pool": 360,
+  "ad-gardens": 380,
+  "ad-marina": 500,
+  "ad-avenue-w": 580,
+  "ad-avenue-e": 420,
+  "ad-skyport": 340,
+  "ad-homes": 280
+};
+var AD_DAYS = [1, 7, 14, 30];
+var adCost = (spot, days) => Math.round((AD_PRICES[spot] || 0) * days * (days >= 30 ? 0.75 : days >= 14 ? 0.85 : days >= 7 ? 0.9 : 1));
+var AD_IMAGE_MAX = 6e4;
+var HALLS = [
+  { id: "grand", name: "Grand Conference Hall", kind: "conference", site: "halls", cap: 200, hourly: 600, color: "#4da3ff", desc: "Main stage, giant screen and 200 seats. Product launches, summits, graduations." },
+  { id: "summit", name: "Summit Room", kind: "conference", site: "halls", cap: 60, hourly: 250, color: "#ffc27a", desc: "Boardroom-style room for meetups, panels and investor pitches." },
+  { id: "studio", name: "Workshop Studio", kind: "conference", site: "halls", cap: 30, hourly: 120, color: "#45e0ae", desc: "Small room with a whiteboard wall for classes and hands-on workshops." },
+  { id: "skyline", name: "Skyline Lounge", kind: "lounge", site: "lounge", cap: 80, hourly: 300, color: "#c792ea", desc: "Sofas, a mocktail bar and city views. Networking nights and listening parties." },
+  { id: "rooftop", name: "Rooftop Chill Lounge", kind: "lounge", site: "lounge", cap: 40, hourly: 150, color: "#ff9a3c", desc: "Open-air rooftop with fire tables for small, relaxed hangouts." },
+  { id: "arena", name: "Gaming Arena", kind: "gaming", site: "lounge", cap: 120, hourly: 400, color: "#e5484d", desc: "Gaming rigs, an arena screen and stands. Watch parties and skill tournaments." }
+];
+var hallById = (id) => HALLS.find((h) => h.id === id);
+var HALL_MAX_HOURS = 6;
+var TICKET_MAX = 5e3;
+var HOST_SHARE = 0.9;
+var NEWS_CATS = {
+  nation: { label: "Nation", color: "#ffc27a" },
+  economy: { label: "Economy", color: "#45e0ae" },
+  property: { label: "Property", color: "#4da3ff" },
+  market: { label: "Market", color: "#ff9a3c" },
+  education: { label: "Education", color: "#7fd1ff" },
+  events: { label: "Events", color: "#c792ea" },
+  court: { label: "Court", color: "#e5484d" },
+  ads: { label: "Billboards", color: "#f1c40f" },
+  citizen: { label: "Citizen report", color: "#a8d8ff" }
+};
+var WORLD_FEEDS = [
+  { name: "BBC World", url: "https://feeds.bbci.co.uk/news/world/rss.xml" },
+  { name: "Al Jazeera", url: "https://www.aljazeera.com/xml/rss/all.xml" },
+  { name: "NPR World", url: "https://feeds.npr.org/1004/rss.xml" }
+];
+
+// server/news.ts
+var H3 = 36e5;
+var FEED_EVERY = +(process.env.NEWS_FEED_MS || 20 * 6e4);
+var FEEDS = (() => {
+  const e = String(process.env.NEWS_FEEDS || "").trim();
+  if (e === "off") return [];
+  if (!e) return WORLD_FEEDS;
+  return e.split(",").map((u) => u.trim()).filter((u) => /^https:\/\//.test(u)).map((url) => ({ name: new URL(url).hostname.replace(/^(www|feeds)\./, ""), url }));
+})();
+var decode = (s) => s.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1").replace(/<[^>]+>/g, "").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;|&apos;/g, "'").replace(/&#(\d+);/g, (_, n) => String.fromCharCode(+n)).replace(/\s+/g, " ").trim();
+function parseRss(xml, source) {
+  const out = [];
+  for (const m of xml.matchAll(/<(item|entry)\b[\s\S]*?<\/\1>/g)) {
+    const it = m[0];
+    const title = decode(it.match(/<title[^>]*>([\s\S]*?)<\/title>/)?.[1] || "");
+    let link = decode(it.match(/<link[^>]*>([\s\S]*?)<\/link>/)?.[1] || "") || (it.match(/<link[^>]*href="([^"]+)"/)?.[1] || "");
+    const date = decode(it.match(/<(pubDate|published|updated|dc:date)[^>]*>([\s\S]*?)<\/\1>/)?.[2] || "");
+    if (!title || !/^https:\/\//.test(link)) continue;
+    link = link.slice(0, 400);
+    out.push({ title: title.slice(0, 220), link, source, at: Date.parse(date) || Date.now() });
+  }
+  return out;
+}
+function createNews(d) {
+  if (!d.db.news) {
+    d.db.news = { items: [], seq: 0 };
+    d.save();
+  }
+  const N = d.db.news;
+  let world = [];
+  let worldAt = 0;
+  let worldErr = "";
+  const visible = () => N.items.filter((i) => !i.hidden).slice(-80).reverse();
+  const pub2 = (i) => ({ id: i.id, kind: i.kind, cat: i.cat, title: i.title, body: i.body, at: i.at, byName: i.byName, flags: i.flags?.length || 0 });
+  const state = () => ({ t: "news_state", fyrus: visible().map(pub2), world, worldAt, worldErr: world.length ? "" : worldErr, sources: FEEDS.map((f) => f.name) });
+  function report2(cat, title, body) {
+    const last = N.items.at(-1);
+    if (last && last.title === title && Date.now() - last.at < 6e4) return;
+    const it = { id: ++N.seq, kind: "fyrus", cat: NEWS_CATS[cat] ? cat : "nation", title: title.slice(0, 160), body: body?.slice(0, 600), at: Date.now() };
+    N.items.push(it);
+    if (N.items.length > 400) N.items.splice(0, N.items.length - 400);
+    d.save();
+    d.broadcast({ t: "news_new", item: pub2(it) });
+  }
+  async function fetchWorld() {
+    if (!FEEDS.length) return;
+    const all = [];
+    const errs = [];
+    await Promise.all(FEEDS.map(async (f) => {
+      const ac = new AbortController();
+      const tm = setTimeout(() => ac.abort(), 8e3);
+      try {
+        const r = await fetch(f.url, { signal: ac.signal, headers: { "user-agent": "FyrusNews/1.0 (+https://fyrus.io)", accept: "application/rss+xml, application/xml, text/xml" } });
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        all.push(...parseRss((await r.text()).slice(0, 2e6), f.name).slice(0, 25));
+      } catch (e) {
+        errs.push(`${f.name}: ${e?.name === "AbortError" ? "timeout" : e?.message || "failed"}`);
+      } finally {
+        clearTimeout(tm);
+      }
+    }));
+    if (all.length) {
+      const seen = /* @__PURE__ */ new Set();
+      world = all.filter((w) => !seen.has(w.link) && seen.add(w.link)).sort((a, b) => b.at - a.at).slice(0, 45);
+      worldAt = Date.now();
+      d.broadcast({ t: "news_world", world, worldAt });
+    }
+    worldErr = errs.join(" \xB7 ");
+    if (errs.length) console.log("news feeds:", worldErr);
+  }
+  if (FEEDS.length) {
+    setTimeout(fetchWorld, 3e3);
+    setInterval(fetchWorld, FEED_EVERY);
+  }
+  function onMessage2(me, m) {
+    if (typeof m.t !== "string" || !m.t.startsWith("news_")) return false;
+    const u = me.u;
+    const reply = (x) => d.send(me.ws, x);
+    const err = (text) => reply({ t: "err", text });
+    switch (m.t) {
+      case "news_state":
+        reply(state());
+        return true;
+      case "news_submit": {
+        const pp = d.db.users[u.id]?.passport;
+        if (!pp || pp.kind === "visa") {
+          err("Citizen reports are for Fyrus passport holders.");
+          return true;
+        }
+        const title = d.filter(d.clean(m.title, 120));
+        const body = d.filter(String(m.body || "").replace(/[\u0000-\u0008\u000b-\u001f]/g, " ").trim().slice(0, 1200));
+        if (title.length < 10 || body.length < 40) {
+          err("Write a headline (10+ letters) and the story (40+ letters).");
+          return true;
+        }
+        const bad = sentinel(`${title} ${body}`, 1, "skill");
+        if (bad) {
+          err(bad.replace("this listing", "this report"));
+          return true;
+        }
+        const today = N.items.filter((i) => i.by === u.id && Date.now() - i.at < 24 * H3).length;
+        if (today >= 3) {
+          err("You can post 3 citizen reports a day.");
+          return true;
+        }
+        const it = { id: ++N.seq, kind: "citizen", cat: "citizen", title, body, at: Date.now(), by: u.id, byName: d.shown(u.id), flags: [] };
+        N.items.push(it);
+        if (N.items.length > 400) N.items.splice(0, N.items.length - 400);
+        d.save();
+        d.broadcast({ t: "news_new", item: pub2(it) });
+        reply({ t: "ok", text: "Your report is live on Fyrus News (labelled as a citizen report)." });
+        return true;
+      }
+      case "news_flag": {
+        const it = N.items.find((i) => i.id === +m.id);
+        if (!it || it.kind !== "citizen" || it.hidden) return true;
+        it.flags = it.flags || [];
+        if (!it.flags.includes(u.id) && it.by !== u.id) it.flags.push(u.id);
+        if (it.flags.length >= 3) {
+          it.hidden = true;
+          d.broadcast({ t: "news_gone", id: it.id });
+        }
+        d.save();
+        reply({ t: "ok", text: it.hidden ? "Report taken off air after flags from citizens." : "Thanks, the report was flagged for review." });
+        return true;
+      }
+      case "news_remove": {
+        const it = N.items.find((i) => i.id === +m.id);
+        if (!it) return true;
+        if (!d.isAdmin(u.id) && it.by !== u.id) {
+          err("Only the reporter or a Fyrus judge can remove this.");
+          return true;
+        }
+        it.hidden = true;
+        d.save();
+        d.broadcast({ t: "news_gone", id: it.id });
+        return true;
+      }
+    }
+    return true;
+  }
+  return { onMessage: onMessage2, report: report2, state, fetchWorld };
+}
+
+// server/ads.ts
+var DAY = +(process.env.AD_DAY_MS || 24 * 36e5);
+var TICK = +(process.env.ADS_TICK_MS || 3e4);
+function createAds(d) {
+  if (!d.db.ads) {
+    d.db.ads = { list: [], revenue: 0 };
+    d.save();
+  }
+  const A = d.db.ads;
+  const bank2 = d.bank;
+  const note = (id, text) => {
+    const l = d.liveOf(id);
+    if (l) d.send(l.ws, { t: "note", text });
+  };
+  const live2 = (now = Date.now()) => A.list.filter((a) => !a.removed && a.start <= now && a.end > now);
+  const pub2 = (a, img) => ({ id: a.id, spot: a.spot, ownerName: a.ownerName, brand: a.brand, headline: a.headline, color: a.color, category: a.category, image: img ? a.image : void 0, start: a.start, end: a.end, owner: a.owner });
+  const freeFrom = (spot) => Math.max(Date.now(), ...A.list.filter((a) => a.spot === spot && !a.removed).map((a) => a.end));
+  const state = () => {
+    const now = Date.now();
+    const cur = live2(now);
+    return { t: "ads_state", live: cur.map((a) => pub2(a, true)), next: Object.fromEntries(Object.keys(AD_PRICES).map((s) => [s, freeFrom(s)])), queue: A.list.filter((a) => !a.removed && a.start > now).map((a) => pub2(a, false)), prices: AD_PRICES, revenue: A.revenue, now };
+  };
+  const mine = (uid) => ({ t: "ads_mine", list: A.list.filter((a) => a.owner === uid).slice(-30).reverse().map((a) => ({ ...pub2(a, false), paid: a.paid, removed: a.removed })) });
+  let sig = "";
+  const push = () => {
+    const s = state();
+    sig = s.live.map((a) => a.id).join(",");
+    d.save();
+    d.broadcast(s);
+  };
+  setInterval(() => {
+    const now = Date.now();
+    const ids = live2(now).map((a) => a.id).join(",");
+    if (ids !== sig) push();
+    if (A.list.length > 600) A.list = A.list.filter((a) => a.end > now - 30 * 24 * 36e5);
+  }, TICK);
+  function onMessage2(me, m) {
+    if (typeof m.t !== "string" || !(m.t.startsWith("ad_") || m.t.startsWith("ads_"))) return false;
+    const u = me.u;
+    const reply = (x) => d.send(me.ws, x);
+    const err = (text) => reply({ t: "err", text });
+    switch (m.t) {
+      case "ads_state":
+        reply(state());
+        return true;
+      case "ads_mine":
+        reply(mine(u.id));
+        return true;
+      case "ad_book": {
+        const spot = String(m.spot || "");
+        if (!AD_PRICES[spot]) {
+          err("No such billboard.");
+          return true;
+        }
+        if (bank2.acct(u.id).banned) {
+          err("This account is suspended.");
+          return true;
+        }
+        const days = AD_DAYS.includes(+m.days) ? +m.days : 0;
+        if (!days) {
+          err("Pick 1, 7, 14 or 30 days.");
+          return true;
+        }
+        const brand = d.filter(d.clean(m.brand, 30));
+        const headline = d.filter(d.clean(m.headline, 26));
+        if (brand.length < 2 || headline.length < 3) {
+          err("Add a name and a headline.");
+          return true;
+        }
+        const bad = sentinel(`${brand} ${headline}`, 1, "skill");
+        if (bad) {
+          err(bad.replace("this listing", "this ad"));
+          return true;
+        }
+        const image = typeof m.image === "string" && /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(m.image) && m.image.length <= AD_IMAGE_MAX ? m.image : void 0;
+        if (m.image && !image) {
+          err("The poster must be a JPEG, PNG or WebP under 45 KB. Try a smaller image.");
+          return true;
+        }
+        if (A.list.filter((a2) => a2.owner === u.id && !a2.removed && a2.end > Date.now()).length >= 6) {
+          err("You can have up to 6 billboard bookings at a time.");
+          return true;
+        }
+        const cost = adCost(spot, days);
+        const start = freeFrom(spot);
+        if (!bank2.transfer(u.id, "treasury", cost, `Billboard ${spot} \xB7 ${days} day${days > 1 ? "s" : ""}`)) {
+          err(`You need ${cost.toLocaleString("en-US")} FYC for this booking.`);
+          return true;
+        }
+        const a = { id: "ad" + d.rid(6), spot, owner: u.id, ownerName: u.name, brand, headline, color: /^#[0-9a-fA-F]{6}$/.test(String(m.color)) ? m.color : "#ff9a3c", category: d.clean(m.category, 20) || "Brand", image, start, end: start + days * DAY, paid: cost, at: Date.now() };
+        A.list.push(a);
+        A.revenue += cost;
+        push();
+        reply(mine(u.id));
+        reply({ t: "ok", text: start <= Date.now() + 1e3 ? `Your ad is live now for ${days} day${days > 1 ? "s" : ""}.` : `Booked. Your ad goes live ${new Date(start).toUTCString().slice(5, 22)} UTC, after the current booking.` });
+        d.news?.("ads", `New billboard: ${brand} \u2014 "${headline}"`);
+        return true;
+      }
+      case "ad_cancel": {
+        const a = A.list.find((x) => x.id === m.id && x.owner === u.id && !x.removed);
+        if (!a) return true;
+        if (a.start <= Date.now()) {
+          err("This ad is already live. Live bookings run to the end and are not refunded.");
+          return true;
+        }
+        a.removed = "cancelled";
+        bank2.transfer("treasury", u.id, a.paid, `Billboard booking cancelled: ${a.spot}`);
+        A.revenue -= a.paid;
+        const later = A.list.filter((x) => x.spot === a.spot && !x.removed && x.start >= a.end).sort((x, y) => x.start - y.start);
+        let t = Math.max(Date.now(), ...A.list.filter((x) => x.spot === a.spot && !x.removed && x.start < a.start).map((x) => x.end));
+        later.forEach((x) => {
+          const len = x.end - x.start;
+          x.start = t;
+          x.end = t + len;
+          t = x.end;
+        });
+        push();
+        reply(mine(u.id));
+        reply({ t: "ok", text: "Booking cancelled and refunded." });
+        return true;
+      }
+      case "ad_remove": {
+        if (!d.isAdmin(u.id)) {
+          err("Only Fyrus judges can remove ads.");
+          return true;
+        }
+        const a = A.list.find((x) => x.id === m.id && !x.removed);
+        if (!a) return true;
+        const now = Date.now();
+        const unused = Math.round(a.paid * Math.max(0, Math.min(1, (a.end - Math.max(now, a.start)) / (a.end - a.start))));
+        a.removed = d.clean(m.reason, 200) || "Removed by a Fyrus judge";
+        if (unused > 0) {
+          bank2.transfer("treasury", a.owner, unused, `Billboard removed, unused days refunded: ${a.spot}`);
+          A.revenue -= unused;
+        }
+        note(a.owner, `Your billboard "${a.headline}" was removed: ${a.removed}.${unused > 0 ? ` ${unused.toLocaleString("en-US")} FYC refunded.` : ""}`);
+        push();
+        return true;
+      }
+    }
+    return true;
+  }
+  return { onMessage: onMessage2, state };
+}
+
+// server/halls.ts
+var H4 = +(process.env.HALL_HOUR_MS || 36e5);
+var TICK2 = +(process.env.HALLS_TICK_MS || 2e4);
+function createHalls(d) {
+  if (!d.db.halls) {
+    d.db.halls = { events: {} };
+    d.save();
+  }
+  const K = d.db.halls;
+  const bank2 = d.bank;
+  const note = (id, text) => {
+    const l = d.liveOf(id);
+    if (l) d.send(l.ws, { t: "note", text });
+  };
+  const pub2 = (e, uid) => ({ id: e.id, hall: e.hall, hostName: e.hostName, host: e.host, title: e.title, desc: e.desc, start: e.start, end: e.end, price: e.price, going: e.tickets.length, cap: hallById(e.hall)?.cap || 0, status: e.status, mine: uid ? e.tickets.includes(uid) : void 0 });
+  const upcoming = () => Object.values(K.events).filter((e) => e.status === "scheduled").sort((a, b) => a.start - b.start);
+  const list = (uid) => ({ t: "hall_list", events: upcoming().slice(0, 80).map((e) => pub2(e, uid)), now: Date.now() });
+  const changed = () => {
+    d.save();
+    d.broadcast({ t: "hall_changed" });
+  };
+  const overlap = (hall, s, e) => upcoming().some((x) => x.hall === hall && x.start < e && x.end > s);
+  function finish(e) {
+    e.status = "done";
+    const gross = e.price * e.tickets.length;
+    if (gross > 0) {
+      const host = Math.round(gross * HOST_SHARE);
+      bank2.transfer("escrow", e.host, host, `Ticket sales: ${e.title}`);
+      if (gross - host > 0) bank2.transfer("escrow", "treasury", gross - host, `Event fee 10%: ${e.title}`);
+      note(e.host, `"${e.title}" ended. ${host.toLocaleString("en-US")} FYC from ${e.tickets.length} tickets is in your account.`);
+    }
+    changed();
+  }
+  function cancel(e, why) {
+    e.status = "cancelled";
+    if (e.price > 0) e.tickets.forEach((t) => bank2.transfer("escrow", t, e.price, `Ticket refunded: ${e.title}`));
+    e.tickets.forEach((t) => note(t, `"${e.title}" was cancelled (${why}).${e.price ? " Your ticket is refunded." : ""}`));
+    changed();
+  }
+  setInterval(() => {
+    const now = Date.now();
+    for (const e of upcoming()) {
+      if (!e.started && e.start <= now) {
+        e.started = true;
+        d.save();
+        const h = hallById(e.hall);
+        [e.host, ...e.tickets].forEach((t) => note(t, `"${e.title}" is starting now in the ${h?.name}. Open Events to go in.`));
+        d.news?.("events", `Now live: "${e.title}" in the ${h?.name}, hosted by ${e.hostName}`);
+        d.broadcast({ t: "hall_changed" });
+      }
+      if (e.end <= now) finish(e);
+    }
+    const old = Object.values(K.events).filter((e) => e.status !== "scheduled" && e.end < now - 14 * 24 * 36e5);
+    old.forEach((e) => delete K.events[e.id]);
+    if (old.length) d.save();
+  }, TICK2);
+  function access(uid, hall) {
+    const now = Date.now();
+    const e = upcoming().find((x) => x.hall === hall && x.start <= now && x.end > now);
+    if (!e) return { ok: true };
+    if (e.price === 0 || e.host === uid || e.tickets.includes(uid)) return { ok: true, event: pub2(e, uid) };
+    return { ok: false, event: pub2(e, uid) };
+  }
+  function onMessage2(me, m) {
+    if (typeof m.t !== "string" || !m.t.startsWith("hall_")) return false;
+    const u = me.u;
+    const reply = (x) => d.send(me.ws, x);
+    const err = (text) => reply({ t: "err", text });
+    const ev = m.event ? K.events[String(m.event)] : void 0;
+    switch (m.t) {
+      case "hall_list":
+        reply(list(u.id));
+        return true;
+      case "hall_enter": {
+        const h = hallById(String(m.hall));
+        if (!h) return true;
+        reply({ t: "hall_access", hall: h.id, ...access(u.id, h.id) });
+        return true;
+      }
+      case "hall_book": {
+        const h = hallById(String(m.hall));
+        if (!h) {
+          err("No such hall.");
+          return true;
+        }
+        if (bank2.acct(u.id).banned) {
+          err("This account is suspended.");
+          return true;
+        }
+        const title = d.filter(d.clean(m.title, 80));
+        const desc = d.filter(String(m.desc || "").replace(/[\u0000-\u0008\u000b-\u001f]/g, " ").trim().slice(0, 800));
+        if (title.length < 4) {
+          err("Give the event a title.");
+          return true;
+        }
+        const bad = sentinel(`${title} ${desc}`, 1, "skill");
+        if (bad) {
+          err(bad.replace("this listing", "this event"));
+          return true;
+        }
+        const hours = Math.max(1, Math.min(HALL_MAX_HOURS, Math.round(+m.hours || 1)));
+        const price = Math.max(0, Math.min(TICKET_MAX, Math.round(+m.price || 0)));
+        const start = Math.round(+m.start || 0);
+        const now = Date.now();
+        if (!(start >= now - 5 * 6e4) || start > now + 30 * 24 * 36e5) {
+          err("Pick a start time from now up to 30 days ahead.");
+          return true;
+        }
+        const end = Math.max(start, now) + hours * H4;
+        if (overlap(h.id, start, end)) {
+          err(`The ${h.name} is already booked at that time. Try another hour or hall.`);
+          return true;
+        }
+        if (upcoming().filter((e2) => e2.host === u.id).length >= 5) {
+          err("You can host up to 5 upcoming events.");
+          return true;
+        }
+        const fee = h.hourly * hours;
+        if (!bank2.transfer(u.id, "treasury", fee, `${h.name} booking \xB7 ${hours} h`)) {
+          err(`Booking the ${h.name} for ${hours} h costs ${fee.toLocaleString("en-US")} FYC.`);
+          return true;
+        }
+        const e = { id: "e" + d.rid(6), hall: h.id, host: u.id, hostName: u.name, title, desc, start: Math.max(start, now), end, price, tickets: [], fee, status: "scheduled", at: now };
+        K.events[e.id] = e;
+        changed();
+        reply(list(u.id));
+        reply({ t: "ok", text: `${h.name} booked: "${title}".` });
+        d.news?.("events", `Coming up: "${title}" in the ${h.name}${price ? ` \xB7 tickets ${price.toLocaleString("en-US")} FYC` : " \xB7 free entry"}`);
+        return true;
+      }
+      case "hall_ticket": {
+        if (!ev || ev.status !== "scheduled") {
+          err("This event is not open.");
+          return true;
+        }
+        if (ev.host === u.id) {
+          err("You are the host.");
+          return true;
+        }
+        if (ev.tickets.includes(u.id)) {
+          err("You already have a ticket.");
+          return true;
+        }
+        if (ev.tickets.length >= (hallById(ev.hall)?.cap || 0)) {
+          err("Sold out.");
+          return true;
+        }
+        if (ev.price > 0 && !bank2.transfer(u.id, "escrow", ev.price, `Ticket held in escrow: ${ev.title}`)) {
+          err(`A ticket costs ${ev.price.toLocaleString("en-US")} FYC.`);
+          return true;
+        }
+        ev.tickets.push(u.id);
+        changed();
+        reply(list(u.id));
+        reply({ t: "ok", text: ev.price ? "Ticket bought. Your FYC is held safely until the event ends." : "You are on the guest list." });
+        if (ev.tickets.length % 10 === 0 || ev.tickets.length === 1) note(ev.host, `${ev.tickets.length} going to "${ev.title}".`);
+        return true;
+      }
+      case "hall_leave": {
+        if (!ev || ev.status !== "scheduled" || !ev.tickets.includes(u.id)) return true;
+        if (ev.start <= Date.now()) {
+          err("The event has started; tickets can no longer be returned.");
+          return true;
+        }
+        ev.tickets = ev.tickets.filter((t) => t !== u.id);
+        if (ev.price > 0) bank2.transfer("escrow", u.id, ev.price, `Ticket returned: ${ev.title}`);
+        changed();
+        reply(list(u.id));
+        return true;
+      }
+      case "hall_cancel": {
+        if (!ev || ev.status !== "scheduled") return true;
+        if (ev.host !== u.id && !d.isAdmin(u.id)) {
+          err("Only the host can cancel.");
+          return true;
+        }
+        const early = ev.start - Date.now() > 36e5;
+        if (early && ev.host === u.id) bank2.transfer("treasury", ev.host, ev.fee, `Hall booking refunded: ${ev.title}`);
+        cancel(ev, ev.host === u.id ? "cancelled by the host" : "removed by a Fyrus judge");
+        reply(list(u.id));
+        reply({ t: "ok", text: `Event cancelled.${early && ev.host === u.id ? " Booking fee refunded." : ""}` });
+        return true;
+      }
+    }
+    return true;
+  }
+  return { onMessage: onMessage2, access, halls: HALLS };
 }
 
 // server/index.ts
@@ -4886,7 +5813,7 @@ function onMessage(me, raw) {
     return;
   }
   const u = me.u;
-  if (edu.onMessage(me, m) || bank.onMessage(me, m) || market.onMessage(me, m)) return;
+  if (edu.onMessage(me, m) || bank.onMessage(me, m) || market.onMessage(me, m) || estate.onMessage(me, m) || news.onMessage(me, m) || ads.onMessage(me, m) || halls.onMessage(me, m)) return;
   switch (m.t) {
     case "pos": {
       me.x = +m.x || 0;
@@ -4971,7 +5898,7 @@ function onMessage(me, raw) {
       if (m.color) u.color = clean(m.color, 9);
       if (m.lang && LANGS.some((l) => l.code === m.lang)) u.lang = m.lang;
       if (typeof m.stealth === "boolean") u.stealth = m.stealth;
-      if (m.passport) u.passport = { no: +m.passport.no || 0, interest: clean(m.passport.interest, 20) };
+      if (m.passport) u.passport = { no: +m.passport.no || 0, interest: clean(m.passport.interest, 20), kind: m.passport.kind === "visa" ? "visa" : "passport" };
       save();
       send(me.ws, { t: "me", me: { ...pub(u), lang: u.lang, blocks: u.blocks } });
       return;
@@ -5063,9 +5990,14 @@ var isAdmin = (id) => {
   return !!u && ADMINS.some((a) => a === id || digits(a).length >= 7 && digits(a).slice(-7) === digits(u.number).slice(-7));
 };
 var nameOf = (id) => ({ mint: "Central Bank of Fyrus", treasury: "National Treasury", escrow: "Central Bank escrow", burn: "Central Bank" })[id] || (db.users[id] ? shown(db.users[id]) : "Citizen");
+var news = createNews({ db, save, send, broadcast, clean, filter, isAdmin, shown: (id) => db.users[id] ? shown(db.users[id]) : "Citizen" });
+var report = news.report;
 var bank = createBank({ db, save, send, liveOf: (id) => live.get(id), findByNumber, nameOf, clean });
-var market = createMarket({ db, bank, save, send, broadcast, liveOf: (id) => live.get(id), clean, rid, isAdmin, nameOf });
-var edu = createEdu({ db, save, send, broadcast, clean, rid, findByNumber, liveOf: (id) => live.get(id), pay: bank.transfer });
+var market = createMarket({ db, bank, save, send, broadcast, liveOf: (id) => live.get(id), clean, rid, isAdmin, nameOf, news: report });
+var estate = createEstate({ db, bank, save, send, broadcast, liveOf: (id) => live.get(id), clean, findByNumber, news: report });
+var edu = createEdu({ db, save, send, broadcast, clean, rid, findByNumber, liveOf: (id) => live.get(id), pay: bank.transfer, news: report });
+var ads = createAds({ db, bank, save, send, broadcast, liveOf: (id) => live.get(id), clean, filter, rid, isAdmin, news: report });
+var halls = createHalls({ db, bank, save, send, broadcast, liveOf: (id) => live.get(id), clean, filter, rid, isAdmin, news: report });
 var SEC = { "X-Content-Type-Options": "nosniff", "Referrer-Policy": "strict-origin-when-cross-origin", "X-Frame-Options": "SAMEORIGIN", "Strict-Transport-Security": "max-age=31536000; includeSubDomains", "Permissions-Policy": "camera=(self), microphone=(self), geolocation=()" };
 var TYPES3 = { ".html": "text/html; charset=utf-8", ".js": "application/javascript", ".css": "text/css", ".png": "image/png", ".jpg": "image/jpeg", ".svg": "image/svg+xml", ".ico": "image/x-icon", ".json": "application/json", ".txt": "text/plain", ".xml": "application/xml", ".webmanifest": "application/manifest+json" };
 var gzCache = /* @__PURE__ */ new Map();
@@ -5073,7 +6005,7 @@ var server = http.createServer((req, res) => {
   const url = new URL(req.url || "/", "http://x");
   if (url.pathname === "/health") {
     res.writeHead(200, { "content-type": "application/json" });
-    return res.end(JSON.stringify({ ok: true, online: live.size, users: Object.keys(db.users).length, translate: !!AI_KEY }));
+    return res.end(JSON.stringify({ ok: true, online: live.size, users: Object.keys(db.users).length, translate: !!AI_KEY, news: db.news?.items.length || 0 }));
   }
   if (edu.http(url.pathname, res)) return;
   let p = path.normalize(decodeURIComponent(url.pathname)).replace(/^(\.\.[/\\])+/, "");
@@ -5121,6 +6053,8 @@ wss.on("connection", (ws, req) => {
         db.users[u.id] = u;
         save();
         console.log("new citizen", u.number, ip);
+        const pop = Object.keys(db.users).length;
+        if (pop <= 50 || pop % 25 === 0) report("nation", `A new citizen arrived in Fyrus. Population: ${pop.toLocaleString("en-US")}`);
       }
       if (m.name) u.name = clean(m.name, 24) || u.name;
       if (m.lang && LANGS.some((l) => l.code === m.lang)) u.lang = m.lang;
