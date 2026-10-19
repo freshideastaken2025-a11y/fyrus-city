@@ -5898,7 +5898,19 @@ function onMessage(me, raw) {
       if (m.color) u.color = clean(m.color, 9);
       if (m.lang && LANGS.some((l) => l.code === m.lang)) u.lang = m.lang;
       if (typeof m.stealth === "boolean") u.stealth = m.stealth;
-      if (m.passport) u.passport = { no: +m.passport.no || 0, interest: clean(m.passport.interest, 20), kind: m.passport.kind === "visa" ? "visa" : "passport" };
+      if (m.passport) {
+        const want = m.passport.kind === "visa" ? "visa" : "passport";
+        const had = u.passport?.kind === "passport";
+        let kind = want;
+        if (want === "passport" && !had) {
+          const v = passportCheck(u.id, +m.passport.level || 0);
+          if (!v.ok) {
+            kind = "visa";
+            send(me.ws, { t: "passport_denied", text: v.why });
+          }
+        }
+        u.passport = { no: +m.passport.no || 0, interest: clean(m.passport.interest, 20), kind, verified: kind === "passport" ? true : void 0, at: u.passport?.at || Date.now() };
+      }
       save();
       send(me.ws, { t: "me", me: { ...pub(u), lang: u.lang, blocks: u.blocks } });
       return;
@@ -5992,6 +6004,17 @@ var isAdmin = (id) => {
 var nameOf = (id) => ({ mint: "Central Bank of Fyrus", treasury: "National Treasury", escrow: "Central Bank escrow", burn: "Central Bank" })[id] || (db.users[id] ? shown(db.users[id]) : "Citizen");
 var news = createNews({ db, save, send, broadcast, clean, filter, isAdmin, shown: (id) => db.users[id] ? shown(db.users[id]) : "Citizen" });
 var report = news.report;
+function passportCheck(id, level) {
+  const land = Object.values(db.plots).some((p) => p.owner === id) || Object.values(db.estate?.plots || {}).some((p) => p.owner === id);
+  const seller = Object.values(db.market?.listings || {}).some((l) => l.seller === id) || Object.values(db.edu?.courses || {}).some((c) => c.teacher === id) || (db.bank?.acct?.[id]?.sales || 0) > 0;
+  const banned = !!db.bank?.acct?.[id]?.banned;
+  const issued = Object.values(db.users).filter((x) => x.passport?.kind === "passport").length;
+  if (banned) return { ok: false, why: "Passport refused: this account has a court ban." };
+  if (issued >= 1e4) return { ok: false, why: "All 10,000 passports for this year are issued. You are on the waiting list." };
+  const n = (land ? 1 : 0) + (seller ? 1 : 0) + (level >= 5 ? 1 : 0);
+  if (n >= 2 && (land || seller)) return { ok: true, why: "" };
+  return { ok: false, why: `The Citizen Center could not verify two milestones yet (${land ? "land \u2713" : "no land"}, ${seller ? "selling \u2713" : "nothing listed in Fyrus Market or Education City"}). Own land or list something on the live city, then apply again.` };
+}
 var bank = createBank({ db, save, send, liveOf: (id) => live.get(id), findByNumber, nameOf, clean });
 var market = createMarket({ db, bank, save, send, broadcast, liveOf: (id) => live.get(id), clean, rid, isAdmin, nameOf, news: report });
 var estate = createEstate({ db, bank, save, send, broadcast, liveOf: (id) => live.get(id), clean, findByNumber, news: report });
