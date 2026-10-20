@@ -187,7 +187,7 @@ var require_limiter = __commonJS({
 var require_permessage_deflate = __commonJS({
   "../../../opt/npm-tools/node_modules/ws/lib/permessage-deflate.js"(exports, module) {
     "use strict";
-    var zlib2 = __require("zlib");
+    var zlib3 = __require("zlib");
     var bufferUtil = require_buffer_util();
     var Limiter = require_limiter();
     var { kStatusCode } = require_constants();
@@ -454,8 +454,8 @@ var require_permessage_deflate = __commonJS({
         const endpoint = this._isServer ? "client" : "server";
         if (!this._inflate) {
           const key = `${endpoint}_max_window_bits`;
-          const windowBits = typeof this.params[key] !== "number" ? zlib2.Z_DEFAULT_WINDOWBITS : this.params[key];
-          this._inflate = zlib2.createInflateRaw({
+          const windowBits = typeof this.params[key] !== "number" ? zlib3.Z_DEFAULT_WINDOWBITS : this.params[key];
+          this._inflate = zlib3.createInflateRaw({
             ...this._options.zlibInflateOptions,
             windowBits
           });
@@ -505,8 +505,8 @@ var require_permessage_deflate = __commonJS({
         const endpoint = this._isServer ? "server" : "client";
         if (!this._deflate) {
           const key = `${endpoint}_max_window_bits`;
-          const windowBits = typeof this.params[key] !== "number" ? zlib2.Z_DEFAULT_WINDOWBITS : this.params[key];
-          this._deflate = zlib2.createDeflateRaw({
+          const windowBits = typeof this.params[key] !== "number" ? zlib3.Z_DEFAULT_WINDOWBITS : this.params[key];
+          this._deflate = zlib3.createDeflateRaw({
             ...this._options.zlibDeflateOptions,
             windowBits
           });
@@ -516,7 +516,7 @@ var require_permessage_deflate = __commonJS({
         }
         this._deflate[kCallback] = callback;
         this._deflate.write(data);
-        this._deflate.flush(zlib2.Z_SYNC_FLUSH, () => {
+        this._deflate.flush(zlib3.Z_SYNC_FLUSH, () => {
           if (!this._deflate) {
             return;
           }
@@ -3707,10 +3707,10 @@ var require_websocket_server = __commonJS({
 
 // server/index.ts
 import http from "node:http";
-import fs from "node:fs";
-import path from "node:path";
-import zlib from "node:zlib";
-import crypto2 from "node:crypto";
+import fs2 from "node:fs";
+import path2 from "node:path";
+import zlib2 from "node:zlib";
+import crypto3 from "node:crypto";
 
 // ../../../opt/npm-tools/node_modules/ws/wrapper.mjs
 var import_stream = __toESM(require_stream(), 1);
@@ -4134,8 +4134,8 @@ function createEdu(d) {
     return true;
   }
   const esc = (s) => String(s).replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch]);
-  function http2(path2, res) {
-    const mm = path2.match(/^\/(verify|api\/cert)\/([A-Za-z0-9-]{6,20})\/?$/);
+  function http2(path3, res) {
+    const mm = path3.match(/^\/(verify|api\/cert)\/([A-Za-z0-9-]{6,20})\/?$/);
     if (!mm) return false;
     const c = E.certs[mm[2].toUpperCase()];
     const ok = valid(c);
@@ -4163,7 +4163,7 @@ function createEdu(d) {
 
 // server/bank.ts
 var OPENING_CAP = 5e4;
-var DAILY_GAME_CAP = 15e4;
+var DAILY_GAME_CAP = +(process.env.DAILY_REWARD_CAP || 15e4);
 var SPECIAL = /* @__PURE__ */ new Set(["treasury", "escrow"]);
 var r2 = (n) => Math.round(n * 100) / 100;
 function createBank(d) {
@@ -5691,19 +5691,487 @@ function createHalls(d) {
   return { onMessage: onMessage2, access, halls: HALLS };
 }
 
+// server/accounts.ts
+import crypto2 from "node:crypto";
+var GOOGLE_ID = process.env.GOOGLE_CLIENT_ID || "";
+var RESEND = process.env.RESEND_API_KEY || "";
+var MAIL_FROM = process.env.MAIL_FROM || "";
+var MAX_TOKENS = 10;
+var hashPw = (pw) => {
+  const salt = crypto2.randomBytes(16).toString("hex");
+  return salt + ":" + crypto2.scryptSync(pw, salt, 32).toString("hex");
+};
+var checkPw = (pw, stored) => {
+  if (!stored) return false;
+  const [salt, h] = stored.split(":");
+  const a = Buffer.from(h, "hex"), b = crypto2.scryptSync(pw, salt, 32);
+  return a.length === b.length && crypto2.timingSafeEqual(a, b);
+};
+var normEmail = (e) => String(e || "").trim().toLowerCase().slice(0, 120);
+var okEmail = (e) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(e);
+function createAccounts(d) {
+  const byEmail = (e) => Object.values(d.db.users).find((u) => u.email === e);
+  const byToken = (token) => {
+    if (!token) return void 0;
+    const h = d.sha(String(token));
+    return Object.values(d.db.users).find((u) => u.tok === h || u.toks?.includes(h));
+  };
+  const issue = (u) => {
+    const token = d.rid(24);
+    const h = d.sha(token);
+    u.toks = [...(u.toks || []).filter((t) => t !== h), h].slice(-MAX_TOKENS);
+    if (!u.tok) u.tok = h;
+    d.save();
+    return token;
+  };
+  const banText = (u) => u.banned && u.banned.until > Date.now() ? `This account is suspended${u.banned.until < 8e15 ? ` until ${new Date(u.banned.until).toUTCString().slice(5, 22)} UTC` : ""}: ${u.banned.reason}` : "";
+  const pub2 = (u, token) => ({ ok: true, token, user: { id: u.id, name: u.name, number: u.number, email: u.email || null, google: !!u.google } });
+  const hits = /* @__PURE__ */ new Map();
+  const limited = (ip, max = 12) => {
+    const now = Date.now();
+    const a = (hits.get(ip) || []).filter((t) => now - t < 6e4);
+    a.push(now);
+    hits.set(ip, a);
+    if (hits.size > 5e3) hits.clear();
+    return a.length > max;
+  };
+  async function sendMail(to, subject, text) {
+    if (!RESEND || !MAIL_FROM) return false;
+    try {
+      const r = await fetch("https://api.resend.com/emails", { method: "POST", headers: { authorization: `Bearer ${RESEND}`, "content-type": "application/json" }, body: JSON.stringify({ from: MAIL_FROM, to, subject, text }) });
+      if (!r.ok) console.error("mail", r.status, (await r.text()).slice(0, 200));
+      return r.ok;
+    } catch (e) {
+      console.error("mail failed", e);
+      return false;
+    }
+  }
+  async function handle(path3, body, ip) {
+    if (path3 === "/api/auth/config") return { status: 200, json: { google: GOOGLE_ID || null, reset: !!(RESEND && MAIL_FROM) } };
+    if (!path3.startsWith("/api/auth/")) return null;
+    if (limited(ip)) return { status: 429, json: { error: "Too many tries. Wait a minute and try again." } };
+    const fail = (error, status = 400) => ({ status, json: { error } });
+    switch (path3) {
+      case "/api/auth/register": {
+        const email = normEmail(body.email);
+        const pw = String(body.password || "");
+        const name = d.clean(body.name, 24);
+        if (!okEmail(email)) return fail("Enter a valid email, like you@example.com");
+        if (pw.length < 8) return fail("Use at least 8 characters for your password.");
+        if (body.age13 !== true) return fail("You must be 13 or older to use Fyrus.");
+        if (byEmail(email)) return fail("An account with this email already exists. Log in instead.");
+        let u = body.token ? byToken(String(body.token)) : void 0;
+        if (u && (u.email || u.google)) u = void 0;
+        let token = "";
+        if (!u) {
+          const c = d.createUser(name || email.split("@")[0], "en");
+          u = c.u;
+          token = c.token;
+          u.toks = [u.tok];
+        } else token = String(body.token);
+        if (banText(u)) return fail(banText(u), 403);
+        u.email = email;
+        u.pw = hashPw(pw);
+        u.age13 = true;
+        if (name) u.name = name;
+        d.save();
+        return { status: 200, json: pub2(u, token) };
+      }
+      case "/api/auth/login": {
+        const email = normEmail(body.email);
+        const u = byEmail(email);
+        if (!u || !checkPw(String(body.password || ""), u.pw)) return fail("Wrong email or password.", 401);
+        if (banText(u)) return fail(banText(u), 403);
+        return { status: 200, json: pub2(u, issue(u)) };
+      }
+      case "/api/auth/google": {
+        if (!GOOGLE_ID) return fail("Google sign-in is not set up on this server yet.", 501);
+        let info;
+        try {
+          const r = await fetch("https://oauth2.googleapis.com/tokeninfo?id_token=" + encodeURIComponent(String(body.credential || "")));
+          info = await r.json();
+          if (!r.ok) throw new Error();
+        } catch {
+          return fail("Google could not confirm this sign-in. Try again.", 401);
+        }
+        if (info.aud !== GOOGLE_ID || !["accounts.google.com", "https://accounts.google.com"].includes(info.iss) || String(info.email_verified) !== "true") return fail("Google sign-in was not valid.", 401);
+        const email = normEmail(info.email);
+        let u = Object.values(d.db.users).find((x) => x.google === info.sub) || byEmail(email);
+        let token = "";
+        if (!u) {
+          const guest = body.token ? byToken(String(body.token)) : void 0;
+          if (guest && !guest.email && !guest.google) {
+            u = guest;
+            token = String(body.token);
+          } else {
+            const c = d.createUser(d.clean(info.given_name || info.name, 24) || email.split("@")[0], "en");
+            u = c.u;
+            token = c.token;
+            u.toks = [u.tok];
+          }
+        }
+        if (banText(u)) return fail(banText(u), 403);
+        if (body.age13 !== true && !u.age13) return fail("Please confirm you are 13 or older.", 400);
+        u.google = info.sub;
+        u.email = u.email || email;
+        u.age13 = true;
+        d.save();
+        return { status: 200, json: pub2(u, token || issue(u)) };
+      }
+      case "/api/auth/reset-request": {
+        const email = normEmail(body.email);
+        const u = byEmail(email);
+        if (!RESEND || !MAIL_FROM) return fail("Password reset by email is not set up yet. Contact support from the Help page.", 501);
+        if (u && u.pw) {
+          const code = String(crypto2.randomInt(1e5, 1e6));
+          u.reset = { code: d.sha(code), until: Date.now() + 15 * 6e4, tries: 0 };
+          d.save();
+          await sendMail(email, "Your Fyrus reset code", `Your Fyrus password reset code is ${code}. It works for 15 minutes. If you did not ask for it, ignore this email.`);
+        }
+        return { status: 200, json: { ok: true } };
+      }
+      case "/api/auth/reset": {
+        const email = normEmail(body.email);
+        const u = byEmail(email);
+        const pw = String(body.password || "");
+        if (!u || !u.reset || u.reset.until < Date.now() || u.reset.tries >= 5) return fail("That code has expired. Ask for a new one.");
+        if (u.reset.code !== d.sha(String(body.code || "").trim())) {
+          u.reset.tries++;
+          d.save();
+          return fail("That code does not match.");
+        }
+        if (pw.length < 8) return fail("Use at least 8 characters for your new password.");
+        u.pw = hashPw(pw);
+        u.reset = void 0;
+        u.toks = [];
+        u.tok = "";
+        d.save();
+        return { status: 200, json: pub2(u, issue(u)) };
+      }
+      case "/api/auth/logout": {
+        const u = byToken(String(body.token || ""));
+        if (u) {
+          const h = d.sha(String(body.token));
+          u.toks = (u.toks || []).filter((t) => t !== h);
+          if (u.tok === h) u.tok = u.toks[0] || "";
+          d.save();
+        }
+        return { status: 200, json: { ok: true } };
+      }
+    }
+    return fail("Not found", 404);
+  }
+  function http2(req, res, path3, ip) {
+    if (!path3.startsWith("/api/auth/")) return false;
+    const done = (r) => {
+      res.writeHead(r?.status || 404, { "content-type": "application/json", "cache-control": "no-store" });
+      res.end(JSON.stringify(r?.json || { error: "Not found" }));
+    };
+    if (req.method === "GET") {
+      handle(path3, {}, ip).then(done);
+      return true;
+    }
+    if (req.method !== "POST") {
+      done({ status: 405, json: { error: "POST only" } });
+      return true;
+    }
+    let raw = "";
+    req.on("data", (c) => {
+      raw += c;
+      if (raw.length > 16384) req.destroy();
+    });
+    req.on("end", () => {
+      let body = {};
+      try {
+        body = JSON.parse(raw || "{}");
+      } catch {
+        return done({ status: 400, json: { error: "Bad request" } });
+      }
+      handle(path3, body, ip).then(done).catch((e) => {
+        console.error("auth", e);
+        done({ status: 500, json: { error: "Server error" } });
+      });
+    });
+    return true;
+  }
+  return { http: http2, handle, byToken, banText, issue };
+}
+
+// server/ops.ts
+import fs from "node:fs";
+import path from "node:path";
+import zlib from "node:zlib";
+var XP_DAILY = +(process.env.XP_DAILY_CAP || 3e3);
+var XP_IMPORT_CAP = 2e4;
+var KEEP_BACKUPS = 14;
+var day = () => (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+var EVENTS = /^(goal:[a-z]+|tour|now_open|ride:[a-z]+|drive|fly|signup_prompt|lite_on)$/;
+function createOps(d) {
+  if (!d.db.ops) {
+    d.db.ops = { errors: [], stats: {} };
+    d.save();
+  }
+  const O = d.db.ops;
+  const today = () => O.stats[day()] ||= { visits: 0, newUsers: 0, signups: 0, peak: 0, events: {} };
+  const bump = (k) => {
+    today()[k]++;
+    const t = today();
+    t.peak = Math.max(t.peak, d.liveCount());
+    d.save();
+  };
+  const track = (ev) => {
+    if (!EVENTS.test(ev)) return;
+    const t = today();
+    t.events[ev] = (t.events[ev] || 0) + 1;
+    d.save();
+  };
+  const bdir = path.join(d.dataDir, "backups");
+  function backupNow() {
+    try {
+      fs.mkdirSync(bdir, { recursive: true });
+      const f = path.join(bdir, `fyrus-${day()}.json.gz`);
+      fs.writeFileSync(f, zlib.gzipSync(fs.readFileSync(d.dbFile())));
+      const all = fs.readdirSync(bdir).filter((x) => x.startsWith("fyrus-")).sort();
+      all.slice(0, Math.max(0, all.length - KEEP_BACKUPS)).forEach((x) => fs.unlinkSync(path.join(bdir, x)));
+      return f;
+    } catch (e) {
+      console.error("backup failed", e);
+      return null;
+    }
+  }
+  const backups = () => {
+    try {
+      return fs.readdirSync(bdir).filter((x) => x.startsWith("fyrus-")).sort().reverse().map((f) => ({ file: f, size: fs.statSync(path.join(bdir, f)).size }));
+    } catch {
+      return [];
+    }
+  };
+  setTimeout(() => {
+    if (!backups().some((b) => b.file.includes(day()))) backupNow();
+  }, 2e4);
+  setInterval(() => {
+    if (!backups().some((b) => b.file.includes(day()))) backupNow();
+  }, 60 * 6e4);
+  if (O.stats) {
+    const keys = Object.keys(O.stats).sort();
+    keys.slice(0, Math.max(0, keys.length - 90)).forEach((k) => delete O.stats[k]);
+  }
+  const errHits = /* @__PURE__ */ new Map();
+  function http2(req, res, p, ip, auth) {
+    if (p === "/api/err" && req.method === "POST") {
+      const now = Date.now();
+      const a = (errHits.get(ip) || []).filter((t) => now - t < 6e4);
+      a.push(now);
+      errHits.set(ip, a);
+      if (errHits.size > 5e3) errHits.clear();
+      let raw = "";
+      req.on("data", (c) => {
+        raw += c;
+        if (raw.length > 8192) req.destroy();
+      });
+      req.on("end", () => {
+        if (a.length <= 20) {
+          try {
+            const b = JSON.parse(raw || "{}");
+            O.errors.push({ at: now, msg: d.clean(b.msg, 300), stack: d.clean(b.stack, 1200), url: d.clean(b.url, 120), ua: d.clean(req.headers["user-agent"], 160) });
+            if (O.errors.length > 300) O.errors.splice(0, O.errors.length - 300);
+            d.save();
+          } catch {
+          }
+        }
+        res.writeHead(204);
+        res.end();
+      });
+      return true;
+    }
+    if (p.startsWith("/api/admin/backup")) {
+      const tok = String(req.headers.authorization || "").replace(/^Bearer\s+/i, "");
+      const u = auth(tok);
+      if (!u || !d.isAdmin(u.id)) {
+        res.writeHead(403);
+        res.end("Forbidden");
+        return true;
+      }
+      const f = backupNow() || backups()[0] && path.join(bdir, backups()[0].file);
+      if (!f) {
+        res.writeHead(500);
+        res.end("No backup");
+        return true;
+      }
+      res.writeHead(200, { "content-type": "application/gzip", "content-disposition": `attachment; filename="${path.basename(f)}"`, "cache-control": "no-store" });
+      fs.createReadStream(f).pipe(res);
+      return true;
+    }
+    return false;
+  }
+  function xpMsg(u) {
+    return { t: "xp", xp: u.xp || 0, today: u.xpDay === day() ? u.xpToday || 0 : 0, cap: XP_DAILY };
+  }
+  const userInfo = (u) => ({ id: u.id, name: u.name, number: u.number, email: u.email || null, google: !!u.google, joined: u.joined, seen: u.seen, online: !!d.liveOf(u.id), bal: d.db.bank?.acct?.[u.id]?.bal ?? null, xp: u.xp || 0, muteUntil: u.muteUntil || 0, banned: u.banned && u.banned.until > Date.now() ? u.banned : null, reports: d.db.reports.filter((r) => r.against === u.id).length });
+  function kick(u, text) {
+    const l = d.liveOf(u.id);
+    if (l) {
+      d.send(l.ws, { t: "err", text });
+      try {
+        l.ws.close();
+      } catch {
+      }
+    }
+  }
+  function onMessage2(me, m) {
+    if (typeof m.t !== "string") return false;
+    const u = me.u;
+    const reply = (x) => d.send(me.ws, x);
+    if (m.t === "xp_hello") {
+      if (u.xp === void 0) {
+        u.xp = Math.max(0, Math.min(XP_IMPORT_CAP, Math.round(+m.local || 0)));
+        d.save();
+      }
+      reply(xpMsg(u));
+      return true;
+    }
+    if (m.t === "xp_add") {
+      const n = Math.max(0, Math.min(250, Math.round(+m.n || 0)));
+      if (u.xpDay !== day()) {
+        u.xpDay = day();
+        u.xpToday = 0;
+      }
+      const ok = Math.min(n, XP_DAILY - (u.xpToday || 0));
+      if (ok > 0) {
+        u.xp = (u.xp || 0) + ok;
+        u.xpToday = (u.xpToday || 0) + ok;
+        d.save();
+      }
+      reply(xpMsg(u));
+      return true;
+    }
+    if (m.t === "track") {
+      track(String(m.ev || ""));
+      return true;
+    }
+    if (!m.t.startsWith("admin_")) return false;
+    if (!d.isAdmin(u.id)) {
+      reply({ t: "err", text: "Admins only." });
+      return true;
+    }
+    const target = m.id ? d.db.users[String(m.id)] : void 0;
+    switch (m.t) {
+      case "admin_stats": {
+        const days = Object.entries(O.stats).sort(([a], [b]) => b.localeCompare(a)).slice(0, 14).map(([k, v]) => ({ day: k, ...v }));
+        const users = Object.values(d.db.users);
+        reply({ t: "admin_stats", users: users.length, withEmail: users.filter((x) => x.email || x.google).length, online: d.liveCount(), days, treasury: d.db.bank?.acct?.treasury?.bal ?? 0, adRevenue: d.db.ads?.revenue ?? 0, openReports: d.db.reports.filter((r) => !r.done).length, errors: O.errors.length, backups: backups(), banned: users.filter((x) => x.banned && x.banned.until > Date.now()).length });
+        return true;
+      }
+      case "admin_reports":
+        reply({ t: "admin_reports", list: d.db.reports.map((r, i) => ({ i, ...r, byName: d.shown(r.by), againstName: d.shown(r.against), againstNumber: d.db.users[r.against]?.number })).filter((r) => !r.done).slice(-100).reverse() });
+        return true;
+      case "admin_report_done": {
+        const r = d.db.reports[+m.i];
+        if (r) {
+          r.done = d.clean(m.note, 80) || "reviewed";
+          r.doneBy = u.id;
+          r.doneAt = Date.now();
+          d.save();
+        }
+        reply({ t: "ok", text: "Report closed." });
+        return true;
+      }
+      case "admin_find": {
+        const q = d.clean(m.q, 60).toLowerCase();
+        const byNum = d.findByNumber(q);
+        const list = byNum ? [byNum] : Object.values(d.db.users).filter((x) => x.name.toLowerCase().includes(q) || (x.email || "").includes(q) || x.id === q).slice(0, 20);
+        reply({ t: "admin_users", list: list.map(userInfo) });
+        return true;
+      }
+      case "admin_mute": {
+        if (!target) return true;
+        const h = Math.max(1, Math.min(24 * 30, +m.hours || 24));
+        target.muteUntil = Date.now() + h * 36e5;
+        d.save();
+        const l = d.liveOf(target.id);
+        if (l) d.send(l.ws, { t: "note", text: `You are muted in chat for ${h} hour${h > 1 ? "s" : ""} by a moderator.` });
+        reply({ t: "admin_users", list: [userInfo(target)] });
+        return true;
+      }
+      case "admin_unmute": {
+        if (!target) return true;
+        target.muteUntil = 0;
+        d.save();
+        reply({ t: "admin_users", list: [userInfo(target)] });
+        return true;
+      }
+      case "admin_ban": {
+        if (!target || d.isAdmin(target.id)) return true;
+        const h = +m.hours || 0;
+        target.banned = { until: h > 0 ? Date.now() + h * 36e5 : 9e15, reason: d.clean(m.reason, 200) || "Breaking the Fyrus rules" };
+        d.save();
+        kick(target, `This account is suspended: ${target.banned.reason}`);
+        reply({ t: "admin_users", list: [userInfo(target)] });
+        return true;
+      }
+      case "admin_unban": {
+        if (!target) return true;
+        target.banned = void 0;
+        d.save();
+        reply({ t: "admin_users", list: [userInfo(target)] });
+        return true;
+      }
+      case "admin_errors":
+        reply({ t: "admin_errors", list: O.errors.slice(-60).reverse() });
+        return true;
+      case "admin_backup": {
+        const f = backupNow();
+        reply({ t: "ok", text: f ? `Backup saved: ${path.basename(f)}` : "Backup failed \u2014 check the server log." });
+        reply({ t: "admin_stats_backups", backups: backups() });
+        return true;
+      }
+    }
+    return true;
+  }
+  return { onMessage: onMessage2, http: http2, bump, track, backupNow, xpMsg };
+}
+
+// server/legal.ts
+var UPDATED = "20 October 2026";
+var shell = (title, body) => `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title} \xB7 Fyrus</title>
+<style>body{margin:0;background:#040a1c;color:#e6ecf7;font:16px/1.65 system-ui,-apple-system,Segoe UI,sans-serif}main{max-width:760px;margin:0 auto;padding:40px 18px 80px}h1{font-size:30px;margin:0 0 4px}h2{font-size:19px;margin:30px 0 6px;color:#ffc27a}p,li{color:#c5cee0}a{color:#7fb8ff}.note{background:#0b1430;border:1px solid #1d2c55;border-radius:12px;padding:12px 14px;font-size:14px}small{color:#8a96ad}</style></head>
+<body><main><a href="/">\u2190 Back to Fyrus</a><h1>${title}</h1><small>Last updated ${UPDATED} \xB7 Beta</small>${body}</main></body></html>`;
+var TERMS = `
+<p class="note">Fyrus is in beta. These terms are a plain-language draft and may change before the public launch. We will show a notice in the city when they do.</p>
+<h2>1. Who can use Fyrus</h2><p>You must be at least 13 years old. Voice chat is for people 18 and older. If you are under 18, use Fyrus with a parent or guardian's permission.</p>
+<h2>2. Your account</h2><p>Keep your password private. You are responsible for what happens on your account. Guest accounts live on one device until you add an email or sign in with Google.</p>
+<h2>3. Fyrus Coin (FYC) is play money</h2><p>FYC is an in-city credit for use inside Fyrus only. It is not real money, not a cryptocurrency and not an investment. It cannot be exchanged for cash, and its supply and prices can change. Virtual land, homes, passports and items are game features with no real-world value. Nothing in Fyrus promises profit.</p>
+<h2>4. Rules of the city</h2><ul><li>No harassment, hate, threats, sexual content involving minors, or content that sexualises anyone without consent.</li><li>No scams, fake listings, asking for payment or contact outside Fyrus, or selling prohibited goods.</li><li>No impersonating real people, brands or officials; no real-world political parties or politicians in Fyrus elections.</li><li>No cheating, bots, exploiting bugs or making several accounts to vote or farm rewards.</li><li>Respect other people's work: upload only content you own or may use.</li></ul>
+<h2>5. Marketplace, escrow and the Fyrus Court</h2><p>Purchases go through Central Bank escrow and can be disputed. Fyrus judges decide disputes based on the evidence in Fyrus. Their decisions inside Fyrus are final for FYC, items and accounts.</p>
+<h2>6. Moderation</h2><p>We may remove content, mute, suspend or ban accounts that break these rules, and refund FYC where it is fair. You can report people and content from the city; we review reports as fast as we can.</p>
+<h2>7. AI in Fyrus</h2><p>AI residents, shopkeepers and translations are generated by AI and are labelled. They can be wrong. Do not rely on them for medical, legal or financial decisions.</p>
+<h2>8. News and links</h2><p>World headlines come from public news feeds and link to the publisher. Citizen reports are written by users and are not verified by Fyrus.</p>
+<h2>9. Changes and ending</h2><p>Fyrus is provided as it is during the beta. Features may change or stop. You can stop using Fyrus at any time and ask us to delete your account.</p>
+<h2>10. Contact</h2><p>Questions or problems: use Report in the city or the Help page.</p>`;
+var PRIVACY = `
+<p class="note">This explains what Fyrus stores, why, and your choices. Fyrus servers are in Germany (EU).</p>
+<h2>What we store</h2><ul><li><b>Account:</b> your display name, Fyrus number, email (if you add one), a scrambled (hashed) password, or your Google account id if you sign in with Google.</li><li><b>City data:</b> your FYC statement, properties, listings and orders, courses and certificates, events, messages you send (city chat, groups and DMs), reports, and your avatar settings and optional face photo.</li><li><b>Technical:</b> error reports from your browser (to fix bugs), simple daily counts of visits, and your IP address in short-lived rate limits and server logs.</li></ul>
+<h2>What we do not do</h2><ul><li>We do not sell your data.</li><li>We do not show third-party ads based on your data.</li><li>We do not ask for ID cards, bank or card numbers in the beta.</li></ul>
+<h2>Who else processes data</h2><ul><li><b>Anthropic</b> translates chat messages when translation is on (the message text only).</li><li><b>Google</b> confirms your sign-in if you use "Sign in with Google".</li><li><b>Email provider</b> sends password reset codes.</li><li>Our hosting provider stores the server and its backups.</li></ul>
+<h2>Visibility</h2><p>Your name, colour, Fyrus number and avatar are visible to other people in the city. Stealth mode hides your name and photo behind an alias. Blocked people cannot message you.</p>
+<h2>How long</h2><p>Account and city data are kept while your account exists. Daily backups are kept for 14 days. Error reports are kept for the most recent 300.</p>
+<h2>Your rights</h2><p>You can ask to see, correct, export or delete your data, and you can withdraw consent at any time. If you are in the EU you can also complain to your data protection authority. To ask, use the Help page or Report in the city.</p>
+<h2>Children</h2><p>Fyrus is not for children under 13. If you believe a child under 13 has an account, report it and we will remove it.</p>`;
+var legalPage = (kind) => kind === "terms" ? shell("Terms of Use", TERMS) : shell("Privacy Policy", PRIVACY);
+
 // server/index.ts
 var PORT = Number(process.env.PORT || 80);
-var PUBLIC = process.env.PUBLIC_DIR || path.join(process.cwd(), "public");
+var PUBLIC = process.env.PUBLIC_DIR || path2.join(process.cwd(), "public");
 var DATA_DIR = process.env.DATA_DIR || "/data";
 var AI_KEY = process.env.ANTHROPIC_API_KEY || "";
 var AI_MODEL = process.env.ANTHROPIC_MODEL || "claude-haiku-4-5";
 var NEAR = 40;
 var MAX_TEXT = 500;
 var db = { users: {}, threads: {}, groups: {}, plots: {}, reports: [] };
-var dbFile = path.join(DATA_DIR, "fyrus.json");
+var dbFile = path2.join(DATA_DIR, "fyrus.json");
 try {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
-  db = { ...db, ...JSON.parse(fs.readFileSync(dbFile, "utf8")) };
+  fs2.mkdirSync(DATA_DIR, { recursive: true });
+  db = { ...db, ...JSON.parse(fs2.readFileSync(dbFile, "utf8")) };
   console.log("loaded", Object.keys(db.users).length, "users");
 } catch {
   console.log("fresh database at", dbFile);
@@ -5714,18 +6182,34 @@ function save() {
   saveT = setTimeout(() => {
     saveT = null;
     try {
-      fs.writeFileSync(dbFile + ".tmp", JSON.stringify(db));
-      fs.renameSync(dbFile + ".tmp", dbFile);
+      fs2.writeFileSync(dbFile + ".tmp", JSON.stringify(db));
+      fs2.renameSync(dbFile + ".tmp", dbFile);
     } catch (e) {
       console.error("save failed", e);
     }
   }, 1500);
 }
-var sha = (s) => crypto2.createHash("sha256").update(s).digest("hex");
-var rid = (n = 12) => crypto2.randomBytes(n).toString("base64url");
+function flush() {
+  if (saveT) {
+    clearTimeout(saveT);
+    saveT = null;
+  }
+  try {
+    fs2.writeFileSync(dbFile + ".tmp", JSON.stringify(db));
+    fs2.renameSync(dbFile + ".tmp", dbFile);
+  } catch (e) {
+    console.error("flush failed", e);
+  }
+}
+for (const sig of ["SIGTERM", "SIGINT"]) process.on(sig, () => {
+  flush();
+  process.exit(0);
+});
+var sha = (s) => crypto3.createHash("sha256").update(s).digest("hex");
+var rid = (n = 12) => crypto3.randomBytes(n).toString("base64url");
 function newNumber() {
   for (; ; ) {
-    const n = `+2040-${crypto2.randomInt(200, 1e3)}-${String(crypto2.randomInt(0, 1e4)).padStart(4, "0")}`;
+    const n = `+2040-${crypto3.randomInt(200, 1e3)}-${String(crypto3.randomInt(0, 1e4)).padStart(4, "0")}`;
     if (!Object.values(db.users).some((u) => u.number === n)) return n;
   }
 }
@@ -5749,7 +6233,7 @@ var findByNumber = (n) => {
   if (moved) {
     console.log("moved", moved, "numbers to +2040");
     try {
-      fs.writeFileSync(dbFile, JSON.stringify(db));
+      fs2.writeFileSync(dbFile, JSON.stringify(db));
     } catch {
     }
   }
@@ -5813,7 +6297,7 @@ function onMessage(me, raw) {
     return;
   }
   const u = me.u;
-  if (edu.onMessage(me, m) || bank.onMessage(me, m) || market.onMessage(me, m) || estate.onMessage(me, m) || news.onMessage(me, m) || ads.onMessage(me, m) || halls.onMessage(me, m)) return;
+  if (edu.onMessage(me, m) || bank.onMessage(me, m) || market.onMessage(me, m) || estate.onMessage(me, m) || news.onMessage(me, m) || ads.onMessage(me, m) || halls.onMessage(me, m) || ops.onMessage(me, m)) return;
   switch (m.t) {
     case "pos": {
       me.x = +m.x || 0;
@@ -5834,6 +6318,7 @@ function onMessage(me, raw) {
       me.rate = me.rate.filter((t) => now - t < 5e3);
       if (me.rate.length >= 8) return send(me.ws, { t: "err", text: "Slow down a little." });
       me.rate.push(now);
+      if (u.muteUntil && u.muteUntil > now) return send(me.ws, { t: "err", text: `You are muted until ${new Date(u.muteUntil).toUTCString().slice(17, 22)} UTC.` });
       const text = filter(clean(m.text, MAX_TEXT));
       if (!text) return;
       const id = rid(8);
@@ -5912,20 +6397,20 @@ function onMessage(me, raw) {
         u.passport = { no: +m.passport.no || 0, interest: clean(m.passport.interest, 20), kind, verified: kind === "passport" ? true : void 0, at: u.passport?.at || Date.now() };
       }
       save();
-      send(me.ws, { t: "me", me: { ...pub(u), lang: u.lang, blocks: u.blocks } });
+      send(me.ws, { t: "me", me: meOf(u) });
       return;
     }
     case "block": {
       const id = clean(m.id, 40);
       if (!u.blocks.includes(id) && db.users[id]) u.blocks.push(id);
       save();
-      send(me.ws, { t: "me", me: { ...pub(u), lang: u.lang, blocks: u.blocks } });
+      send(me.ws, { t: "me", me: meOf(u) });
       return;
     }
     case "unblock": {
       u.blocks = u.blocks.filter((b) => b !== m.id);
       save();
-      send(me.ws, { t: "me", me: { ...pub(u), lang: u.lang, blocks: u.blocks } });
+      send(me.ws, { t: "me", me: meOf(u) });
       return;
     }
     case "report": {
@@ -5960,7 +6445,17 @@ function onMessage(me, raw) {
       return;
     }
     case "voice": {
+      if (m.on && !u.age18) {
+        me.voice = false;
+        return send(me.ws, { t: "need_age18" });
+      }
       me.voice = !!m.on;
+      return;
+    }
+    case "acct_age18": {
+      u.age18 = true;
+      save();
+      send(me.ws, { t: "me", me: meOf(u) });
       return;
     }
     case "rtc": {
@@ -6021,6 +6516,21 @@ var estate = createEstate({ db, bank, save, send, broadcast, liveOf: (id) => liv
 var edu = createEdu({ db, save, send, broadcast, clean, rid, findByNumber, liveOf: (id) => live.get(id), pay: bank.transfer, news: report });
 var ads = createAds({ db, bank, save, send, broadcast, liveOf: (id) => live.get(id), clean, filter, rid, isAdmin, news: report });
 var halls = createHalls({ db, bank, save, send, broadcast, liveOf: (id) => live.get(id), clean, filter, rid, isAdmin, news: report });
+function createUser(name, lang) {
+  const token = rid(24);
+  const u = { id: "u" + rid(8), tok: sha(token), name: clean(name, 24) || "Citizen", color: "#4da3ff", number: newNumber(), lang: LANGS.some((l) => l.code === lang) ? lang : "en", blocks: [], joined: Date.now(), seen: Date.now() };
+  db.users[u.id] = u;
+  save();
+  ops.bump("newUsers");
+  return { u, token };
+}
+var accounts = createAccounts({ db, save, sha, rid, clean, createUser: (n, l) => {
+  const c = createUser(n, l);
+  ops.bump("signups");
+  return c;
+} });
+var ops = createOps({ db, dataDir: DATA_DIR, dbFile: () => dbFile, save, send, liveOf: (id) => live.get(id), liveCount: () => live.size, isAdmin, findByNumber, clean, shown: (id) => db.users[id] ? shown(db.users[id]) : "Citizen" });
+var meOf = (u) => ({ ...pub(u), lang: u.lang, blocks: u.blocks, email: u.email || null, google: !!u.google, age18: !!u.age18, admin: isAdmin(u.id), guest: !u.email && !u.google });
 var SEC = { "X-Content-Type-Options": "nosniff", "Referrer-Policy": "strict-origin-when-cross-origin", "X-Frame-Options": "SAMEORIGIN", "Strict-Transport-Security": "max-age=31536000; includeSubDomains", "Permissions-Policy": "camera=(self), microphone=(self), geolocation=()" };
 var TYPES3 = { ".html": "text/html; charset=utf-8", ".js": "application/javascript", ".css": "text/css", ".png": "image/png", ".jpg": "image/jpeg", ".svg": "image/svg+xml", ".ico": "image/x-icon", ".json": "application/json", ".txt": "text/plain", ".xml": "application/xml", ".webmanifest": "application/manifest+json" };
 var gzCache = /* @__PURE__ */ new Map();
@@ -6030,19 +6540,26 @@ var server = http.createServer((req, res) => {
     res.writeHead(200, { "content-type": "application/json" });
     return res.end(JSON.stringify({ ok: true, online: live.size, users: Object.keys(db.users).length, translate: !!AI_KEY, news: db.news?.items.length || 0 }));
   }
+  const ip = String(req.headers["x-forwarded-for"] || req.socket.remoteAddress || "").split(",")[0].trim();
+  if (accounts.http(req, res, url.pathname, ip)) return;
+  if (ops.http(req, res, url.pathname, ip, accounts.byToken)) return;
+  if (url.pathname === "/terms" || url.pathname === "/privacy") {
+    res.writeHead(200, { ...SEC, "content-type": "text/html; charset=utf-8" });
+    return res.end(legalPage(url.pathname.slice(1)));
+  }
   if (edu.http(url.pathname, res)) return;
-  let p = path.normalize(decodeURIComponent(url.pathname)).replace(/^(\.\.[/\\])+/, "");
-  let file = path.join(PUBLIC, p);
-  if (!file.startsWith(PUBLIC) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) file = path.join(PUBLIC, "index.html");
+  let p = path2.normalize(decodeURIComponent(url.pathname)).replace(/^(\.\.[/\\])+/, "");
+  let file = path2.join(PUBLIC, p);
+  if (!file.startsWith(PUBLIC) || !fs2.existsSync(file) || fs2.statSync(file).isDirectory()) file = path2.join(PUBLIC, "index.html");
   try {
-    const st = fs.statSync(file);
+    const st = fs2.statSync(file);
     let c = gzCache.get(file);
     if (!c || c.mtime !== st.mtimeMs) {
-      const raw = fs.readFileSync(file);
-      c = { raw, gz: zlib.gzipSync(raw, { level: 9 }), mtime: st.mtimeMs };
+      const raw = fs2.readFileSync(file);
+      c = { raw, gz: zlib2.gzipSync(raw, { level: 9 }), mtime: st.mtimeMs };
       gzCache.set(file, c);
     }
-    const ext = path.extname(file);
+    const ext = path2.extname(file);
     const gz = /\bgzip\b/.test(String(req.headers["accept-encoding"] || "")) && /html|js|css|svg|json|xml|txt/.test(ext);
     res.writeHead(200, { ...SEC, "content-type": TYPES3[ext] || "application/octet-stream", "cache-control": ext === ".html" ? "no-cache" : "public, max-age=86400", ...gz ? { "content-encoding": "gzip", vary: "Accept-Encoding" } : {} });
     res.end(gz ? c.gz : c.raw);
@@ -6068,12 +6585,19 @@ wss.on("connection", (ws, req) => {
       }
       if (m.t !== "hello") return;
       clearTimeout(hello);
-      let u = m.token ? Object.values(db.users).find((x) => x.tok === sha(String(m.token))) : void 0;
+      let u = m.token ? accounts.byToken(String(m.token)) : void 0;
       let token = m.token;
+      if (u && accounts.banText(u)) {
+        send(ws, { t: "banned", text: accounts.banText(u) });
+        ws.close();
+        return;
+      }
       if (!u) {
-        token = rid(24);
-        u = { id: "u" + rid(8), tok: sha(token), name: clean(m.name, 24) || "Citizen", color: clean(m.color, 9) || "#4da3ff", number: newNumber(), lang: LANGS.some((l) => l.code === m.lang) ? m.lang : "en", blocks: [], joined: Date.now(), seen: Date.now() };
-        db.users[u.id] = u;
+        const c = createUser(clean(m.name, 24) || "Citizen", m.lang);
+        u = c.u;
+        token = c.token;
+        u.toks = [u.tok];
+        u.color = clean(m.color, 9) || "#4da3ff";
         save();
         console.log("new citizen", u.number, ip);
         const pop = Object.keys(db.users).length;
@@ -6089,7 +6613,8 @@ wss.on("connection", (ws, req) => {
       }
       me = { ws, u, x: 0, z: 36, y: 0, ry: 0, scene: "plaza", voice: false, rate: [] };
       live.set(u.id, me);
-      send(ws, { t: "welcome", token, me: { ...pub(u), lang: u.lang, blocks: u.blocks }, plots: db.plots, groups: Object.values(db.groups).filter((g) => g.members.includes(u.id)), online: live.size, translate: !!AI_KEY });
+      ops.bump("visits");
+      send(ws, { t: "welcome", token, me: meOf(u), plots: db.plots, groups: Object.values(db.groups).filter((g) => g.members.includes(u.id)), online: live.size, translate: !!AI_KEY });
       broadcast({ t: "online", n: live.size });
       return;
     }
