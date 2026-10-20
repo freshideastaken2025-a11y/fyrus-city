@@ -376,26 +376,26 @@ var require_permessage_deflate = __commonJS({
             value = value[0];
             if (key === "client_max_window_bits") {
               if (value !== true) {
-                const num = +value;
-                if (!Number.isInteger(num) || num < 8 || num > 15) {
+                const num2 = +value;
+                if (!Number.isInteger(num2) || num2 < 8 || num2 > 15) {
                   throw new TypeError(
                     `Invalid value for parameter "${key}": ${value}`
                   );
                 }
-                value = num;
+                value = num2;
               } else if (!this._isServer) {
                 throw new TypeError(
                   `Invalid value for parameter "${key}": ${value}`
                 );
               }
             } else if (key === "server_max_window_bits") {
-              const num = +value;
-              if (!Number.isInteger(num) || num < 8 || num > 15) {
+              const num2 = +value;
+              if (!Number.isInteger(num2) || num2 < 8 || num2 > 15) {
                 throw new TypeError(
                   `Invalid value for parameter "${key}": ${value}`
                 );
               }
-              value = num;
+              value = num2;
             } else if (key === "client_no_context_takeover" || key === "server_no_context_takeover") {
               if (value !== true) {
                 throw new TypeError(
@@ -1109,8 +1109,8 @@ var require_receiver = __commonJS({
           return;
         }
         const buf = this.consume(8);
-        const num = buf.readUInt32BE(0);
-        if (num > Math.pow(2, 53 - 32) - 1) {
+        const num2 = buf.readUInt32BE(0);
+        if (num2 > Math.pow(2, 53 - 32) - 1) {
           const error = this.createError(
             RangeError,
             "Unsupported WebSocket frame: payload length > 2^53 - 1",
@@ -1121,7 +1121,7 @@ var require_receiver = __commonJS({
           cb(error);
           return;
         }
-        this._payloadLength = num * Math.pow(2, 32) + buf.readUInt32BE(4);
+        this._payloadLength = num2 * Math.pow(2, 32) + buf.readUInt32BE(4);
         this.haveLength(cb);
       }
       /**
@@ -5691,6 +5691,358 @@ function createHalls(d) {
   return { onMessage: onMessage2, access, halls: HALLS };
 }
 
+// src/data/furniture.ts
+var FURNITURE = [
+  { id: "sofa", name: "Sofa", cat: "Living", w: 2.4, d: 0.95, color: "#8a9bb0" },
+  { id: "lsofa", name: "Corner sofa", cat: "Living", w: 2.8, d: 2.2, color: "#c8bfae" },
+  { id: "armchair", name: "Armchair", cat: "Living", w: 0.95, d: 0.95, color: "#b36b4a" },
+  { id: "coffee", name: "Coffee table", cat: "Living", w: 1.2, d: 0.7, color: "#7a5a3c" },
+  { id: "tv", name: "TV + stand", cat: "Living", w: 2, d: 0.5, color: "#2b2b2b" },
+  { id: "rug", name: "Rug", cat: "Living", w: 3, d: 2, color: "#a34a3c" },
+  { id: "rugr", name: "Round rug", cat: "Living", w: 2.2, d: 2.2, color: "#3f6f8f" },
+  { id: "fireplace", name: "Fireplace", cat: "Living", w: 1.8, d: 0.5, color: "#d8d2c6", wall: true },
+  { id: "bed2", name: "Double bed", cat: "Bedroom", w: 1.8, d: 2.2, color: "#e9e4da" },
+  { id: "bed1", name: "Single bed", cat: "Bedroom", w: 1.1, d: 2.1, color: "#c9d6e3" },
+  { id: "wardrobe", name: "Wardrobe", cat: "Bedroom", w: 1.6, d: 0.6, color: "#efe9df", wall: true },
+  { id: "nightstand", name: "Bedside table", cat: "Bedroom", w: 0.5, d: 0.45, color: "#7a5a3c" },
+  { id: "mirror", name: "Mirror", cat: "Bedroom", w: 0.8, d: 0.1, color: "#d4a64a", wall: true },
+  { id: "dining", name: "Dining table", cat: "Kitchen", w: 1.8, d: 1, color: "#9a7450" },
+  { id: "chair", name: "Chair", cat: "Kitchen", w: 0.5, d: 0.5, color: "#2b2e33" },
+  { id: "counter", name: "Kitchen counter", cat: "Kitchen", w: 2.4, d: 0.65, color: "#f2f2ee", wall: true },
+  { id: "fridge", name: "Fridge", cat: "Kitchen", w: 0.8, d: 0.7, color: "#dfe3e8", wall: true },
+  { id: "desk", name: "Desk + laptop", cat: "Work", w: 1.4, d: 0.7, color: "#efe9df" },
+  { id: "office", name: "Office chair", cat: "Work", w: 0.6, d: 0.6, color: "#1b1d22" },
+  { id: "shelf", name: "Bookshelf", cat: "Work", w: 1.2, d: 0.35, color: "#7a5a3c", wall: true },
+  { id: "plant", name: "Big plant", cat: "Decor", w: 0.7, d: 0.7, color: "#4f7f35" },
+  { id: "plants", name: "Small plant", cat: "Decor", w: 0.4, d: 0.4, color: "#5f8f45" },
+  { id: "lamp", name: "Floor lamp", cat: "Decor", w: 0.4, d: 0.4, color: "#f2e6c9" },
+  { id: "art", name: "Painting", cat: "Decor", w: 1.4, d: 0.06, color: "#ff9a3c", wall: true },
+  { id: "aquarium", name: "Aquarium", cat: "Decor", w: 1.6, d: 0.6, color: "#6fb7d9" },
+  { id: "vase", name: "Flower vase", cat: "Decor", w: 0.35, d: 0.35, color: "#e05a8a" },
+  { id: "piano", name: "Piano", cat: "Fun", w: 1.5, d: 0.6, color: "#111111", wall: true },
+  { id: "arcade", name: "Arcade cabinet", cat: "Fun", w: 0.8, d: 0.8, color: "#4da3ff" },
+  { id: "beanbag", name: "Bean bag", cat: "Fun", w: 0.9, d: 0.9, color: "#ffc27a" },
+  { id: "prayer", name: "Prayer mat", cat: "Decor", w: 0.7, d: 1.2, color: "#2f6a4f" }
+];
+var FURN = Object.fromEntries(FURNITURE.map((f) => [f.id, f]));
+var FLOORS = [
+  { id: "oak", name: "Oak wood", color: "#a7835e" },
+  { id: "walnut", name: "Walnut", color: "#6b4a32" },
+  { id: "tile", name: "White tile", color: "#e9e6e0" },
+  { id: "marble", name: "Marble", color: "#f1eee9" },
+  { id: "carpet", name: "Carpet", color: "#8a8f99" },
+  { id: "concrete", name: "Concrete", color: "#b5b1aa" }
+];
+var FENCES = [{ id: "none", name: "No fence" }, { id: "hedge", name: "Hedge" }, { id: "picket", name: "White picket" }, { id: "iron", name: "Black iron" }, { id: "wall", name: "Low wall" }];
+var GARDENS = [{ id: "lawn", name: "Lawn" }, { id: "flowers", name: "Flower beds" }, { id: "stone", name: "Stone patio" }, { id: "trees", name: "Fruit trees" }];
+var MAX_ITEMS = 120;
+var PASS_MS = 2 * 36e5;
+var homeKind = (key) => /^(EX|MB|RS)-\d{4}$/.test(key) ? "house" : key.startsWith("studio:") ? "studio" : key.startsWith("home:") ? "home" : "";
+var roomSize = (key) => homeKind(key) === "studio" ? { w: 11, d: 10, h: 3.2 } : homeKind(key) === "home" ? { w: 16, d: 14, h: 3.6 } : { w: 18, d: 15, h: 3.6 };
+var HEX = /^#[0-9a-f]{6}$/i;
+var hex = (v, d) => typeof v === "string" && HEX.test(v) ? v.toLowerCase() : d;
+var pick = (v, list, d) => list.some((x) => x.id === v) ? String(v) : d;
+var num = (v, lim) => {
+  const n = Math.round((+v || 0) * 100) / 100;
+  return Math.max(-lim, Math.min(lim, n));
+};
+var DEFAULT_EXT = { wall: "#ffffff", roof: "#5a3f35", trim: "#ffffff", fence: "hedge", garden: "lawn" };
+function cleanExt(e) {
+  e = e || {};
+  return { wall: hex(e.wall, DEFAULT_EXT.wall), roof: hex(e.roof, DEFAULT_EXT.roof), trim: hex(e.trim, DEFAULT_EXT.trim), fence: pick(e.fence, FENCES, "hedge"), garden: pick(e.garden, GARDENS, "lawn") };
+}
+function cleanInt(v, key) {
+  v = v || {};
+  const r = roomSize(key);
+  const hx = r.w / 2 - 0.2, hz = r.d / 2 - 0.2;
+  const items = (Array.isArray(v.items) ? v.items : []).slice(0, MAX_ITEMS).filter((i) => i && FURN[i.k]).map((i) => ({ k: String(i.k), x: num(i.x, hx), z: num(i.z, hz), r: Math.round(((+i.r || 0) % 360 + 360) % 360), ...i.c && HEX.test(i.c) ? { c: String(i.c).toLowerCase() } : {} }));
+  return { wall: hex(v.wall, "#f1ede6"), floor: pick(v.floor, FLOORS, "oak"), accent: hex(v.accent, "#c9d3dc"), items };
+}
+function defaultInt(key) {
+  const k = homeKind(key);
+  if (k === "studio") return { wall: "#f1ede6", floor: "oak", accent: "#dfe6ee", items: [
+    { k: "bed1", x: -3.6, z: -3, r: 0 },
+    { k: "nightstand", x: -2.4, z: -4.2, r: 0 },
+    { k: "sofa", x: 2.6, z: 0.6, r: 180 },
+    { k: "tv", x: 2.6, z: -4.4, r: 0 },
+    { k: "rug", x: 2.6, z: -1.8, r: 0 },
+    { k: "counter", x: -3.8, z: 2.6, r: 90 },
+    { k: "plant", x: 4.6, z: 3.6, r: 0 },
+    { k: "desk", x: -0.6, z: -4.3, r: 0 },
+    { k: "office", x: -0.6, z: -3.5, r: 180 }
+  ] };
+  return { wall: "#f1ede6", floor: "oak", accent: "#c9d3dc", items: [
+    { k: "lsofa", x: -4.5, z: -1.5, r: 0 },
+    { k: "coffee", x: -4.2, z: 0.2, r: 0 },
+    { k: "rug", x: -4.2, z: 0, r: 0 },
+    { k: "tv", x: -4.2, z: 3.6, r: 180 },
+    { k: "dining", x: 3.8, z: 2.4, r: 0 },
+    { k: "chair", x: 3.2, z: 1.6, r: 0 },
+    { k: "chair", x: 4.4, z: 1.6, r: 0 },
+    { k: "chair", x: 3.2, z: 3.2, r: 180 },
+    { k: "chair", x: 4.4, z: 3.2, r: 180 },
+    { k: "counter", x: 6.5, z: -4.8, r: 0 },
+    { k: "fridge", x: 8.2, z: -6.6, r: 0 },
+    { k: "bed2", x: -6.6, z: -5.2, r: 0 },
+    { k: "wardrobe", x: -3.6, z: -7, r: 0 },
+    { k: "plant", x: 0, z: -6.6, r: 0 },
+    { k: "lamp", x: -8.2, z: 1.8, r: 0 },
+    { k: "art", x: 0, z: -7.4, r: 0 }
+  ] };
+}
+
+// server/homes.ts
+function createHomes(d) {
+  if (!d.db.homes) {
+    d.db.homes = {};
+    d.save();
+  }
+  const H5 = d.db.homes;
+  function residentOf(key) {
+    const k = homeKind(key);
+    if (k === "house") {
+      const p = d.db.estate?.plots[key];
+      if (!p?.owner) return null;
+      const tenant = p.rent?.tenant;
+      return { resident: tenant || p.owner, owner: p.owner, label: `House ${key}` };
+    }
+    if (k === "studio") {
+      const sid = key.slice(7);
+      const uid = Object.entries(d.db.estate?.studios || {}).find(([, s]) => s === sid)?.[0];
+      return uid ? { resident: uid, owner: uid, label: `Studio ${sid}` } : null;
+    }
+    return null;
+  }
+  function sync(key) {
+    const r = H5[key];
+    if (!r) return;
+    const o = residentOf(key);
+    const res = o?.resident;
+    if (r.res !== res) {
+      if (r.res) {
+        r.keys = [];
+        r.passes = {};
+        r.lock = "private";
+      }
+      r.res = res;
+      d.save();
+    }
+  }
+  const rec = (key) => {
+    sync(key);
+    return H5[key] ||= { lock: "private", keys: [], res: residentOf(key)?.resident };
+  };
+  const fresh = (r) => {
+    if (r.passes) {
+      for (const [u, t] of Object.entries(r.passes)) if (t < Date.now()) delete r.passes[u];
+    }
+    return r;
+  };
+  function canEnter(key, uid) {
+    const o = residentOf(key);
+    if (!o) return { ok: false, why: "Nobody lives here yet." };
+    if (o.resident === uid) return { ok: true };
+    sync(key);
+    const r = H5[key] ? fresh(H5[key]) : void 0;
+    const lock = r?.lock || "private";
+    if (lock === "open") return { ok: true };
+    if ((r?.passes?.[uid] || 0) > Date.now()) return { ok: true };
+    if (lock === "keys" && r?.keys.some((k) => k.id === uid)) return { ok: true };
+    return { ok: false, why: lock === "keys" ? "Locked. Only people with a key can go in." : "This home is private." };
+  }
+  const extAll = () => Object.fromEntries(Object.entries(H5).filter(([, r]) => r.ext).map(([k, r]) => [k, r.ext]));
+  const pubLock = () => Object.fromEntries(Object.entries(H5).map(([k, r]) => [k, r.lock]));
+  function mine(uid) {
+    const homes2 = [];
+    for (const [k, p] of Object.entries(d.db.estate?.plots || {})) {
+      const o = residentOf(k);
+      void p;
+      if (o?.resident === uid) homes2.push(k);
+    }
+    const sid = d.db.estate?.studios[uid];
+    if (sid) homes2.push("studio:" + sid);
+    Object.keys(H5).forEach(sync);
+    const list = homes2.map((k) => {
+      const o = residentOf(k);
+      const r = H5[k] ? fresh(H5[k]) : { lock: "private", keys: [] };
+      return { key: k, label: o.label, lock: r.lock, keys: r.keys, ext: r.ext || null, owner: o.owner === uid, passes: Object.entries(r.passes || {}).map(([id, until]) => ({ id, name: d.shown(id), until })) };
+    });
+    const held = Object.entries(H5).filter(([k, r]) => {
+      const o = residentOf(k);
+      return o && o.resident !== uid && (r.keys.some((x) => x.id === uid) || (fresh(r).passes?.[uid] || 0) > Date.now());
+    }).map(([k, r]) => {
+      const o = residentOf(k);
+      return { key: k, label: o.label, residentName: d.shown(o.resident), kind: r.keys.some((x) => x.id === uid) ? "key" : "pass", until: r.passes?.[uid] || 0 };
+    });
+    return { t: "home_mine", homes: list, held };
+  }
+  const pushMine = (uid) => {
+    const l = d.liveOf(uid);
+    if (l) d.send(l.ws, mine(uid));
+  };
+  const knocks = /* @__PURE__ */ new Map();
+  function onMessage2(me, m) {
+    if (typeof m.t !== "string" || !m.t.startsWith("home_")) return false;
+    const u = me.u;
+    const reply = (x) => d.send(me.ws, x);
+    const err = (text) => reply({ t: "err", text });
+    const key = String(m.key || "").slice(0, 40);
+    const o = key ? residentOf(key) : null;
+    const isRes = !!o && o.resident === u.id;
+    const mustRes = () => {
+      if (!o) {
+        err("Nobody lives here yet.");
+        return false;
+      }
+      if (!isRes) {
+        err("Only the person who lives here can change this.");
+        return false;
+      }
+      return true;
+    };
+    switch (m.t) {
+      case "home_state":
+        reply({ t: "home_ext", ext: extAll(), locks: pubLock() });
+        reply(mine(u.id));
+        return true;
+      case "home_mine":
+        reply(mine(u.id));
+        return true;
+      case "home_enter": {
+        if (!o) {
+          err("Nobody lives here yet.");
+          return true;
+        }
+        const c = canEnter(key, u.id);
+        const r = H5[key];
+        if (!c.ok) {
+          reply({ t: "home_access", key, ok: false, why: c.why, lock: r?.lock || "private", residentName: d.shown(o.resident), online: !!d.liveOf(o.resident) });
+          return true;
+        }
+        reply({ t: "home_access", key, ok: true, label: o.label, residentName: d.shown(o.resident), canEdit: isRes, int: r?.int || defaultInt(key), ext: r?.ext || null, lock: r?.lock || "private" });
+        return true;
+      }
+      case "home_lock": {
+        if (!mustRes()) return true;
+        const lock = ["private", "keys", "open"].includes(m.lock) ? m.lock : "private";
+        rec(key).lock = lock;
+        d.save();
+        reply({ t: "ok", text: lock === "open" ? "Open house: anyone can walk in." : lock === "keys" ? "Locked. People with a key can go in." : "Private. Only you can go in; visitors can knock." });
+        pushMine(u.id);
+        d.broadcast({ t: "home_lock", key, lock });
+        return true;
+      }
+      case "home_key": {
+        if (!mustRes()) return true;
+        const who = m.id ? d.db.users[String(m.id)] ? { id: String(m.id), name: d.shown(String(m.id)) } : void 0 : d.findByNumber(String(m.number || ""));
+        if (!who) {
+          err("No citizen with that number.");
+          return true;
+        }
+        if (who.id === u.id) {
+          err("You already live here.");
+          return true;
+        }
+        const r = rec(key);
+        if (r.keys.length >= 50) {
+          err("A home can have up to 50 keys.");
+          return true;
+        }
+        if (!r.keys.some((k) => k.id === who.id)) r.keys.push({ id: who.id, name: d.shown(who.id) });
+        if (r.lock === "private") r.lock = "keys";
+        d.save();
+        reply({ t: "ok", text: `${d.shown(who.id)} now has a key to ${o.label}.` });
+        pushMine(u.id);
+        pushMine(who.id);
+        const l = d.liveOf(who.id);
+        if (l) d.send(l.ws, { t: "note", text: `${d.shown(u.id)} gave you a key to ${o.label}. Open Homes & keys to visit.` });
+        return true;
+      }
+      case "home_unkey": {
+        if (!mustRes()) return true;
+        const r = rec(key);
+        const id = String(m.id || "");
+        r.keys = r.keys.filter((k) => k.id !== id);
+        if (r.passes) delete r.passes[id];
+        d.save();
+        reply({ t: "ok", text: "Key taken back." });
+        pushMine(u.id);
+        pushMine(id);
+        return true;
+      }
+      case "home_knock": {
+        if (!o) {
+          err("Nobody lives here yet.");
+          return true;
+        }
+        if (isRes) {
+          reply({ t: "note", text: "This is your home. Walk in." });
+          return true;
+        }
+        const last = knocks.get(u.id);
+        if (last && last.key === key && Date.now() - last.at < 2e4) {
+          err("You just knocked. Give them a moment.");
+          return true;
+        }
+        const l = d.liveOf(o.resident);
+        if (!l) {
+          reply({ t: "note", text: `${d.shown(o.resident)} is not home right now. Try again later.` });
+          return true;
+        }
+        knocks.set(u.id, { key, from: u.id, at: Date.now() });
+        if (knocks.size > 5e3) knocks.clear();
+        d.send(l.ws, { t: "home_knock", key, label: o.label, from: { id: u.id, name: d.shown(u.id) } });
+        reply({ t: "note", text: `You knocked on ${o.label}. Waiting for ${d.shown(o.resident)}\u2026` });
+        return true;
+      }
+      case "home_answer": {
+        if (!mustRes()) return true;
+        const id = String(m.id || "");
+        const k = knocks.get(id);
+        if (!k || k.key !== key) {
+          err("That knock has expired.");
+          return true;
+        }
+        knocks.delete(id);
+        const l = d.liveOf(id);
+        if (m.yes) {
+          const r = rec(key);
+          (r.passes ||= {})[id] = Date.now() + PASS_MS;
+          d.save();
+          if (l) d.send(l.ws, { t: "home_let_in", key, label: o.label, by: d.shown(u.id) });
+          reply({ t: "ok", text: `You let ${d.shown(id)} in for 2 hours.` });
+          pushMine(u.id);
+          pushMine(id);
+        } else if (l) d.send(l.ws, { t: "note", text: `${d.shown(u.id)} can't open the door right now.` });
+        return true;
+      }
+      case "home_int": {
+        if (!mustRes()) return true;
+        const r = rec(key);
+        r.int = cleanInt(m.int, key);
+        r.at = Date.now();
+        d.save();
+        reply({ t: "home_saved", key, int: r.int });
+        d.toScene("house:" + key, { t: "home_int", key, int: r.int });
+        return true;
+      }
+      case "home_ext": {
+        if (!mustRes()) return true;
+        const r = rec(key);
+        r.ext = cleanExt(m.ext);
+        d.save();
+        reply({ t: "ok", text: "New paint and garden saved. Everyone sees it." });
+        d.broadcast({ t: "home_ext", ext: { [key]: r.ext } });
+        pushMine(u.id);
+        return true;
+      }
+    }
+    return true;
+  }
+  const hasRoyalKey = (uid) => Object.entries(H5).some(([k, r]) => k.startsWith("RS-") && (r.keys.some((x) => x.id === uid) || (r.passes?.[uid] || 0) > Date.now()));
+  return { onMessage: onMessage2, canEnter, residentOf, hasRoyalKey, mine };
+}
+
 // server/accounts.ts
 import crypto2 from "node:crypto";
 var GOOGLE_ID = process.env.GOOGLE_CLIENT_ID || "";
@@ -6297,7 +6649,7 @@ function onMessage(me, raw) {
     return;
   }
   const u = me.u;
-  if (edu.onMessage(me, m) || bank.onMessage(me, m) || market.onMessage(me, m) || estate.onMessage(me, m) || news.onMessage(me, m) || ads.onMessage(me, m) || halls.onMessage(me, m) || ops.onMessage(me, m)) return;
+  if (edu.onMessage(me, m) || bank.onMessage(me, m) || market.onMessage(me, m) || estate.onMessage(me, m) || news.onMessage(me, m) || ads.onMessage(me, m) || halls.onMessage(me, m) || homes.onMessage(me, m) || ops.onMessage(me, m)) return;
   switch (m.t) {
     case "pos": {
       me.x = +m.x || 0;
@@ -6516,6 +6868,9 @@ var estate = createEstate({ db, bank, save, send, broadcast, liveOf: (id) => liv
 var edu = createEdu({ db, save, send, broadcast, clean, rid, findByNumber, liveOf: (id) => live.get(id), pay: bank.transfer, news: report });
 var ads = createAds({ db, bank, save, send, broadcast, liveOf: (id) => live.get(id), clean, filter, rid, isAdmin, news: report });
 var halls = createHalls({ db, bank, save, send, broadcast, liveOf: (id) => live.get(id), clean, filter, rid, isAdmin, news: report });
+var homes = createHomes({ db, save, send, broadcast, liveOf: (id) => live.get(id), findByNumber, isAdmin, shown: (id) => db.users[id] ? shown(db.users[id]) : "Citizen", toScene: (scene, m) => live.forEach((l) => {
+  if (l.scene === scene) send(l.ws, m);
+}) });
 function createUser(name, lang) {
   const token = rid(24);
   const u = { id: "u" + rid(8), tok: sha(token), name: clean(name, 24) || "Citizen", color: "#4da3ff", number: newNumber(), lang: LANGS.some((l) => l.code === lang) ? lang : "en", blocks: [], joined: Date.now(), seen: Date.now() };
