@@ -5004,10 +5004,22 @@ function wH() {
       (r.game = { ...nM(), ...a.game }),
       (r.settings = { ...oM, ...(a.settings || {}) }));
     let o = (n, i) => [...n, ...i.filter((s) => !n.some((l) => l.id === s.id))];
+    // v25: sample listings and profiles never keep made-up stats from older saves
+    let z = (n, i) =>
+      (n || []).map((it) => {
+        let sd = i.find((x) => x.id === it.id);
+        if (!sd) return it;
+        let c = { ...it };
+        ["rating", "reviews", "sales", "orders", "followers", "visits"].forEach((k) => {
+          k in sd && (c[k] = sd[k]);
+        });
+        return c;
+      });
     return (
-      (r.agents = o(r.agents, t.agents)),
-      (r.gigs = o(r.gigs, t.gigs)),
-      (r.brands = o(r.brands, t.brands)),
+      (r.agents = z(o(r.agents, t.agents), t.agents)),
+      (r.gigs = z(o(r.gigs, t.gigs), t.gigs)),
+      (r.brands = z(o(r.brands, t.brands), t.brands)),
+      (r.users = z(r.users, t.users)),
       r.game.day !== Hh() && (r.game = { ...r.game, day: Hh(), quests: {}, claimed: [], visited: [] }),
       r
     );
