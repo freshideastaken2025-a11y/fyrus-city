@@ -4162,8 +4162,10 @@ function createEdu(d) {
 }
 
 // server/bank.ts
-var OPENING_CAP = 5e4;
-var DAILY_GAME_CAP = +(process.env.DAILY_REWARD_CAP || 15e4);
+// Rewards come from the client, so keep them small until the server computes them itself.
+var OPENING_CAP = +(process.env.OPENING_CAP || 2500);
+var DAILY_GAME_CAP = +(process.env.DAILY_REWARD_CAP || 15e3);
+var MAX_REWARD_PER_OP = +(process.env.MAX_REWARD_PER_OP || 1500);
 var SPECIAL = /* @__PURE__ */ new Set(["treasury", "escrow"]);
 var r2 = (n) => Math.round(n * 100) / 100;
 function createBank(d) {
@@ -4251,7 +4253,7 @@ function createBank(d) {
           a.dayIn = 0;
         }
         const room = Math.max(0, DAILY_GAME_CAP - a.dayIn);
-        const ok = Math.min(room, amt);
+        const ok = Math.min(room, amt, MAX_REWARD_PER_OP);
         if (ok > 0) {
           a.dayIn += ok;
           transfer("mint", u.id, ok, label);

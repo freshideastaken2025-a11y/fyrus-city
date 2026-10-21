@@ -1,5 +1,7 @@
 # Fyrus City — https://fyrus.io
 
+**Start here: [FYRUS_HANDOFF.md](FYRUS_HANDOFF.md)** — vision, what is done, what is pending, how to deploy.
+
 - `index.html` — the whole city (single-file build).
 - `fyrus-plus.js` — add-on layer loaded after the city: mood/weather picker on entry, visa-free Citizen ID card from a photo, Museum of 2026, neon free-plot construction sites, cinematic view. Uses `window.__fyrus` and `window.__fyrusW`.
 - `fyrus-world.js` — country layer: cinematic Map of Fyrus intro with music, Book of Fyrus (9 provinces, Great Houses, Charter, calendar), province banners, Frostspine mountains, film colour grade.

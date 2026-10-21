@@ -1,0 +1,166 @@
+# Fyrus — Handoff & Status (read this first)
+
+> **For any AI or developer picking this up (Claude, ChatGPT, Gemini, OpenClaw agents, humans):**
+> Read this whole file before changing anything. When you finish a task, **update the
+> "Done" and "Pending" sections and the changelog at the bottom** in the same commit.
+> Last updated: **22 Oct 2026, v22** (by Claude).
+
+---
+
+## 1. The vision (owner's idea)
+
+Fyrus (https://fyrus.io) is a **virtual country for the year 2040** — like the complete world of
+*Game of Thrones* (history, provinces, houses, laws), but modern and futuristic instead of medieval.
+Anyone in the world can enter **visa-free**: they give a picture and instantly get a citizen ID card.
+
+Everything a real advanced country has should exist: 20+ cities each with its own purpose and
+airport, trains/stations, buses, flying cars, racing cars, mountains and beaches, army, police
+(**zero real crime** — "crime" only as PUBG-style games), religion (every faith free), politics
+(parties, elections, parliament), business, creators, news channels, schools, colleges,
+universities, libraries, a museum of the 2020s, jobs, freelancing, homes for rent/sale,
+digital and physical products sold worldwide, game zones, bars/lounges, concerts.
+
+Goal: **everyone who visits finds their purpose** — earn money, spend money, learn, publish,
+sell, hire, play, make friends — and children, adults and elders all feel at home.
+Look & feel target: **cinematic** (GoT-style), **premium/luxury**, nothing that feels like a cheap bot.
+
+Owner context: single founder in Pakistan, small budget, team of 13 who are sales people (not
+developers) — so **AI does the building**. Tools: MacBook (M4 Pro 24 GB), Nothing Phone 2,
+Claude Pro, ChatGPT Pro, Gemini Pro, OpenClaw + Ollama (local models), Hostinger VPS + Coolify.
+
+---
+
+## 2. How the site is built (architecture)
+
+| File | What it is |
+|---|---|
+| `index.html` (~1.27 MB) | The whole city: React + Three.js r149 + Tailwind (CDN), **minified single-file build**. Original TypeScript source is **not in this repo** (see Pending P0-4). |
+| `server.mjs` (~7,850 lines) | Node server (bundled, readable). Serves the site, WebSocket `/ws` multiplayer, chat/DMs/groups, +2040 phone numbers, voice signalling, bank/FYC, escrow market, education, news, ads, halls, homes, politics, jobs, accounts (email + Google, password reset via Resend), admin ops, backups. Data = one JSON file `/data/fyrus.json`. |
+| `fyrus-plus.js` | Add-on layer v1.2: mood/weather picker on entry, visa-free **Citizen ID card** from a photo (photo stays on device), **Museum of 2026**, neon **free-plot construction sites**, cinematic view, right-side dock. |
+| `fyrus-world.js` | Country layer v2.0: **lore** (9 provinces, Great Houses, history, Charter, calendar), **Book of Fyrus**, province **banners** in the city, **Frostspine mountains**, film colour grade. Exposes `window.__fyrusWorld`. |
+| `fyrus-intro.js` | **Opening film** v2.0 (~30 s): heartbeat → gold map reveal → FYRUS title → 9 provinces with unique architecture assembling → "Population: You" + Enter / Read the Book. Original synthesised score. Exposes `window.__fyrusIntro`. |
+| `Dockerfile` | `node:22-alpine`, copies server + all public files, port 80. |
+
+**Add-on pattern (important):** because the original source is missing, new features are written as
+separate files that hook into the app through two globals the bundle exposes:
+- `window.__fyrus` → `{ getState, setState, goInside, exitHome, openHomes, openPolitics, openSvc, openServices }`
+- `window.__fyrusW` → the 3D world (`world` = THREE.Scene, `camera`, `renderer`, `player.root`,
+  `colliders` [{x,z,r}], `staticInteracts` [{pos,radius,label,action,use}] (E-key), `blocked(state)`
+  = areas procedural homes avoid, `yaw/pitch/dist` camera).
+- Useful state: `settings.{time,weather,season,vibe,music,volume,quality}`, `plots`, `sharedPlots`,
+  `hud:{open,tab}`, `nationTab` ('passport'|'land'|'law'), `landFocus`.
+- World facts: ground −550…550; sea to the south (z < −357); ring road r=175; procedural chunks 64 m;
+  land districts CP/MC/TC/CC/PC/LC/FD (see `DIST` in fyrus-plus.js).
+
+## 3. Deploy pipeline (works end-to-end)
+
+1. Commit to `main` in this repo (GitHub: `freshideastaken2025-a11y/fyrus-city`).
+2. A GitHub **webhook** notifies **Coolify** on the Hostinger VPS → it rebuilds the Docker image
+   → live on https://fyrus.io in ~40 s. (Auto-deploy verified 22 Oct 2026.)
+3. Rollback: Coolify → the app → Rollback, or `git revert` and push.
+
+Working method that proved reliable:
+- Work on a branch (`fyrus-xxx-vN`), push it, test the new JS on the live site **in your own browser
+  tab only** by fetching `https://raw.githubusercontent.com/<repo>/<branch>/<file>` and `eval`-ing it,
+  then merge to `main`.
+- Bump the `?v=` query on the `<script>` tags in `index.html` when a file changes (JS is cached 1 day).
+- On the owner's Mac, `git push` from scripts may be blocked by a proxy — **GitHub Desktop "Push origin"** works.
+
+## 4. Design system (use it for everything new)
+
+- Colours: midnight navy `#0a0f1a` / `#111a2b`, **champagne gold** `#c9a96e` (hi `#e8d5a8`),
+  ivory `#f4efe6`, muted `#9aa3b2`, Fyrus blue `#4da3ff` (accent only), brand orange `#ff9a3c`
+  (only the logo ring).
+- Fonts (already loaded by the site): **Bebas Neue** (big titles), **Sora** (headings/buttons,
+  uppercase + letter-spacing for labels), **Plus Jakarta Sans** (body), **JetBrains Mono** (small labels).
+- Style: thin gold hairlines, dark glass panels, pill buttons (gold solid / gold outline), lots of space.
+  No parchment/serif — keep inside and outside consistent.
+
+## 5. Lore (single source of truth = `PROVINCES` in fyrus-world.js)
+
+| Province | Seat | Great House | Motto | Purpose |
+|---|---|---|---|---|
+| Corona | Fyrus Core | House Aurel | One Light, Many Voices | Capital, Parliament, Central Bank, Citizen Center |
+| Meridian | Market City | House Sable | Fair Trade, Open Gates | Shops, brands, escrow market |
+| Silica | Tech City | House Volt | We Build Tomorrow | AI agents, startups, labs |
+| Lumen | Creator City | House Iris | Make Something True | Studios, galleries, news channels |
+| Arcadia | Play City | House Jade | Play Fair, Play Free | Arcades, arenas, tournaments (game-only "crime") |
+| Sage | Learn City | House Orrin | Knowledge for All | Schools, university, library |
+| Harmony | Faith & Culture | House Calder | Every Faith Is Free Here | Every religion side by side |
+| The Azure Coast | Vector Bay & Marina | House Maren | The Sea Remembers | Beaches, marina, airport |
+| The Frostspine | Mountain passes | House Varn | Hold the Heights | Snow peaks, hiking, observatories |
+
+Houses are **elected every season, never inherited**. Charter: free entry, free faith, free learning,
+zero real crime, fair trade (escrow), one citizen one vote, protect children & elders.
+
+---
+
+## 6. DONE ✅
+
+- v1–v18 (before 21 Oct): whole city — passport/visa, FYC bank & FyrusPay, escrow market, Education
+  City, News TV, billboards, halls/lounges/gaming arena, Joyland, Metro, taxi, airport, flying car,
+  avatar editor (gender/face/13 hairstyles/clothes), map + search + teleport, homes with locks &
+  decorating, parties/elections/parliament, hospital/police/fire/post/library/pharmacy, bazaar,
+  food street, faith district, shift jobs, real accounts, admin desk, backups, terms/privacy.
+- v19: Fyrus+ — mood picker, Citizen ID card, Museum of 2026, neon free plots.
+- v20: Book of Fyrus, 9 provinces & Great Houses, 16 province banners, Frostspine mountains.
+- v21: new opening film with unique architecture per province + luxury design system everywhere.
+- v22: **security** — FYC rewards capped (opening balance 2,500; max 1,500 per reward; 15,000/day,
+  all configurable by env `OPENING_CAP`, `MAX_REWARD_PER_OP`, `DAILY_REWARD_CAP`);
+  **removed fake activity** — fake "X bought through your link" affiliate income and fake chat on the
+  user's *own* live stream are switched off.
+- Ops: GitHub → Coolify auto-deploy webhook working.
+
+## 7. PENDING ⏳ (in priority order)
+
+### P0 — must do before marketing / real money
+1. **Server-computed rewards.** Rewards still come from the client (`bank_op` with a positive amount);
+   v22 only caps them. Move each reward (daily reward, quest, game win) to the server with its own rule.
+   Remove the "test credit" button before real payments.
+2. **Label or remove remaining demo content:** scripted AI agent replies ("demo"), seeded reviews
+   (e.g. ResearchPilot 4.9/318 vs 4.3/3), demo NPC live streams with random viewers, `demo-signature`
+   leftovers. Rule: nothing fake may look real.
+3. **Payments (one direction first):** users pay Fyrus for FYC packs / premium avatar / shop / billboard.
+   Stripe is not directly available in Pakistan → evaluate Paddle or Lemon Squeezy (merchant of record)
+   and Safepay / JazzCash / Easypaisa. **No cash-out and no user-to-user real money** until legal advice.
+   Physical products: link out to the seller's store.
+4. **Recover or rebuild the source code.** Only the compiled bundle exists. Either find the original
+   TypeScript project (server paths like `server/bank.ts`, `src/data/*.ts` exist in the bundle comments)
+   or start a clean Vite + React + Three.js repo and port feature by feature. This is the single biggest
+   saver of AI limits.
+5. **Database:** move from one JSON file to SQLite (then Postgres); daily off-site backup.
+6. **Child safety & moderation:** report/block in chat and voice, moderator queue, 18+ zones, age gate
+   already exists (13+) — verify it.
+7. **Performance:** compile Tailwind (drop the CDN), self-host three.js, split the 1.3 MB bundle, test
+   on a mid-range Android phone.
+
+### P1 — the country (vision)
+8. **20+ cities** (now 7 districts + capital). Each: name in the lore, purpose, signature building,
+   airport/station. Add them to `PROVINCES` + map + film.
+9. **Real 3D look:** replace box/cylinder buildings with glTF models (free CC0 packs: Kenney, Quaternius,
+   Poly Haven), better night lighting, sound design. Needs P0-4 first.
+10. **Train network** between cities with stations + **bus adda**; ride inside.
+11. **Beach & coast** (sand, palms, promenade) on the Azure Coast; more realistic mountains.
+12. **Arcadia battle arena** — PUBG-style "crime as a game" mode (heists, battles) with no real harm.
+13. **Army & police** — parade ground, ranks, ceremonies; zero-crime HUD.
+14. **Concerts & events** — big venue, ticketed events, bars/lounges zone.
+15. **Education ladder** — school → college → University of Fyrus campus, certificates.
+16. **News & publishing** — any citizen can publish articles / open a channel in Lumen.
+17. **Homes for rent** (sale exists) and **worldwide sellers** in Meridian.
+18. **Belonging** — daily events, friend finder, elder-friendly simple mode, kids' safe zone.
+
+### P2 — business
+19. Brand sales kit for the 13-person sales team (billboards, showrooms, sponsored quests).
+20. Analytics: weekly retention, where people spend time.
+
+## 8. Known issues / notes
+- Testing from AI sandboxes: npm/CDNs are blocked there; test on the live site in your own tab (see §3).
+- The coolify/VPS and OpenClaw setup details are in the owner's private Claude Project doc, not here
+  (this repo is public — **never commit secrets**).
+
+## 9. Changelog
+- 2026-10-22 v22 — FYC reward caps; fake affiliate income & fake chat on own stream removed; this handoff file.
+- 2026-10-22 v21.2 — opening film v2, unique architecture, navy/gold design system.
+- 2026-10-22 v20.1 — Book of Fyrus, provinces, banners, mountains.
+- 2026-10-22 v19 — Fyrus+ (mood, ID card, museum, neon plots).
+- 2026-10-21 v18 and earlier — see `git log`.
