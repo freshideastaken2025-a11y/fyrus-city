@@ -19,7 +19,7 @@
     '.fxi-vig{position:absolute;inset:0;pointer-events:none;background:radial-gradient(ellipse at 50% 45%,rgba(0,0,0,0) 45%,rgba(2,4,8,.75) 100%)}' +
     '.fxi-bar{position:absolute;left:0;right:0;height:0;background:#000;z-index:3;transition:height 1.2s cubic-bezier(.7,0,.2,1)}.fxi-bar.t{top:0}.fxi-bar.b{bottom:0}' +
     '.fxi.letterbox .fxi-bar{height:7.5vh}' +
-    '.fxi-center{position:absolute;inset:0;display:grid;place-items:center;text-align:center;pointer-events:none;z-index:4;padding:0 16px}' +
+    '.fxi-center{position:absolute;inset:0;display:grid;place-items:center;text-align:center;pointer-events:none;z-index:4;padding:0 16px;background:radial-gradient(ellipse 65% 40% at 50% 50%,rgba(5,8,15,.78),rgba(5,8,15,0) 100%)}' +
     '.fxi-kicker{font:500 11px "JetBrains Mono",monospace;letter-spacing:.5em;text-transform:uppercase;color:' + GOLD + ';opacity:0;transition:opacity 1.2s}' +
     '.fxi-logo{font:400 clamp(72px,17vw,220px)/.85 "Bebas Neue",Sora,sans-serif;letter-spacing:.9em;margin-right:-.9em;opacity:0;background:linear-gradient(180deg,#fbf1d6 0%,' + GOLD_HI + ' 40%,' + GOLD + ' 75%,#8a6a35 100%);-webkit-background-clip:text;background-clip:text;color:transparent;filter:drop-shadow(0 0 40px rgba(201,169,110,.25));transition:letter-spacing 3.2s cubic-bezier(.16,1,.3,1),margin 3.2s cubic-bezier(.16,1,.3,1),opacity 1.4s}' +
     '.fxi-logo.on{letter-spacing:.14em;margin-right:-.14em;opacity:1}' +
@@ -27,14 +27,15 @@
     '.fxi-line.on{width:min(420px,70vw)}' +
     '.fxi-tag{font:300 clamp(14px,2vw,19px)/1.5 Sora,sans-serif;letter-spacing:.32em;text-transform:uppercase;color:' + IVORY + ';opacity:0;transition:opacity 1.6s .6s}' +
     '.fxi-lower{position:absolute;left:clamp(20px,6vw,90px);bottom:calc(7.5vh + clamp(24px,6vh,70px));z-index:4;pointer-events:none;max-width:min(640px,86vw)}' +
+    '.fxi-shade{position:absolute;left:0;right:0;bottom:0;height:55%;z-index:3;pointer-events:none;background:linear-gradient(0deg,rgba(5,8,15,.85),rgba(5,8,15,0))}' +
     '.fxi-lower .rule{width:56px;height:1px;background:' + GOLD + ';margin-bottom:16px;transform-origin:left;transform:scaleX(0);transition:transform .9s cubic-bezier(.16,1,.3,1)}' +
     '.fxi-lower .num{font:500 11px "JetBrains Mono",monospace;letter-spacing:.42em;text-transform:uppercase;color:' + GOLD + '}' +
     '.fxi-lower .name{font:400 clamp(56px,10vw,128px)/.9 "Bebas Neue",Sora,sans-serif;letter-spacing:.06em;margin:8px 0 6px;color:' + IVORY + ';text-shadow:0 6px 40px rgba(0,0,0,.6)}' +
     '.fxi-lower .house{font:600 13px Sora,sans-serif;letter-spacing:.24em;text-transform:uppercase;color:' + GOLD_HI + '}' +
     '.fxi-lower .motto{font:300 clamp(14px,1.8vw,18px)/1.5 Sora,sans-serif;color:#c3c9d4;margin-top:6px}' +
-    '.fxi-lower .w{display:inline-block;opacity:0;transform:translateY(14px);transition:opacity .7s,transform .9s cubic-bezier(.16,1,.3,1)}' +
+    '.fxi-lower .w{display:inline-block;white-space:pre;opacity:0;transform:translateY(14px);transition:opacity .7s,transform .9s cubic-bezier(.16,1,.3,1)}' +
     '.fxi-lower.on .rule{transform:scaleX(1)}.fxi-lower.on .w{opacity:1;transform:none}' +
-    '.fxi-end{position:absolute;inset:0;z-index:5;display:grid;place-items:center;text-align:center;padding:0 16px;opacity:0;pointer-events:none;transition:opacity 1.4s}' +
+    '.fxi-end{position:absolute;inset:0;z-index:5;display:grid;place-items:center;text-align:center;padding:0 16px;opacity:0;pointer-events:none;transition:opacity 1.4s;background:radial-gradient(ellipse 70% 55% at 50% 50%,rgba(5,8,15,.92) 0%,rgba(5,8,15,.7) 55%,rgba(5,8,15,.15) 100%)}' +
     '.fxi-end.on{opacity:1;pointer-events:auto}' +
     '.fxi-end .big{font:400 clamp(60px,12vw,150px)/.9 "Bebas Neue",Sora,sans-serif;letter-spacing:.08em;background:linear-gradient(180deg,#fbf1d6,' + GOLD + ');-webkit-background-clip:text;background-clip:text;color:transparent}' +
     '.fxi-end .small{font:300 clamp(14px,2vw,18px)/1.6 Sora,sans-serif;letter-spacing:.18em;text-transform:uppercase;color:#c3c9d4;margin:14px 0 30px}' +
@@ -312,7 +313,7 @@
 
     var root = el('div', 'fxi'); root.setAttribute('role', 'dialog'); root.setAttribute('aria-label', 'Fyrus opening film');
     var canvas = el('canvas'); root.appendChild(canvas);
-    root.appendChild(el('div', 'fxi-vig')); root.appendChild(el('div', 'fxi-grain'));
+    root.appendChild(el('div', 'fxi-vig')); root.appendChild(el('div', 'fxi-grain')); var shade = el('div', 'fxi-shade'); shade.style.opacity = '0'; shade.style.transition = 'opacity 1s'; root.appendChild(shade);
     root.appendChild(el('div', 'fxi-bar t')); root.appendChild(el('div', 'fxi-bar b'));
     var kicker = el('div', 'fxi-kicker', ['Republic of Fyrus · 2040']);
     var logo = el('div', 'fxi-logo', ['FYRUS']), line = el('div', 'fxi-line'), tag = el('div', 'fxi-tag', ['A country with no borders']);
@@ -348,7 +349,8 @@
     // dust motes for depth
     var dustG = new T.BufferGeometry(), dp = new Float32Array(1500 * 3); for (var i = 0; i < 1500; i++) { dp[i * 3] = (Math.random() - .5) * 1400; dp[i * 3 + 1] = Math.random() * 260; dp[i * 3 + 2] = (Math.random() - .5) * 1400; }
     dustG.setAttribute('position', new T.BufferAttribute(dp, 3));
-    var dust = new T.Points(dustG, new T.PointsMaterial({ color: 0xe8d5a8, size: 1.6, transparent: true, opacity: .45, depthWrite: false })); scene.add(dust);
+    var dot = (function () { var c = document.createElement('canvas'); c.width = c.height = 32; var g = c.getContext('2d'); var gr = g.createRadialGradient(16, 16, 0, 16, 16, 16); gr.addColorStop(0, 'rgba(255,245,220,1)'); gr.addColorStop(1, 'rgba(255,245,220,0)'); g.fillStyle = gr; g.fillRect(0, 0, 32, 32); return new T.CanvasTexture(c); })();
+    var dust = new T.Points(dustG, new T.PointsMaterial({ color: 0xe8d5a8, map: dot, size: 2.4, transparent: true, opacity: .5, depthWrite: false, blending: T.AdditiveBlending })); scene.add(dust);
 
     var kit = Kit(T);
     var order = ['corona', 'meridian', 'silica', 'lumen', 'arcadia', 'sage', 'harmony', 'azure', 'frostspine'];
@@ -364,8 +366,8 @@
     var PER = reduce ? 1.6 : 2.35, T_REVEAL = 2.6, T_LOGO = 4.4, T_TOUR = 8.6, T_END = T_TOUR + order.length * PER;
     var ROMAN = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX'];
     function orbit(c, u) { // u: 0..1 within a province shot
-      var far = c.pv.id === 'frostspine', r = far ? 190 : 120 - u * 30, h = far ? 110 : 62 - u * 22, a = -2.2 + (order.indexOf(c.pv.id) % 2 ? -1 : 1) * (.5 - u) * .9;
-      return { pos: new T.Vector3(c.pv.x + Math.cos(a) * r, h, c.pv.z + Math.sin(a) * r), look: new T.Vector3(c.pv.x, far ? 30 : 18, c.pv.z) };
+      var far = c.pv.id === 'frostspine', big = c.pv.id === 'corona' ? 1.3 : 1, r = (far ? 190 : 145 - u * 30) * big, h = (far ? 110 : 66 - u * 20) * big, a = -2.2 + (order.indexOf(c.pv.id) % 2 ? -1 : 1) * (.5 - u) * .9;
+      return { pos: new T.Vector3(c.pv.x + Math.cos(a) * r, h, c.pv.z + Math.sin(a) * r), look: new T.Vector3(c.pv.x, far ? 30 : 16 * big, c.pv.z) };
     }
     var overview = { pos: new T.Vector3(0, 1250, -760), look: new T.Vector3(0, 0, 60) };
     var opening = { pos: new T.Vector3(0, 60, -120), look: new T.Vector3(0, 4, 20) };
@@ -424,10 +426,11 @@
         mapMat.uniforms.reveal.value = 1400;
         var idx = Math.min(order.length - 1, Math.floor((t - T_TOUR) / PER)), u = ((t - T_TOUR) - idx * PER) / PER;
         if (idx !== shown) { shown = idx; showProvince(idx); score.hit(); }
+        shade.style.opacity = '1';
         var o = orbit(cities[idx], u), blend = Math.min(1, u * PER / .9);
         curPos.lerp(o.pos, idx === 0 && u < .4 ? .06 : .08 + blend * .1); curLook.lerp(o.look, .12);
       } else {
-        if (!ended) { ended = true; showEnd(); }
+        if (!ended) { ended = true; showEnd(); shade.style.opacity = '0'; }
         var k3 = Math.min(1, (t - T_END) / 3);
         curPos.lerp(finale.pos, .03 + k3 * .02); curLook.lerp(finale.look, .05);
       }
