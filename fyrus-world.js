@@ -5,7 +5,7 @@
 (function () {
   'use strict';
   if (window.__fyrusWorld) return;
-  var API = window.__fyrusWorld = { version: '1.0.0' };
+  var API = window.__fyrusWorld = { version: '2.0.0' };
 
   var LS = {
     get: function (k, d) { try { var v = localStorage.getItem('fyrusWorld.' + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -103,32 +103,30 @@
   }
 
   /* ---------------- shared UI ---------------- */
+  // Fyrus luxury system: midnight navy, champagne gold, ivory; site fonts only.
   var css = '' +
-    '.fxw-ov{position:fixed;inset:0;z-index:2147483100;background:#05070c;color:#f3ead7;font-family:"Plus Jakarta Sans",system-ui,sans-serif}' +
-    '.fxw-ov canvas{position:absolute;inset:0;width:100%;height:100%;display:block}' +
-    '.fxw-title{position:absolute;left:0;right:0;bottom:8vh;text-align:center;pointer-events:none;padding:60px 16px 4vh;transition:opacity .6s;background:radial-gradient(ellipse at 50% 70%,rgba(8,5,2,.72),rgba(8,5,2,0) 70%)}' +
-    '.fxw-title .k{font:600 12px/1 "JetBrains Mono",monospace;letter-spacing:.32em;color:#ffc27a;text-transform:uppercase}' +
-    '.fxw-title .n{font:italic 700 clamp(34px,7vw,72px)/1.05 "Playfair Display",Georgia,serif;margin:10px 0 8px;text-shadow:0 4px 30px rgba(0,0,0,.8)}' +
-    '.fxw-title .m{font:500 clamp(13px,2vw,17px)/1.4 "Plus Jakarta Sans",sans-serif;color:#d9cdb3;letter-spacing:.04em}' +
-    '.fxw-skip{position:absolute;right:16px;bottom:16px;z-index:2;background:rgba(0,0,0,.45);border:1px solid rgba(255,255,255,.25);color:#fff;border-radius:999px;padding:10px 16px;font:600 13px Sora,sans-serif;cursor:pointer}' +
-    '.fxw-bars:before,.fxw-bars:after{content:"";position:absolute;left:0;right:0;height:8vh;background:#000;z-index:1;pointer-events:none}.fxw-bars:before{top:0}.fxw-bars:after{bottom:0}' +
-    '.fxw-book{position:fixed;inset:0;z-index:2147483050;display:grid;place-items:center;background:rgba(4,6,10,.6);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);padding:16px}' +
-    '.fxw-page{width:min(1000px,100%);max-height:calc(100vh - 32px);overflow:auto;border-radius:18px;padding:26px;color:#2b2113;background:linear-gradient(180deg,#f6ecd6,#eadbb8);box-shadow:0 30px 90px rgba(0,0,0,.55),inset 0 0 80px rgba(120,80,20,.25);font-family:"Plus Jakarta Sans",sans-serif}' +
-    '.fxw-page h2{font:italic 700 40px/1.1 "Playfair Display",Georgia,serif;margin:4px 0 2px;color:#3a2610}' +
-    '.fxw-page .sub{font:600 11px "JetBrains Mono",monospace;letter-spacing:.28em;text-transform:uppercase;color:#9a6a26}' +
-    '.fxw-tabs{display:flex;flex-wrap:wrap;gap:6px;margin:16px 0}' +
-    '.fxw-tab{border:1px solid #b89a63;background:transparent;color:#5a3f17;border-radius:999px;padding:7px 13px;font:700 12px Sora,sans-serif;cursor:pointer}' +
-    '.fxw-tab.on{background:#3a2610;color:#f6ecd6;border-color:#3a2610}' +
-    '.fxw-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:14px}' +
-    '.fxw-card{background:rgba(255,255,255,.45);border:1px solid rgba(120,80,20,.25);border-radius:14px;padding:14px;display:flex;gap:12px;align-items:flex-start}' +
-    '.fxw-card img{width:84px;height:56px;border-radius:6px;box-shadow:0 3px 10px rgba(0,0,0,.25);flex:none}' +
-    '.fxw-card b{font:700 16px Sora,sans-serif;display:block;color:#2b1d0b}.fxw-card i{font:italic 600 13px "Playfair Display",serif;color:#7a5320;display:block;margin:2px 0 6px}' +
-    '.fxw-card p{margin:0;font-size:13px;line-height:1.5;color:#4a3a22}' +
-    '.fxw-row{display:grid;grid-template-columns:90px 1fr;gap:12px;padding:12px 0;border-bottom:1px dashed rgba(120,80,20,.35)}' +
-    '.fxw-row .y{font:italic 700 22px "Playfair Display",serif;color:#9a6a26}.fxw-row b{font:700 15px Sora,sans-serif}.fxw-row p{margin:4px 0 0;font-size:14px;line-height:1.5;color:#4a3a22}' +
-    '.fxw-x{float:right;background:none;border:0;font-size:26px;color:#7a5320;cursor:pointer;line-height:1}' +
-    '.fxw-btn{border:0;border-radius:12px;padding:10px 15px;font:700 13px Sora,sans-serif;cursor:pointer;background:#3a2610;color:#f6ecd6}' +
-    '@media (max-width:640px){.fxw-page{padding:18px}.fxw-page h2{font-size:30px}.fxw-row{grid-template-columns:64px 1fr}}';
+    '.fxw-book{position:fixed;inset:0;z-index:2147483050;display:grid;place-items:center;background:rgba(5,8,14,.72);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);padding:16px;animation:fxwIn .4s ease}' +
+    '@keyframes fxwIn{from{opacity:0}to{opacity:1}}' +
+    '.fxw-page{position:relative;width:min(1040px,100%);max-height:calc(100vh - 32px);overflow:auto;border-radius:20px;padding:34px 34px 28px;color:#f4efe6;background:linear-gradient(165deg,#111a2b 0%,#0a0f1a 60%,#0d1422 100%);border:1px solid rgba(201,169,110,.35);box-shadow:0 40px 120px rgba(0,0,0,.6),inset 0 1px 0 rgba(232,213,168,.12);font-family:"Plus Jakarta Sans",system-ui,sans-serif}' +
+    '.fxw-page:before{content:"";position:absolute;inset:10px;border:1px solid rgba(201,169,110,.14);border-radius:14px;pointer-events:none}' +
+    '.fxw-page h2{font:400 clamp(44px,6vw,68px)/.95 "Bebas Neue",Sora,sans-serif;letter-spacing:.06em;margin:10px 0 4px;background:linear-gradient(180deg,#f3e2b8,#c9a96e);-webkit-background-clip:text;background-clip:text;color:transparent}' +
+    '.fxw-page .sub{font:500 11px "JetBrains Mono",monospace;letter-spacing:.34em;text-transform:uppercase;color:#c9a96e}' +
+    '.fxw-page .lead{color:#9aa3b2;font-size:14px;margin:0;max-width:60ch;line-height:1.6}' +
+    '.fxw-tabs{display:flex;flex-wrap:wrap;gap:4px;margin:22px 0 18px;border-bottom:1px solid rgba(201,169,110,.2)}' +
+    '.fxw-tab{border:0;border-bottom:2px solid transparent;background:transparent;color:#9aa3b2;padding:10px 14px;font:600 12px Sora,sans-serif;letter-spacing:.12em;text-transform:uppercase;cursor:pointer;margin-bottom:-1px}' +
+    '.fxw-tab:hover{color:#f4efe6}.fxw-tab.on{color:#e8d5a8;border-bottom-color:#c9a96e}' +
+    '.fxw-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px}' +
+    '.fxw-card{background:linear-gradient(180deg,rgba(255,255,255,.035),rgba(255,255,255,.01));border:1px solid rgba(201,169,110,.18);border-radius:14px;padding:16px;display:flex;gap:14px;align-items:flex-start;transition:border-color .2s}' +
+    '.fxw-card:hover{border-color:rgba(201,169,110,.5)}' +
+    '.fxw-card img{width:84px;height:56px;border-radius:4px;outline:1px solid rgba(201,169,110,.6);outline-offset:3px;flex:none}' +
+    '.fxw-card b{font:600 16px Sora,sans-serif;display:block;color:#f4efe6;letter-spacing:.01em}' +
+    '.fxw-card i{font:500 11px "JetBrains Mono",monospace;letter-spacing:.14em;text-transform:uppercase;font-style:normal;color:#c9a96e;display:block;margin:4px 0 8px}' +
+    '.fxw-card p{margin:0;font-size:13px;line-height:1.6;color:#aab2c0}' +
+    '.fxw-row{display:grid;grid-template-columns:96px 1fr;gap:16px;padding:14px 0;border-bottom:1px solid rgba(201,169,110,.12)}' +
+    '.fxw-row .y{font:400 30px/1 "Bebas Neue",Sora,sans-serif;letter-spacing:.06em;color:#c9a96e}.fxw-row b{font:600 15px Sora,sans-serif;color:#f4efe6}.fxw-row p{margin:5px 0 0;font-size:14px;line-height:1.6;color:#aab2c0}' +
+    '.fxw-x{position:absolute;top:18px;right:20px;background:none;border:1px solid rgba(201,169,110,.35);border-radius:999px;width:36px;height:36px;font-size:18px;color:#e8d5a8;cursor:pointer;line-height:1}' +
+    '.fxw-btn{border:0;border-radius:999px;padding:12px 20px;font:600 12px Sora,sans-serif;letter-spacing:.14em;text-transform:uppercase;cursor:pointer;background:linear-gradient(180deg,#e8d5a8,#c9a96e);color:#1a1408}' +
+    '@media (max-width:640px){.fxw-page{padding:24px 18px}.fxw-row{grid-template-columns:64px 1fr}}';
   var st = document.createElement('style'); st.textContent = css; document.head.appendChild(st);
   function el(tag, attrs, kids) {
     var e = document.createElement(tag);
@@ -137,200 +135,12 @@
     return e;
   }
 
-  /* ---------------- music for the intro (original, synthesised) ---------------- */
-  function makeMusic() {
-    var s = S(), set = (s && s.settings) || {};
-    if (set.music === false) return null;
-    var AC = window.AudioContext || window.webkitAudioContext; if (!AC) return null;
-    var ctx; try { ctx = new AC(); } catch (e) { return null; }
-    var vol = Math.max(0, Math.min(1, set.volume == null ? .8 : set.volume));
-    var master = ctx.createGain(); master.gain.value = 0; master.connect(ctx.destination);
-    master.gain.linearRampToValueAtTime(.22 * vol, ctx.currentTime + 2.5);
-    var lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 900; lp.connect(master);
-    // drone: D and A
-    [73.42, 110, 146.83].forEach(function (f, i) {
-      var o = ctx.createOscillator(), g = ctx.createGain(); o.type = 'sawtooth'; o.frequency.value = f; o.detune.value = (i - 1) * 7;
-      g.gain.value = i === 2 ? .05 : .09; o.connect(g); g.connect(lp); o.start();
-    });
-    // slow original motif on a soft string-like voice (D minor)
-    var notes = [293.66, 349.23, 440, 392, 349.23, 329.63, 293.66, 261.63, 293.66, 440, 466.16, 440];
-    var t0 = ctx.currentTime + 1.2;
-    notes.forEach(function (f, i) {
-      var t = t0 + i * 1.25, o = ctx.createOscillator(), g = ctx.createGain(), f2 = ctx.createBiquadFilter();
-      o.type = 'triangle'; o.frequency.value = f; f2.type = 'lowpass'; f2.frequency.value = 1800;
-      g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(.16, t + .25); g.gain.exponentialRampToValueAtTime(.001, t + 1.2);
-      o.connect(f2); f2.connect(g); g.connect(master); o.start(t); o.stop(t + 1.3);
-    });
-    return {
-      hit: function () { // timpani-like hit
-        var t = ctx.currentTime, o = ctx.createOscillator(), g = ctx.createGain();
-        o.type = 'sine'; o.frequency.setValueAtTime(110, t); o.frequency.exponentialRampToValueAtTime(48, t + .5);
-        g.gain.setValueAtTime(.55 * vol, t); g.gain.exponentialRampToValueAtTime(.001, t + .9);
-        o.connect(g); g.connect(ctx.destination); o.start(t); o.stop(t + 1);
-      },
-      stop: function () { try { master.gain.cancelScheduledValues(ctx.currentTime); master.gain.linearRampToValueAtTime(0, ctx.currentTime + .8); setTimeout(function () { ctx.close(); }, 1000); } catch (e) {} }
-    };
-  }
-
-  /* ---------------- Map of Fyrus (cinematic intro) ---------------- */
-  var MAPW = 1500; // world units covered by the map (-750..750)
-  // canvas top = north (+z); canvas left = +x, so the map reads upright from the south (-z) where the camera stands
-  function toMap(x, z, size) { return [(MAPW / 2 - x) / MAPW * size, (MAPW / 2 - z) / MAPW * size]; }
-  function mapTexture(T) {
-    var N = 2048, c = document.createElement('canvas'); c.width = c.height = N; var g = c.getContext('2d');
-    // parchment
-    var bg = g.createRadialGradient(N / 2, N / 2, N * .1, N / 2, N / 2, N * .75); bg.addColorStop(0, '#e9d9b0'); bg.addColorStop(1, '#a98b55'); g.fillStyle = bg; g.fillRect(0, 0, N, N);
-    for (var i = 0; i < 9000; i++) { g.fillStyle = 'rgba(80,50,10,' + (Math.random() * .05) + ')'; g.fillRect(Math.random() * N, Math.random() * N, 2, 2); }
-    // sea in the south
-    var seaY = toMap(0, -357, N)[1];
-    g.fillStyle = 'rgba(46,110,140,.55)'; g.beginPath(); g.moveTo(0, seaY);
-    for (var x = 0; x <= N; x += 32) g.lineTo(x, seaY + Math.sin(x / 90) * 14 + Math.sin(x / 31) * 5);
-    g.lineTo(N, N); g.lineTo(0, N); g.closePath(); g.fill();
-    g.strokeStyle = 'rgba(30,70,90,.45)'; g.lineWidth = 2;
-    for (var r = 1; r < 6; r++) { g.beginPath(); for (x = 0; x <= N; x += 32) { var yy = seaY + r * 26 + Math.sin(x / 70 + r) * 8; x === 0 ? g.moveTo(x, yy) : g.lineTo(x, yy); } g.stroke(); }
-    // mountains (north and sides)
-    g.fillStyle = '#7d6a4a'; g.strokeStyle = '#4a3a22'; g.lineWidth = 3;
-    for (var a = 0; a < 70; a++) {
-      var t = a / 70 * Math.PI * 2, rad = 640 + (a % 3) * 50, mx = Math.cos(t) * rad, mz = Math.sin(t) * rad;
-      if (mz < -300) continue;
-      var p = toMap(mx, mz, N), s = 34 + (a * 37 % 22);
-      g.beginPath(); g.moveTo(p[0] - s, p[1] + s * .7); g.lineTo(p[0], p[1] - s); g.lineTo(p[0] + s, p[1] + s * .7); g.closePath(); g.fill(); g.stroke();
-      g.fillStyle = '#f4efe3'; g.beginPath(); g.moveTo(p[0] - s * .3, p[1] - s * .4); g.lineTo(p[0], p[1] - s); g.lineTo(p[0] + s * .3, p[1] - s * .4); g.closePath(); g.fill(); g.fillStyle = '#7d6a4a';
-    }
-    // ring road
-    var c0 = toMap(0, 0, N); g.strokeStyle = 'rgba(90,60,20,.55)'; g.setLineDash([14, 10]); g.lineWidth = 5; g.beginPath(); g.arc(c0[0], c0[1], 175 / MAPW * N, 0, 7); g.stroke(); g.setLineDash([]);
-    // provinces
-    PROVINCES.forEach(function (p) {
-      if (p.id === 'frostspine') return;
-      var q = toMap(p.x, p.z, N), rr = (p.id === 'corona' ? 120 : 105) / MAPW * N;
-      var gr = g.createRadialGradient(q[0], q[1], 0, q[0], q[1], rr); gr.addColorStop(0, hexA(p.color, .45)); gr.addColorStop(1, hexA(p.color, 0));
-      g.fillStyle = gr; g.beginPath(); g.arc(q[0], q[1], rr, 0, 7); g.fill();
-      g.strokeStyle = 'rgba(70,45,15,.6)'; g.setLineDash([6, 8]); g.lineWidth = 3; g.beginPath(); g.arc(q[0], q[1], rr * .82, 0, 7); g.stroke(); g.setLineDash([]);
-    });
-    // labels
-    g.textAlign = 'center'; g.textBaseline = 'middle';
-    PROVINCES.forEach(function (p) {
-      var q = toMap(p.x, p.z, N), y = q[1] + (p.id === 'frostspine' ? -10 : 150);
-      g.font = 'italic 700 58px "Playfair Display", Georgia, serif'; g.fillStyle = '#3a2610'; g.fillText(p.name, q[0], y);
-      g.font = '600 24px "JetBrains Mono", monospace'; g.fillStyle = '#7a5320'; g.fillText(p.house.toUpperCase(), q[0], y + 44);
-    });
-    g.font = 'italic 700 120px "Playfair Display", Georgia, serif'; g.fillStyle = 'rgba(58,38,16,.85)'; g.fillText('Republic of Fyrus', N / 2, 110);
-    // compass
-    var cp = [N - 170, N - 230]; g.strokeStyle = '#3a2610'; g.lineWidth = 4; g.beginPath(); g.arc(cp[0], cp[1], 70, 0, 7); g.stroke();
-    g.fillStyle = '#3a2610'; g.beginPath(); g.moveTo(cp[0], cp[1] - 95); g.lineTo(cp[0] + 18, cp[1]); g.lineTo(cp[0], cp[1] + 95); g.lineTo(cp[0] - 18, cp[1]); g.closePath(); g.fill();
-    g.font = '700 36px "Playfair Display", serif'; g.fillText('N', cp[0], cp[1] - 125);
-    // vignette
-    var v = g.createRadialGradient(N / 2, N / 2, N * .35, N / 2, N / 2, N * .72); v.addColorStop(0, 'rgba(0,0,0,0)'); v.addColorStop(1, 'rgba(40,20,0,.55)'); g.fillStyle = v; g.fillRect(0, 0, N, N);
-    var tex = new T.CanvasTexture(c); tex.anisotropy = 8; if (T.sRGBEncoding) tex.encoding = T.sRGBEncoding; return tex;
-  }
-  function hexA(h, a) { var n = parseInt(h.slice(1), 16); return 'rgba(' + (n >> 16 & 255) + ',' + (n >> 8 & 255) + ',' + (n & 255) + ',' + a + ')'; }
-
-  function buildClockwork(T, p, brass, steel) {
-    var g = new T.Group(), gears = [], towers = [];
-    var gear = new T.Mesh(new T.CylinderGeometry(26, 26, 3, 32), brass); gear.position.y = 1.5; g.add(gear); gears.push(gear);
-    for (var k = 0; k < 16; k++) { var tooth = new T.Mesh(new T.BoxGeometry(5, 3, 5), brass); var a = k / 16 * Math.PI * 2; tooth.position.set(Math.cos(a) * 27, 0, Math.sin(a) * 27); tooth.rotation.y = -a; gear.add(tooth); }
-    var n = p.id === 'corona' ? 9 : 6, seed = p.name.length * 13;
-    for (var i = 0; i < n; i++) {
-      var r = i === 0 ? 0 : 9 + (i * 7 % 11), a2 = i * 2.4 + seed;
-      var h = (i === 0 ? 46 : 18 + ((i * seed) % 24)) * (p.id === 'corona' ? 1.2 : 1);
-      var w = i === 0 ? 7 : 4 + (i % 3);
-      var geo = i % 3 === 1 ? new T.CylinderGeometry(w * .7, w, h, 10) : new T.BoxGeometry(w, h, w);
-      var m = new T.Mesh(geo, i % 2 ? steel : brass);
-      m.geometry.translate(0, h / 2, 0); m.position.set(Math.cos(a2) * r, 3, Math.sin(a2) * r); m.scale.y = .001; g.add(m); towers.push(m);
-      var cap = new T.Mesh(new T.ConeGeometry(w * .8, h * .18, 8), brass); cap.position.y = h + h * .09; m.add(cap);
-    }
-    var small = new T.Mesh(new T.TorusGeometry(10, 1.2, 8, 24), steel); small.rotation.x = Math.PI / 2; small.position.set(30, 4, 14); g.add(small); gears.push(small);
-    // banner sigil on a pole
-    var flagTex = new T.CanvasTexture(flagCanvas(p, 256, 160)); if (T.sRGBEncoding) flagTex.encoding = T.sRGBEncoding;
-    var pole = new T.Mesh(new T.CylinderGeometry(.5, .5, 30, 6), steel); pole.position.set(-20, 15, -12); g.add(pole);
-    var flag = new T.Mesh(new T.PlaneGeometry(16, 10), new T.MeshBasicMaterial({ map: flagTex, side: T.DoubleSide })); flag.position.set(-12, 25, -12); g.add(flag);
-    g.position.set(p.x, 0, p.z); g.scale.setScalar(p.id === 'frostspine' ? .001 : 1);
-    return { group: g, gears: gears, towers: towers, flag: flag };
-  }
-
-  var playing = false;
+  /* The opening film lives in fyrus-intro.js; this keeps the old entry point. */
+  API.provinces = PROVINCES;
+  API.flagCanvas = function (p, w, h) { return flagCanvas(p, w, h); };
   API.playIntro = function (done) {
-    var T = window.THREE; if (!T || playing) { done && done(); return; }
-    playing = true;
-    var ov = el('div', { 'class': 'fxw-ov fxw-bars', role: 'dialog', 'aria-label': 'Map of Fyrus' });
-    var canvas = el('canvas'); ov.appendChild(canvas);
-    var title = el('div', { 'class': 'fxw-title', style: 'opacity:0' }, [el('div', { 'class': 'k' }), el('div', { 'class': 'n' }), el('div', { 'class': 'm' })]);
-    var finished = false;
-    var skip = el('button', { 'class': 'fxw-skip', onclick: function () { end(); } }, ['Skip ›']);
-    ov.appendChild(title); ov.appendChild(skip); document.body.appendChild(ov);
-    var renderer;
-    try { renderer = new T.WebGLRenderer({ canvas: canvas, antialias: true }); } catch (e) { ov.remove(); playing = false; done && done(); return; }
-    renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
-    if (T.sRGBEncoding) renderer.outputEncoding = T.sRGBEncoding;
-    renderer.toneMapping = T.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.05;
-    var scene = new T.Scene(); scene.background = new T.Color('#0b0806'); scene.fog = new T.Fog('#0b0806', 900, 2200);
-    var cam = new T.PerspectiveCamera(42, 1, 1, 4000);
-    scene.add(new T.HemisphereLight(0xffe7c0, 0x2a1a08, .9));
-    var sun = new T.DirectionalLight(0xffd9a0, 1.4); sun.position.set(-400, 600, 300); scene.add(sun);
-    var map = new T.Mesh(new T.PlaneGeometry(MAPW, MAPW), new T.MeshStandardMaterial({ map: mapTexture(T), roughness: .95, metalness: 0 }));
-    map.rotation.set(-Math.PI / 2, 0, Math.PI); scene.add(map);
-    var brass = new T.MeshStandardMaterial({ color: 0xc8963e, metalness: .85, roughness: .32, emissive: 0x2a1600 });
-    var steel = new T.MeshStandardMaterial({ color: 0x8ea2b8, metalness: .9, roughness: .28 });
-    var cities = PROVINCES.map(function (p) { var c = buildClockwork(T, p, brass, steel); scene.add(c.group); return c; });
-    // the Fyrus orb above Corona
-    var orb = new T.Mesh(new T.SphereGeometry(9, 32, 20), new T.MeshBasicMaterial({ color: 0x9fd4ff })); orb.position.set(0, 80, 20); scene.add(orb);
-    var ring = new T.Mesh(new T.TorusGeometry(15, 1.4, 12, 48), new T.MeshBasicMaterial({ color: 0xff9a3c })); ring.position.copy(orb.position); scene.add(ring);
-    function size() { var w = window.innerWidth, h = window.innerHeight; renderer.setSize(w, h, false); cam.aspect = w / h; cam.updateProjectionMatrix(); }
-    size(); window.addEventListener('resize', size);
-    var music = makeMusic();
-    // shot list: overview, each province, back out
-    var order = ['corona', 'meridian', 'silica', 'lumen', 'arcadia', 'sage', 'harmony', 'azure', 'frostspine'];
-    var shots = [{ pos: [0, 1300, -900], look: [0, 0, 60], dur: 3.2, title: null }];
-    order.forEach(function (id) {
-      var p = PROVINCES.filter(function (q) { return q.id === id; })[0];
-      var far = p.id === 'frostspine';
-      shots.push({ pos: [p.x + 45, far ? 300 : 130, p.z - (far ? 330 : 165)], look: [p.x, 10, p.z], dur: 2.6, p: p });
-    });
-    shots.push({ pos: [0, 1500, -1100], look: [0, 0, 40], dur: 3.2, title: 'end' });
-    var total = shots.reduce(function (a, s) { return a + s.dur; }, 0);
-    var t0 = performance.now(), lastShot = -1;
-    var cur = new T.Vector3(), tgt = new T.Vector3();
-    function ease(t) { return t < .5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2; }
-    function showTitle(k, n, m) { title.children[0].textContent = k; title.children[1].textContent = n; title.children[2].textContent = m; title.style.opacity = '1'; }
-    function frame(now) {
-      if (finished) return;
-      var t = (now - t0) / 1000;
-      if (t >= total) { end(); return; }
-      var acc = 0, i = 0; while (i < shots.length - 1 && acc + shots[i].dur <= t) { acc += shots[i].dur; i++; }
-      var s = shots[i], prev = shots[Math.max(0, i - 1)], k = ease(Math.min(1, (t - acc) / Math.min(1.6, s.dur)));
-      cur.set(prev.pos[0] + (s.pos[0] - prev.pos[0]) * k, prev.pos[1] + (s.pos[1] - prev.pos[1]) * k, prev.pos[2] + (s.pos[2] - prev.pos[2]) * k);
-      tgt.set(prev.look[0] + (s.look[0] - prev.look[0]) * k, prev.look[1] + (s.look[1] - prev.look[1]) * k, prev.look[2] + (s.look[2] - prev.look[2]) * k);
-      cam.position.copy(cur); cam.lookAt(tgt);
-      if (i !== lastShot) {
-        lastShot = i;
-        if (s.p) { showTitle(s.p.title, s.p.name, s.p.house + ' · “' + s.p.motto + '”'); music && music.hit(); }
-        else if (s.title === 'end') showTitle('Welcome, traveller', 'The Republic of Fyrus', 'Nine provinces. One open gate. Your story starts in Corona.');
-        else showTitle('The year is 2040', 'Map of Fyrus', 'A country with no visa and no walls');
-      }
-      // cities rise when the camera reaches them
-      cities.forEach(function (c, ci) {
-        var id = PROVINCES[ci].id, idx = order.indexOf(id), start = 3.2 + idx * 2.6 - .4, rise = Math.max(0, Math.min(1, (t - start) / 1.6));
-        if (id === 'frostspine') return;
-        c.towers.forEach(function (m, mi) { var r = Math.max(.001, Math.min(1, rise * 1.4 - mi * .06)); m.scale.y = r; });
-        c.gears.forEach(function (gm, gi) { gm.rotation.y += (gi ? -.03 : .012) * (rise > 0 && rise < 1 ? 3 : 1); });
-        c.flag.rotation.y = Math.sin(t * 2 + ci) * .15;
-      });
-      ring.rotation.x = t * .6; ring.rotation.y = t * .4; orb.scale.setScalar(1 + Math.sin(t * 3) * .05);
-      renderer.render(scene, cam);
-      requestAnimationFrame(frame);
-    }
-    function end() {
-      if (finished) return; finished = true; playing = false;
-      music && music.stop(); window.removeEventListener('resize', size);
-      ov.style.transition = 'opacity .7s'; ov.style.opacity = '0';
-      setTimeout(function () {
-        try { scene.traverse(function (o) { if (o.geometry) o.geometry.dispose(); if (o.material) { if (o.material.map) o.material.map.dispose(); o.material.dispose(); } }); renderer.dispose(); renderer.forceContextLoss && renderer.forceContextLoss(); } catch (e) {}
-        ov.remove(); LS.set('introSeen', true); done && done();
-      }, 700);
-    }
-    ov.addEventListener('keydown', function (e) { e.stopPropagation(); if (e.key === 'Escape') end(); });
-    skip.focus();
-    requestAnimationFrame(frame);
+    if (window.__fyrusIntro && window.__fyrusIntro.play) return window.__fyrusIntro.play(function (r) { LS.set('introSeen', true); done && done(r); });
+    done && done();
   };
   API.firstVisit = function () { return !LS.get('introSeen', false); };
 
@@ -355,8 +165,9 @@
       el('button', { 'class': 'fxw-x', 'aria-label': 'Close', onclick: close }, ['×']),
       el('div', { 'class': 'sub' }, ['Republic of Fyrus · Year 2040']),
       el('h2', null, ['The Book of Fyrus']),
+      el('p', { 'class': 'lead' }, ['The history, provinces, Great Houses and laws of the Republic — everything a new citizen should know.']),
       tabs, body,
-      el('div', { style: 'margin-top:18px' }, [el('button', { 'class': 'fxw-btn', onclick: function () { close(); API.playIntro(); } }, ['▶ Watch the Map of Fyrus'])])
+      el('div', { style: 'margin-top:18px' }, [el('button', { 'class': 'fxw-btn', onclick: function () { close(); API.playIntro(); } }, ['▶  Watch the opening film'])])
     ]);
     wrap.appendChild(page);
     wrap.addEventListener('click', function (e) { if (e.target === wrap) close(); });
@@ -447,7 +258,7 @@
     var dock = document.querySelector('.fxp-dock'); if (!dock || dock.querySelector('[data-fxw]')) return !!dock;
     function btn(icon, label, fn) { var b = el('button', { 'aria-label': label, 'data-fxw': '1', onclick: fn }, [icon, el('span', null, [label])]); dock.insertBefore(b, dock.firstChild); }
     btn('📖', 'Book of Fyrus', function () { API.openBook(); });
-    btn('🗺️', 'Map of Fyrus', function () { API.playIntro(); });
+    btn('🎬', 'Opening film', function () { API.playIntro(); });
     return true;
   }
   function tick(t) {
