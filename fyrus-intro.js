@@ -179,7 +179,7 @@
       ivory: new T.MeshStandardMaterial({ color: 0xece4d4, metalness: 0, roughness: .55 }),
       stone: new T.MeshStandardMaterial({ color: 0x9aa3b2, metalness: .1, roughness: .7 }),
       dark: new T.MeshStandardMaterial({ color: 0x1a2232, metalness: .6, roughness: .35 }),
-      glass: new T.MeshStandardMaterial({ color: 0x0f2a4d, metalness: .9, roughness: .08, emissive: 0x2f6fe0, emissiveIntensity: .0 }),
+      glass: new T.MeshStandardMaterial({ color: 0x0a1a30, metalness: .95, roughness: .12, emissive: 0x2f6fe0, emissiveIntensity: .0, envMapIntensity: .6 }),
       snow: new T.MeshStandardMaterial({ color: 0xf4f7ff, roughness: .9 }),
       rock: new T.MeshStandardMaterial({ color: 0x4a5568, roughness: .95, flatShading: true })
     };
@@ -449,7 +449,7 @@
           if (p.m.userData.spinZ) p.m.rotation.z = t * .35;
         });
       });
-      kit.M.glass.emissiveIntensity = Math.min(.55, Math.max(0, (t - T_TOUR) * .2));
+      kit.M.glass.emissiveIntensity = Math.min(.16, Math.max(0, (t - T_TOUR) * .08));
       dust.rotation.y = t * .01;
       renderer.render(scene, cam);
       requestAnimationFrame(frame);
