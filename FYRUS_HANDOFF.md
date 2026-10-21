@@ -3,7 +3,7 @@
 > **For any AI or developer picking this up (Claude, ChatGPT, Gemini, OpenClaw agents, humans):**
 > Read this whole file before changing anything. When you finish a task, **update the
 > "Done" and "Pending" sections and the changelog at the bottom** in the same commit.
-> Last updated: **22 Oct 2026, v25** (by Claude).
+> Last updated: **22 Oct 2026, v27** (by Claude, night shift).
 
 ---
 
@@ -132,9 +132,8 @@ zero real crime, fair trade (escrow), one citizen one vote, protect children & e
      0 orders / 0 followers / 0 visits (shown as "New listing · no reviews yet"); simulated live-stream chat
      and random viewer counts are off; fake affiliate income was removed in v22. Demo agent replies,
      demo sign-in and demo store orders already say "(demo)".
-   - Remaining: the seeded sample agents/gigs/shops/brands themselves (fictional) should carry a visible
-     "Sample" badge or be replaced by real listings; procedural "AI residents" in the feed (`Fw` in
-     `src/client/app/004.js`) should be labelled as AI residents.
+   - v26: seeded agents/gigs/brands carry `sample: true` and show **"Sample"** / "Sample listing"; feed posts
+     from procedural residents are labelled **"AI resident"** with no fake views/likes. P0-2 is done.
 3. **Payments (one direction first):** users pay Fyrus for FYC packs / premium avatar / shop / billboard.
    Stripe is not directly available in Pakistan → evaluate Paddle or Lemon Squeezy (merchant of record)
    and Safepay / JazzCash / Easypaisa. **No cash-out and no user-to-user real money** until legal advice.
@@ -144,8 +143,13 @@ zero real crime, fair trade (escrow), one citizen one vote, protect children & e
    local names are still minified (short names) — rename gradually while working on a file; the original
    TypeScript (an Oct-18 v3 copy exists on the owner's Mac in ~/Downloads/fyrus) is too old to use as base.
 5. **Database:** move from one JSON file to SQLite (then Postgres); daily off-site backup.
-6. **Child safety & moderation:** report/block in chat and voice, moderator queue, 18+ zones, age gate
-   already exists (13+) — verify it.
+6. **Child safety & moderation — baseline exists, improved in v27.**
+   - Existing: block/unblock, report → admin desk queue (`ops.mjs` admin_reports), judge mute/unmute and
+     ban, profanity filter, chat rate limit, 13+ sign-up, 18+ voice.
+   - v27: max 15 reports per citizen per day, no duplicate reports, and **3 reports from trusted citizens
+     (email/Google or account older than 24 h) in 24 h pause that person's chat for 24 h** until a judge reviews.
+   - To do: set `FYRUS_ADMINS` (judges) in Coolify if not set; moderator rota from the team; 18+ zones in the
+     world; review voice reports.
 7. **Performance:** compile Tailwind (drop the CDN), self-host three.js, split the 1.3 MB bundle, test
    on a mid-range Android phone.
 
@@ -168,12 +172,23 @@ zero real crime, fair trade (escrow), one citizen one vote, protect children & e
 19. Brand sales kit for the 13-person sales team (billboards, showrooms, sponsored quests).
 20. Analytics: weekly retention, where people spend time.
 
-## 8. Known issues / notes
+## 8. Coordination (more than one AI works on this repo)
+- On 22 Oct 2026 another agent (not Claude) was working **uncommitted** on branch `p1-cities-foundation`:
+  a 20-city register `CITIES` + "Cities" tab in `fyrus-world.js`, a champagne-gold theme in
+  `src/client/template.html`, and a new `fyrus-visuals.js` (landmark silhouettes). Claude did not touch those.
+- Rule: before committing, run `git branch --show-current` and `git status`. Commit only your own files.
+  Work on your own branch; only fast-forward `main` when your work is tested. `main` = live in ~1 minute.
+- On the owner's Mac, git may leave `.git/*.lock` files if file deletion is not allowed for the AI; remove a
+  stale lock only when no git process is running.
+
+## 9. Known issues / notes
 - Testing from AI sandboxes: npm/CDNs are blocked there; test on the live site in your own tab (see §3).
 - The coolify/VPS and OpenClaw setup details are in the owner's private Claude Project doc, not here
   (this repo is public — **never commit secrets**).
 
-## 9. Changelog
+## 10. Changelog
+- 2026-10-22 v27 — report limits + auto chat pause after 3 trusted reports.
+- 2026-10-22 v26 — Sample badges, AI resident label, no fake feed views/likes.
 - 2026-10-22 v25 — removed fake ratings/reviews/sales/followers/visits from seed data; live streams no longer simulate chat or viewers.
 - 2026-10-22 v24 — server-side land purchases/sales/refunds; bank refuses client-made income except welcome grant + beta test credit.
 - 2026-10-22 v23 — editable source: `src/` + `build.mjs` + SOURCE_MAP.md (bundle syntax tree identical to v22).
