@@ -743,7 +743,7 @@ function Lx() {
                             children: [
                               (0, Ct.jsx)(ng, { className: "inline -mt-0.5" }),
                               " ",
-                              c.rating || "new",
+                              c.sample ? "Sample" : c.rating || "new",
                               " \xB7 ",
                               c.reviews,
                               " reviews \xB7 ",

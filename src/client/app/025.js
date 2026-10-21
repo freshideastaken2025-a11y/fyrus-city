@@ -127,7 +127,7 @@ function ny() {
                     (0, gt.jsxs)("span", {
                       className: "text-xs flex items-center gap-1",
                       style: { color: "var(--ember-hi)" },
-                      children: ["\u2605 ", u.rating || "new"],
+                      children: ["\u2605 ", u.sample ? "Sample" : u.rating || "new"],
                     }),
                     (0, gt.jsxs)("span", {
                       className: "ml-auto chip",
@@ -446,7 +446,7 @@ function iy() {
                       children: [
                         v?.name,
                         " \xB7 \u2605 ",
-                        p.rating || "new",
+                        p.sample ? "Sample" : p.rating || "new",
                         " \xB7 ",
                         p.orders,
                         " orders \xB7 ",

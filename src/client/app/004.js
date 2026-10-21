@@ -859,11 +859,11 @@ function Fw(t) {
     s = Date.now() - (t * 37 + Math.floor(e() * 30)) * 6e4,
     l = {
       id: `feed-${t}`,
-      owner: a,
+      owner: { ...a, title: "AI resident" + (a.title ? " \xB7 " + a.title : "") },
       hue: Math.floor(200 + e() * 40 + (e() < 0.3 ? -175 : 0)),
       at: s,
-      views: Math.floor(e() * 9e4),
-      likes: Math.floor(e() * 4e3),
+      views: 0,
+      likes: 0,
     };
   return i < 0.35
     ? { ...l, kind: "video", title: n(vo(e, iH)), body: "" }

@@ -158,6 +158,7 @@ var Oa = [
   kp = [
     {
       id: "b-stride",
+      sample: !0,
       font: "display",
       facade: "#e9d8b8",
       name: "Stride Lab",
@@ -196,6 +197,7 @@ var Oa = [
     },
     {
       id: "b-lumen",
+      sample: !0,
       font: "serif",
       facade: "#efe6d6",
       name: "Lumen Wear",
@@ -225,6 +227,7 @@ var Oa = [
     },
     {
       id: "b-carry",
+      sample: !0,
       font: "sans",
       facade: "#f2c9b8",
       name: "Carry Co.",
@@ -261,6 +264,7 @@ var Oa = [
     },
     {
       id: "b-sky",
+      sample: !0,
       font: "geo",
       facade: "#cfe3d6",
       name: "SkyHelm",
@@ -288,6 +292,7 @@ var Oa = [
     },
     {
       id: "b-nest",
+      sample: !0,
       font: "serif",
       facade: "#e8dcc5",
       name: "Nest & Form",
@@ -326,6 +331,7 @@ var Oa = [
     },
     {
       id: "b-glow",
+      sample: !0,
       font: "script",
       facade: "#f3e3a6",
       name: "Glow Studio",
@@ -354,6 +360,7 @@ var Oa = [
     },
     {
       id: "b-pure",
+      sample: !0,
       font: "sans",
       facade: "#d6e2ef",
       name: "Pure Bottle",
@@ -381,6 +388,7 @@ var Oa = [
     },
     {
       id: "b-sonic",
+      sample: !0,
       font: "display",
       facade: "#c9d3e3",
       name: "Sonic Field",
@@ -418,6 +426,7 @@ var Oa = [
     },
     {
       id: "b-pixel",
+      sample: !0,
       font: "mono",
       facade: "#dfe3ea",
       name: "Pixel Forge",
@@ -447,6 +456,7 @@ var Oa = [
     },
     {
       id: "b-volt",
+      sample: !0,
       font: "geo",
       facade: "#f0dcc6",
       name: "Volt Gear",

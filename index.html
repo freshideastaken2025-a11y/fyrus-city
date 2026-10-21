@@ -31,15 +31,15 @@
 <style>/* Fyrus brand system — royal blue + signal orange, "blue hour" world.
    Layout: full-bleed 3D world, glass HUD floating above it. */
 :root {
-  --accent: #4da3ff;    /* player-customisable HUD accent (Settings) */
-  --night: #0e1013;
-  --deep: #16191e;
+  --accent: #c9a96e;    /* Aurelia champagne-gold art direction */
+  --night: #0b0d12;
+  --deep: #17131a;
   --blue: color-mix(in srgb, var(--accent) 78%, #000);
   --blue-hi: var(--accent);
   --sky: color-mix(in srgb, var(--accent) 55%, #fff);
-  --ember: #ff9a3c;     /* logo ring orange */
-  --ember-hi: #ffc27a;
-  --mint: #4cc38a;
+  --ember: #b46f45;
+  --ember-hi: #e6bf8d;
+  --mint: #759b86;
   --rose: #ef5350;
   --ink: #f2f3f5;
   --ink-dim: #a3a9b3;
@@ -1428,6 +1428,7 @@ var XS = Date.now(),
   dp = [
     {
       id: "a-1",
+      sample: !0,
       ownerId: "u-nova",
       name: "ResearchPilot",
       tagline: "A sourced research brief on any topic in two minutes",
@@ -1443,6 +1444,7 @@ var XS = Date.now(),
     },
     {
       id: "a-2",
+      sample: !0,
       ownerId: "u-nova",
       name: "InboxZero",
       tagline: "Triage email, draft replies and chase follow-ups automatically",
@@ -1458,6 +1460,7 @@ var XS = Date.now(),
     },
     {
       id: "a-3",
+      sample: !0,
       ownerId: "u-leo",
       name: "VoiceDesk",
       tagline: "A realtime phone receptionist that books appointments",
@@ -1473,6 +1476,7 @@ var XS = Date.now(),
     },
     {
       id: "a-4",
+      sample: !0,
       ownerId: "u-zara",
       name: "PromptSmith",
       tagline: "Turns your rough prompt into an eval-tested system prompt",
@@ -1488,6 +1492,7 @@ var XS = Date.now(),
     },
     {
       id: "a-5",
+      sample: !0,
       ownerId: "u-amara",
       name: "ShelfSight",
       tagline: "Spots stock-outs and price errors from a single shelf photo",
@@ -1503,6 +1508,7 @@ var XS = Date.now(),
     },
     {
       id: "a-7",
+      sample: !0,
       ownerId: "u-amara",
       name: "TripPilot",
       tagline: "Plans a full trip with bookings, budget and a day-by-day map",
@@ -1518,6 +1524,7 @@ var XS = Date.now(),
     },
     {
       id: "a-8",
+      sample: !0,
       ownerId: "u-zara",
       name: "TutorMate",
       tagline: "A patient tutor for maths, science and languages",
@@ -1533,6 +1540,7 @@ var XS = Date.now(),
     },
     {
       id: "a-9",
+      sample: !0,
       ownerId: "u-owen",
       name: "AdCopy Pro",
       tagline: "Writes ads, captions and product pages that sell",
@@ -1548,6 +1556,7 @@ var XS = Date.now(),
     },
     {
       id: "a-6",
+      sample: !0,
       ownerId: "u-kai",
       name: "StoryboardGPT",
       tagline: "Script in, shot-by-shot AI storyboard and prompts out",
@@ -1570,6 +1579,7 @@ var XS = Date.now(),
   G2 = [
     {
       id: "g-1",
+      sample: !0,
       ownerId: "u-nova",
       title: "I will build a custom RAG chatbot for your business",
       category: "AI Agents",
@@ -1588,6 +1598,7 @@ var XS = Date.now(),
     },
     {
       id: "g-2",
+      sample: !0,
       ownerId: "u-kai",
       title: "I will create a 60-second cinematic AI brand film",
       category: "AI Video",
@@ -1606,6 +1617,7 @@ var XS = Date.now(),
     },
     {
       id: "g-3",
+      sample: !0,
       ownerId: "u-zara",
       title: "I will write prompts and an eval suite for your LLM app",
       category: "Prompt Engineering",
@@ -1624,6 +1636,7 @@ var XS = Date.now(),
     },
     {
       id: "g-4",
+      sample: !0,
       ownerId: "u-leo",
       title: "I will set up a realtime AI voice agent (Twilio + LLM)",
       category: "Voice AI",
@@ -1642,6 +1655,7 @@ var XS = Date.now(),
     },
     {
       id: "g-5",
+      sample: !0,
       ownerId: "u-amara",
       title: "I will build an AI OCR and extraction pipeline for documents",
       category: "Computer Vision",
@@ -2559,11 +2573,11 @@ function Fw(t) {
     s = Date.now() - (t * 37 + Math.floor(e() * 30)) * 6e4,
     l = {
       id: `feed-${t}`,
-      owner: a,
+      owner: { ...a, title: "AI resident" + (a.title ? " \xB7 " + a.title : "") },
       hue: Math.floor(200 + e() * 40 + (e() < 0.3 ? -175 : 0)),
       at: s,
-      views: Math.floor(e() * 9e4),
-      likes: Math.floor(e() * 4e3),
+      views: 0,
+      likes: 0,
     };
   return i < 0.35
     ? { ...l, kind: "video", title: n(vo(e, iH)), body: "" }
@@ -3135,6 +3149,7 @@ var Oa = [
   kp = [
     {
       id: "b-stride",
+      sample: !0,
       font: "display",
       facade: "#e9d8b8",
       name: "Stride Lab",
@@ -3173,6 +3188,7 @@ var Oa = [
     },
     {
       id: "b-lumen",
+      sample: !0,
       font: "serif",
       facade: "#efe6d6",
       name: "Lumen Wear",
@@ -3202,6 +3218,7 @@ var Oa = [
     },
     {
       id: "b-carry",
+      sample: !0,
       font: "sans",
       facade: "#f2c9b8",
       name: "Carry Co.",
@@ -3238,6 +3255,7 @@ var Oa = [
     },
     {
       id: "b-sky",
+      sample: !0,
       font: "geo",
       facade: "#cfe3d6",
       name: "SkyHelm",
@@ -3265,6 +3283,7 @@ var Oa = [
     },
     {
       id: "b-nest",
+      sample: !0,
       font: "serif",
       facade: "#e8dcc5",
       name: "Nest & Form",
@@ -3303,6 +3322,7 @@ var Oa = [
     },
     {
       id: "b-glow",
+      sample: !0,
       font: "script",
       facade: "#f3e3a6",
       name: "Glow Studio",
@@ -3331,6 +3351,7 @@ var Oa = [
     },
     {
       id: "b-pure",
+      sample: !0,
       font: "sans",
       facade: "#d6e2ef",
       name: "Pure Bottle",
@@ -3358,6 +3379,7 @@ var Oa = [
     },
     {
       id: "b-sonic",
+      sample: !0,
       font: "display",
       facade: "#c9d3e3",
       name: "Sonic Field",
@@ -3395,6 +3417,7 @@ var Oa = [
     },
     {
       id: "b-pixel",
+      sample: !0,
       font: "mono",
       facade: "#dfe3ea",
       name: "Pixel Forge",
@@ -3424,6 +3447,7 @@ var Oa = [
     },
     {
       id: "b-volt",
+      sample: !0,
       font: "geo",
       facade: "#f0dcc6",
       name: "Volt Gear",
@@ -5010,7 +5034,7 @@ function wH() {
         let sd = i.find((x) => x.id === it.id);
         if (!sd) return it;
         let c = { ...it };
-        ["rating", "reviews", "sales", "orders", "followers", "visits"].forEach((k) => {
+        ["rating", "reviews", "sales", "orders", "followers", "visits", "sample"].forEach((k) => {
           k in sd && (c[k] = sd[k]);
         });
         return c;
@@ -15212,7 +15236,7 @@ function Lx() {
                             children: [
                               (0, Ct.jsx)(ng, { className: "inline -mt-0.5" }),
                               " ",
-                              c.rating || "new",
+                              c.sample ? "Sample" : c.rating || "new",
                               " \xB7 ",
                               c.reviews,
                               " reviews \xB7 ",
@@ -25985,7 +26009,7 @@ var qg = (t, e) =>
               lines: [
                 `What it does: ${i.skills.join(" \xB7 ")}`,
                 `Category: ${i.category}`,
-                i.reviews ? `\u2605 ${i.rating} \xB7 ${i.reviews} reviews \xB7 ${i.sales.toLocaleString("en-US")} sold` : "New listing \xB7 no reviews yet",
+                i.sample ? "Sample listing \xB7 shows how the marketplace works" : i.reviews ? `\u2605 ${i.rating} \xB7 ${i.reviews} reviews \xB7 ${i.sales.toLocaleString("en-US")} sold` : "New listing \xB7 no reviews yet",
                 `Price: $${i.price}`,
               ],
               actions: [
@@ -29664,7 +29688,7 @@ function ER({ a: t }) {
                 children: [
                   (0, gt.jsx)(nx, { value: t.rating, size: 13 }),
                   " ",
-                  t.rating || "new",
+                  t.sample ? "Sample" : t.rating || "new",
                   " \xB7 ",
                   t.reviews,
                   " reviews \xB7 ",
@@ -30037,7 +30061,7 @@ function ny() {
                     (0, gt.jsxs)("span", {
                       className: "text-xs flex items-center gap-1",
                       style: { color: "var(--ember-hi)" },
-                      children: ["\u2605 ", u.rating || "new"],
+                      children: ["\u2605 ", u.sample ? "Sample" : u.rating || "new"],
                     }),
                     (0, gt.jsxs)("span", {
                       className: "ml-auto chip",
@@ -30356,7 +30380,7 @@ function iy() {
                       children: [
                         v?.name,
                         " \xB7 \u2605 ",
-                        p.rating || "new",
+                        p.sample ? "Sample" : p.rating || "new",
                         " \xB7 ",
                         p.orders,
                         " orders \xB7 ",
@@ -50104,7 +50128,8 @@ react/cjs/react-jsx-runtime.production.js:
 
 }</script>
 <script src="/fyrus-plus.js?v=1.2.0" defer></script>
-<script src="/fyrus-world.js?v=2.0.0" defer></script>
+<script src="/fyrus-world.js?v=2.1.0" defer></script>
+<script src="/fyrus-visuals.js?v=0.1.1" defer></script>
 <script src="/fyrus-intro.js?v=2.0.0" defer></script>
 
 </body></html>

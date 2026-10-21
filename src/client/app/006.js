@@ -474,7 +474,7 @@ function wH() {
         let sd = i.find((x) => x.id === it.id);
         if (!sd) return it;
         let c = { ...it };
-        ["rating", "reviews", "sales", "orders", "followers", "visits"].forEach((k) => {
+        ["rating", "reviews", "sales", "orders", "followers", "visits", "sample"].forEach((k) => {
           k in sd && (c[k] = sd[k]);
         });
         return c;

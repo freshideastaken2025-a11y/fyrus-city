@@ -494,7 +494,7 @@ var qg = (t, e) =>
               lines: [
                 `What it does: ${i.skills.join(" \xB7 ")}`,
                 `Category: ${i.category}`,
-                i.reviews ? `\u2605 ${i.rating} \xB7 ${i.reviews} reviews \xB7 ${i.sales.toLocaleString("en-US")} sold` : "New listing \xB7 no reviews yet",
+                i.sample ? "Sample listing \xB7 shows how the marketplace works" : i.reviews ? `\u2605 ${i.rating} \xB7 ${i.reviews} reviews \xB7 ${i.sales.toLocaleString("en-US")} sold` : "New listing \xB7 no reviews yet",
                 `Price: $${i.price}`,
               ],
               actions: [

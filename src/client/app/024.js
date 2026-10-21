@@ -1271,7 +1271,7 @@ function ER({ a: t }) {
                 children: [
                   (0, gt.jsx)(nx, { value: t.rating, size: 13 }),
                   " ",
-                  t.rating || "new",
+                  t.sample ? "Sample" : t.rating || "new",
                   " \xB7 ",
                   t.reviews,
                   " reviews \xB7 ",
