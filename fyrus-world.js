@@ -106,7 +106,7 @@
   var css = '' +
     '.fxw-ov{position:fixed;inset:0;z-index:2147483100;background:#05070c;color:#f3ead7;font-family:"Plus Jakarta Sans",system-ui,sans-serif}' +
     '.fxw-ov canvas{position:absolute;inset:0;width:100%;height:100%;display:block}' +
-    '.fxw-title{position:absolute;left:0;right:0;bottom:12vh;text-align:center;pointer-events:none;padding:0 16px;transition:opacity .6s}' +
+    '.fxw-title{position:absolute;left:0;right:0;bottom:8vh;text-align:center;pointer-events:none;padding:60px 16px 4vh;transition:opacity .6s;background:radial-gradient(ellipse at 50% 70%,rgba(8,5,2,.72),rgba(8,5,2,0) 70%)}' +
     '.fxw-title .k{font:600 12px/1 "JetBrains Mono",monospace;letter-spacing:.32em;color:#ffc27a;text-transform:uppercase}' +
     '.fxw-title .n{font:italic 700 clamp(34px,7vw,72px)/1.05 "Playfair Display",Georgia,serif;margin:10px 0 8px;text-shadow:0 4px 30px rgba(0,0,0,.8)}' +
     '.fxw-title .m{font:500 clamp(13px,2vw,17px)/1.4 "Plus Jakarta Sans",sans-serif;color:#d9cdb3;letter-spacing:.04em}' +
@@ -174,7 +174,8 @@
 
   /* ---------------- Map of Fyrus (cinematic intro) ---------------- */
   var MAPW = 1500; // world units covered by the map (-750..750)
-  function toMap(x, z, size) { return [(x + MAPW / 2) / MAPW * size, (MAPW / 2 - z) / MAPW * size]; } // +z (north) at the top
+  // canvas top = north (+z); canvas left = +x, so the map reads upright from the south (-z) where the camera stands
+  function toMap(x, z, size) { return [(MAPW / 2 - x) / MAPW * size, (MAPW / 2 - z) / MAPW * size]; }
   function mapTexture(T) {
     var N = 2048, c = document.createElement('canvas'); c.width = c.height = N; var g = c.getContext('2d');
     // parchment
@@ -267,7 +268,7 @@
     scene.add(new T.HemisphereLight(0xffe7c0, 0x2a1a08, .9));
     var sun = new T.DirectionalLight(0xffd9a0, 1.4); sun.position.set(-400, 600, 300); scene.add(sun);
     var map = new T.Mesh(new T.PlaneGeometry(MAPW, MAPW), new T.MeshStandardMaterial({ map: mapTexture(T), roughness: .95, metalness: 0 }));
-    map.rotation.x = -Math.PI / 2; scene.add(map);
+    map.rotation.set(-Math.PI / 2, 0, Math.PI); scene.add(map);
     var brass = new T.MeshStandardMaterial({ color: 0xc8963e, metalness: .85, roughness: .32, emissive: 0x2a1600 });
     var steel = new T.MeshStandardMaterial({ color: 0x8ea2b8, metalness: .9, roughness: .28 });
     var cities = PROVINCES.map(function (p) { var c = buildClockwork(T, p, brass, steel); scene.add(c.group); return c; });
@@ -282,8 +283,8 @@
     var shots = [{ pos: [0, 1300, -900], look: [0, 0, 60], dur: 3.2, title: null }];
     order.forEach(function (id) {
       var p = PROVINCES.filter(function (q) { return q.id === id; })[0];
-      var dir = Math.atan2(p.x, p.z) + .6;
-      shots.push({ pos: [p.x - Math.sin(dir) * 150, p.id === 'frostspine' ? 260 : 120, p.z - Math.cos(dir) * 150], look: [p.x, 12, p.z], dur: 2.6, p: p });
+      var far = p.id === 'frostspine';
+      shots.push({ pos: [p.x + 45, far ? 300 : 130, p.z - (far ? 330 : 165)], look: [p.x, 10, p.z], dur: 2.6, p: p });
     });
     shots.push({ pos: [0, 1500, -1100], look: [0, 0, 40], dur: 3.2, title: 'end' });
     var total = shots.reduce(function (a, s) { return a + s.dur; }, 0);
@@ -411,10 +412,10 @@
     var mat = new T.MeshLambertMaterial({ vertexColors: true, fog: false, flatShading: true });
     var count = 30;
     for (var i = 0; i < count; i++) {
-      var a = i / count * Math.PI * 2, rad = 700 + (i * 53 % 120);
+      var a = i / count * Math.PI * 2, rad = 780 + (i * 53 % 110);
       var x = Math.cos(a) * rad, z = Math.sin(a) * rad;
       if (z < -330) continue; // leave the southern sea open
-      var h = 150 + (i * 97 % 170), r = 150 + (i * 31 % 80);
+      var h = 110 + (i * 97 % 140), r = 150 + (i * 31 % 80);
       var geo = new T.ConeGeometry(r, h, 18, 6, true);
       var pos = geo.attributes.position, col = new Float32Array(pos.count * 3), v = new T.Vector3();
       for (var k = 0; k < pos.count; k++) {
