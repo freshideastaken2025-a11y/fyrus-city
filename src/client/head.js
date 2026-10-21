@@ -1,0 +1,2 @@
+if(!window.THREE){document.getElementById('root').innerHTML='<div style="padding:40px;font-family:sans-serif;color:#fff">3D engine (Three.js) load nahi ho saka. Page refresh karein.</div>'}else{
+(()=>{
