@@ -6,7 +6,7 @@
 (function () {
   'use strict';
   if (window.__fyrusPlus) return;
-  window.__fyrusPlus = { version: '1.3.0' };
+  window.__fyrusPlus = { version: '1.3.1' };
 
   var LS = {
     get: function (k, d) { try { var v = localStorage.getItem('fyrusPlus.' + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -572,7 +572,7 @@
   }
   setInterval(boot, 700);
   // extra layers that are loaded on demand (keeps index.html untouched)
-  ['/fyrus-arena.js?v=1.0.0'].forEach(function (src) {
+  ['/fyrus-arena.js?v=1.0.1'].forEach(function (src) {
     var sc = document.createElement('script'); sc.src = src; sc.defer = true; document.head.appendChild(sc);
   });
 })();

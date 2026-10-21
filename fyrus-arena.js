@@ -5,7 +5,7 @@
 (function () {
   'use strict';
   if (window.__fyrusArena) return;
-  var API = window.__fyrusArena = { version: '1.0.0' };
+  var API = window.__fyrusArena = { version: '1.0.1' };
   var GOLD = '#c9a96e', GOLD_HI = '#e8d5a8', IVORY = '#f4efe6';
   var LS = {
     get: function (k, d) { try { var v = localStorage.getItem('fyrusArena.' + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -196,7 +196,7 @@
           if (dist > 16) move(f, dx / dist * sp * dt, dz / dist * sp * dt); else move(f, -dz / dist * strafe * sp * dt, dx / dist * strafe * sp * dt);
           f.cd -= dt; if (f.cd <= 0 && dist < 34) { f.cd = .55 + rnd() * .5; shoot(f, dx, dz, .22); }
         } else {
-          var to = outside ? zoneC : f.wander; dx = to.x - f.g.position.x; dz = to.z - f.g.position.z; var dl = Math.hypot(dx, dz) || 1;
+          var to = outside || !f.wander ? zoneC : f.wander; dx = to.x - f.g.position.x; dz = to.z - f.g.position.z; var dl = Math.hypot(dx, dz) || 1;
           if (dl > 2) { move(f, dx / dl * sp * dt, dz / dl * sp * dt); f.g.rotation.y = Math.atan2(dx, dz); }
         }
       });
@@ -234,7 +234,7 @@
     }
     function frame(now) {
       if (!running) return;
-      var dt = Math.min(.05, (now - last) / 1000); last = now;
+      var dt = Math.max(0, Math.min(.05, (now - last) / 1000)); last = Math.max(last, now);
       if (started && !over) step(dt);
       var p = player.alive ? player.g.position : (aliveList()[0] || player).g.position;
       cam.position.lerp(new T.Vector3(p.x, touch ? 46 : 40, p.z + (touch ? 26 : 24)), .12); cam.lookAt(p.x, 0, p.z - 2);
