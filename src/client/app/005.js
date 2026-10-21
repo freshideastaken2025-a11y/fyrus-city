@@ -168,8 +168,8 @@ var Oa = [
       style: "neon",
       mallId: "aurora",
       slot: 0,
-      rating: 4.8,
-      visits: 18200,
+      rating: 0,
+      visits: 0,
       verified: !0,
       createdAt: Yi - 9e8,
       products: [
@@ -206,8 +206,8 @@ var Oa = [
       style: "luxury",
       mallId: "aurora",
       slot: 1,
-      rating: 4.9,
-      visits: 12400,
+      rating: 0,
+      visits: 0,
       verified: !0,
       createdAt: Yi - 8e8,
       products: [
@@ -235,8 +235,8 @@ var Oa = [
       style: "minimal",
       mallId: "aurora",
       slot: 2,
-      rating: 4.7,
-      visits: 8800,
+      rating: 0,
+      visits: 0,
       createdAt: Yi - 7e8,
       products: [
         Sr(
@@ -271,8 +271,8 @@ var Oa = [
       style: "neon",
       mallId: "aurora",
       slot: 3,
-      rating: 4.6,
-      visits: 5100,
+      rating: 0,
+      visits: 0,
       createdAt: Yi - 6e8,
       products: [
         Sr(
@@ -298,8 +298,8 @@ var Oa = [
       style: "nature",
       mallId: "orbit",
       slot: 0,
-      rating: 4.8,
-      visits: 15600,
+      rating: 0,
+      visits: 0,
       verified: !0,
       createdAt: Yi - 9e8,
       products: [
@@ -336,8 +336,8 @@ var Oa = [
       style: "luxury",
       mallId: "orbit",
       slot: 1,
-      rating: 4.7,
-      visits: 7300,
+      rating: 0,
+      visits: 0,
       createdAt: Yi - 7e8,
       products: [
         Sr(
@@ -364,8 +364,8 @@ var Oa = [
       style: "minimal",
       mallId: "orbit",
       slot: 2,
-      rating: 4.5,
-      visits: 4200,
+      rating: 0,
+      visits: 0,
       createdAt: Yi - 5e8,
       products: [
         Sr(
@@ -391,8 +391,8 @@ var Oa = [
       style: "neon",
       mallId: "nova",
       slot: 0,
-      rating: 4.9,
-      visits: 21300,
+      rating: 0,
+      visits: 0,
       verified: !0,
       createdAt: Yi - 9e8,
       products: [
@@ -428,8 +428,8 @@ var Oa = [
       style: "minimal",
       mallId: "nova",
       slot: 1,
-      rating: 4.7,
-      visits: 16800,
+      rating: 0,
+      visits: 0,
       verified: !0,
       createdAt: Yi - 8e8,
       products: [
@@ -457,8 +457,8 @@ var Oa = [
       style: "neon",
       mallId: "nova",
       slot: 2,
-      rating: 4.6,
-      visits: 6900,
+      rating: 0,
+      visits: 0,
       createdAt: Yi - 6e8,
       products: [
         Sr(

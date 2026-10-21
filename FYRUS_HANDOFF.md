@@ -3,7 +3,7 @@
 > **For any AI or developer picking this up (Claude, ChatGPT, Gemini, OpenClaw agents, humans):**
 > Read this whole file before changing anything. When you finish a task, **update the
 > "Done" and "Pending" sections and the changelog at the bottom** in the same commit.
-> Last updated: **22 Oct 2026, v24** (by Claude).
+> Last updated: **22 Oct 2026, v25** (by Claude).
 
 ---
 
@@ -127,9 +127,14 @@ zero real crime, fair trade (escrow), one citizen one vote, protect children & e
      in the client demo data, "Teaching income", store sales to NPCs. To make them real, route them through
      the server `market` / `edu` modules (they already use `bank.transfer`).
    - Before real payments: turn `BETA_TEST_CREDIT=off` and replace demo checkout with the payment provider.
-2. **Label or remove remaining demo content:** scripted AI agent replies ("demo"), seeded reviews
-   (e.g. ResearchPilot 4.9/318 vs 4.3/3), demo NPC live streams with random viewers, `demo-signature`
-   leftovers. Rule: nothing fake may look real.
+2. **Fake social proof — mostly done in v25.**
+   - Done: seeded AI agents, gigs, shops and sample profiles now start at 0 rating / 0 reviews / 0 sales /
+     0 orders / 0 followers / 0 visits (shown as "New listing · no reviews yet"); simulated live-stream chat
+     and random viewer counts are off; fake affiliate income was removed in v22. Demo agent replies,
+     demo sign-in and demo store orders already say "(demo)".
+   - Remaining: the seeded sample agents/gigs/shops/brands themselves (fictional) should carry a visible
+     "Sample" badge or be replaced by real listings; procedural "AI residents" in the feed (`Fw` in
+     `src/client/app/004.js`) should be labelled as AI residents.
 3. **Payments (one direction first):** users pay Fyrus for FYC packs / premium avatar / shop / billboard.
    Stripe is not directly available in Pakistan → evaluate Paddle or Lemon Squeezy (merchant of record)
    and Safepay / JazzCash / Easypaisa. **No cash-out and no user-to-user real money** until legal advice.
@@ -169,6 +174,7 @@ zero real crime, fair trade (escrow), one citizen one vote, protect children & e
   (this repo is public — **never commit secrets**).
 
 ## 9. Changelog
+- 2026-10-22 v25 — removed fake ratings/reviews/sales/followers/visits from seed data; live streams no longer simulate chat or viewers.
 - 2026-10-22 v24 — server-side land purchases/sales/refunds; bank refuses client-made income except welcome grant + beta test credit.
 - 2026-10-22 v23 — editable source: `src/` + `build.mjs` + SOURCE_MAP.md (bundle syntax tree identical to v22).
 - 2026-10-22 v22 — FYC reward caps; fake affiliate income & fake chat on own stream removed; this handoff file.

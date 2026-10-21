@@ -137,7 +137,7 @@ function i8() {
           where: "plaza",
           startedAt: Date.now(),
           chat: [],
-          viewers: 9,
+          viewers: 0,
         }),
       { lives: a }
     );
@@ -162,6 +162,8 @@ function s8() {
   tM = !0;
   let t = ["#4da3ff", "#ff9a3c", "#ffc27a", "#7fd1ff", "#45e0ae", "#a8d8ff"];
   (setInterval(() => {
+    // No simulated chat or viewer counts: live streams only show real people.
+    if (!0) return;
     V.session &&
       V.lives.forEach((e) => {
         if (e.hostId === V.session?.userId) return;

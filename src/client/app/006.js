@@ -269,7 +269,7 @@ function bH() {
           where: "plaza",
           startedAt: Date.now() - 12 * 6e4,
           chat: [],
-          viewers: 23,
+          viewers: 0,
         },
       ],
       hud: { open: !1, tab: "explore" },
