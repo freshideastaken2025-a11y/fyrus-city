@@ -4166,6 +4166,11 @@ function createEdu(d) {
 var OPENING_CAP = +(process.env.OPENING_CAP || 2500);
 var DAILY_GAME_CAP = +(process.env.DAILY_REWARD_CAP || 15e3);
 var MAX_REWARD_PER_OP = +(process.env.MAX_REWARD_PER_OP || 1500);
+// Money the client may ask the bank to create. Everything else (sales, commissions, refunds) is either
+// done by the server itself (land, market, jobs, courses) or was demo-only and is refused.
+var WELCOME_GRANT = +(process.env.WELCOME_GRANT || 2500);
+var BETA_TEST_CREDIT = String(process.env.BETA_TEST_CREDIT || "on") !== "off";
+var mintKind = (label) => /^Welcome grant/i.test(label) ? "welcome" : /demo checkout/i.test(label) ? "test" : "";
 var SPECIAL = /* @__PURE__ */ new Set(["treasury", "escrow"]);
 var r2 = (n) => Math.round(n * 100) / 100;
 function createBank(d) {
@@ -4225,8 +4230,10 @@ function createBank(d) {
         if (!has(u.id)) {
           acct(u.id);
           const open = Math.max(0, Math.min(OPENING_CAP, Math.round(+m.local || 0)));
-          if (open > 0) transfer("mint", u.id, open, "Opening balance moved from your beta wallet");
-          else d.save();
+          if (open > 0) {
+            transfer("mint", u.id, open, "Opening balance moved from your beta wallet");
+            acct(u.id).welcomed = true;
+          } else d.save();
         }
         notify(u.id);
         reply({ t: "bank_hist", list: history(u.id) });
@@ -4248,6 +4255,20 @@ function createBank(d) {
           }
           return true;
         }
+        const kind = mintKind(label);
+        if (kind === "welcome") {
+          if (a.welcomed) {
+            notify(u.id);
+            return true;
+          }
+          a.welcomed = true;
+          transfer("mint", u.id, Math.min(amt, WELCOME_GRANT), "Welcome grant from the Central Bank");
+          return true;
+        }
+        if (kind !== "test" || !BETA_TEST_CREDIT) {
+          notify(u.id); // resync the client: this kind of income is not created by the bank
+          return true;
+        }
         if (a.day !== today()) {
           a.day = today();
           a.dayIn = 0;
@@ -4260,7 +4281,7 @@ function createBank(d) {
         }
         if (ok < amt) {
           notify(u.id);
-          reply({ t: "note", text: `Daily limit for rewards and test packs reached (${DAILY_GAME_CAP.toLocaleString("en-US")} FYC). It resets tomorrow.` });
+          reply({ t: "note", text: `Daily limit for beta test credit reached (${DAILY_GAME_CAP.toLocaleString("en-US")} FYC). It resets tomorrow.` });
         }
         return true;
       }
@@ -7660,18 +7681,45 @@ function onMessage(me, raw) {
       return;
     }
     case "plot": {
+      // Land is paid for on the server: price, 5% transfer tax (none for passport holders),
+      // the seller is paid directly, and the Land Bank buys back at 90% of value.
       const id = clean(m.id, 12);
       const cur = db.plots[id];
+      const land = LAND[id];
+      const note = (text) => send(me.ws, { t: "note", text });
       if (m.release) {
         if (cur?.owner === u.id) {
+          const refund = land ? Math.round(landValue(id) * 0.9) : 0;
           delete db.plots[id];
+          if (refund > 0) bank.transfer("treasury", u.id, refund, `Sold plot ${id} to the Land Bank (90% of value)`) || bank.transfer("mint", u.id, refund, `Sold plot ${id} to the Land Bank (90% of value)`);
+          bank.notify(u.id);
           save();
           broadcast({ t: "plots", plots: { [id]: null } });
         }
         return;
       }
-      if (cur && cur.owner !== u.id && !(cur.forSale && m.buy)) return send(me.ws, { t: "plot_taken", id, owner: cur });
-      db.plots[id] = { owner: u.id, ownerName: shown(u), use: clean(m.use, 30) || void 0, sign: clean(m.sign, 28) || void 0, forSale: m.forSale ? Math.max(1, Math.round(+m.forSale)) : void 0, at: Date.now() };
+      if (cur && cur.owner === u.id) { // owner edits: use, sign, listing price
+        db.plots[id] = { ...cur, ownerName: shown(u), use: clean(m.use, 30) || void 0, sign: clean(m.sign, 28) || void 0, forSale: m.forSale ? Math.max(1, Math.round(+m.forSale)) : void 0, at: Date.now() };
+        save();
+        broadcast({ t: "plots", plots: { [id]: db.plots[id] } });
+        return;
+      }
+      if (cur && !(cur.forSale && m.buy)) return send(me.ws, { t: "plot_taken", id, owner: cur });
+      if (!land) return send(me.ws, { t: "plot_taken", id, owner: cur || null });
+      const price = cur ? cur.forSale : land.price; // same as the price shown on the map
+      const tax = u.passport?.kind === "passport" ? 0 : Math.round(price * 0.05);
+      if (bank.bal(u.id) + 1e-9 < price + tax) {
+        bank.notify(u.id);
+        note(`You need ${(price + tax).toLocaleString("en-US")} FYC for plot ${id}.`);
+        return send(me.ws, { t: "plot_taken", id, owner: cur || null });
+      }
+      if (cur) {
+        if (!bank.transfer(u.id, cur.owner, price, `Bought plot ${id}`)) return bank.notify(u.id);
+        bank.notify(cur.owner);
+      } else if (!bank.transfer(u.id, "treasury", price, `Plot ${id}`)) return bank.notify(u.id);
+      if (tax > 0) bank.transfer(u.id, "treasury", tax, `Transfer tax on plot ${id}`);
+      bank.notify(u.id);
+      db.plots[id] = { owner: u.id, ownerName: shown(u), paid: price, at: Date.now() };
       save();
       broadcast({ t: "plots", plots: { [id]: db.plots[id] } });
       return;
@@ -7679,6 +7727,37 @@ function onMessage(me, raw) {
   }
 }
 var broadcast = (m) => live.forEach((l) => send(l.ws, m));
+// Land plots of the Republic (same layout and prices as the city map in the client).
+var LAND = (() => {
+  const districts = [
+    { code: "CP", capital: true, x: -124, z: 2, base: 4e4, cols: 2, rows: 3, gap: 22 },
+    { code: "MC", x: 232, z: -214, base: 15e3, cols: 4, rows: 5, gap: 20 },
+    { code: "TC", x: -272, z: -30, base: 12e3, cols: 4, rows: 5, gap: 20 },
+    { code: "CC", x: -212, z: 212, base: 9e3, cols: 4, rows: 5, gap: 20 },
+    { code: "PC", x: 216, z: 216, base: 8e3, cols: 4, rows: 5, gap: 20 },
+    { code: "LC", x: -222, z: -212, base: 6e3, cols: 4, rows: 5, gap: 20 },
+    { code: "FD", x: 0, z: 268, base: 2500, cols: 4, rows: 5, gap: 20 }
+  ];
+  const mult = { prime: 2.5, central: 1.6, standard: 1 };
+  const out = {};
+  for (const d of districts) {
+    const pts = [];
+    for (let i = 0; i < d.rows; i++) for (let s = 0; s < d.cols; s++) pts.push({ x: d.x + (s - (d.cols - 1) / 2) * d.gap, z: d.z + (i - (d.rows - 1) / 2) * d.gap });
+    const r = pts.map((p) => Math.hypot(p.x, p.z)), lo = Math.min(...r), hi = Math.max(...r);
+    pts.forEach((p, k) => {
+      const l = hi > lo ? (r[k] - lo) / (hi - lo) : 0;
+      const tier = d.capital ? (l < 0.5 ? "prime" : "central") : l < 0.34 ? "prime" : l < 0.67 ? "central" : "standard";
+      out[`${d.code}-${String(k + 1).padStart(2, "0")}`] = { code: d.code, price: Math.round(d.base * mult[tier] / 100) * 100 };
+    });
+  }
+  return out;
+})();
+var landValue = (id) => {
+  const p = LAND[id];
+  if (!p) return 0;
+  const owned = Object.keys(db.plots).filter((k) => LAND[k]?.code === p.code && db.plots[k]).length;
+  return Math.round(p.price * (1 + 0.04 * owned) / 100) * 100;
+};
 setInterval(() => {
   if (!live.size) return;
   const list = [...live.values()].map((l) => ({ id: l.u.id, name: shown(l.u), color: l.u.stealth ? "#8a8f98" : l.u.color, x: l.x, z: l.z, y: l.y, ry: l.ry, sc: l.scene, o: l.o, v: l.v, vc: l.voice, ph: l.u.stealth ? void 0 : l.u.photo, mk: l.u.stealth ? 1 : void 0 }));

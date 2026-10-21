@@ -942,7 +942,7 @@ function y8(t) {
       "warn",
     );
   let l = { ...V };
-  (cr(e, -s, `Plot ${a.id} in ${qi(a.district).name} (incl. ${q(i)} tax)`, l),
+  (cr(e, -s, `Plot ${a.id} in ${qi(a.district).name} (incl. ${q(i)} tax)`, l, !0),
     o && l.wallets[o.owner] != null && cr(o.owner, n, `Sold plot ${a.id}`, l));
   let c = {
     ...V.plots,
@@ -990,7 +990,7 @@ function b8(t) {
   if (!e || !a || r?.owner !== e) return;
   let o = Math.round(Rh(a) * 0.9),
     n = { ...V };
-  cr(e, o, `Sold plot ${a.id} to the Land Bank (90% of value)`, n);
+  cr(e, o, `Sold plot ${a.id} to the Land Bank (90% of value)`, n, !0);
   let i = { ...V.plots };
   (delete i[t],
     C({ wallets: n.wallets, txns: n.txns, plots: i }),

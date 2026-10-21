@@ -3,7 +3,7 @@
 > **For any AI or developer picking this up (Claude, ChatGPT, Gemini, OpenClaw agents, humans):**
 > Read this whole file before changing anything. When you finish a task, **update the
 > "Done" and "Pending" sections and the changelog at the bottom** in the same commit.
-> Last updated: **22 Oct 2026, v23** (by Claude).
+> Last updated: **22 Oct 2026, v24** (by Claude).
 
 ---
 
@@ -116,9 +116,17 @@ zero real crime, fair trade (escrow), one citizen one vote, protect children & e
 ## 7. PENDING ⏳ (in priority order)
 
 ### P0 — must do before marketing / real money
-1. **Server-computed rewards.** Rewards still come from the client (`bank_op` with a positive amount);
-   v22 only caps them. Move each reward (daily reward, quest, game win) to the server with its own rule.
-   Remove the "test credit" button before real payments.
+1. **Server-side money — mostly done in v24.**
+   - Done: the bank only *creates* money for (a) the one-time welcome grant (2,500) and (b) beta test
+     top-ups labelled "demo checkout" (env `BETA_TEST_CREDIT=off` disables them; capped per op and per day).
+     Every other positive `bank_op` from the client is refused and the balance is resynced.
+   - Done: **land is server-authoritative** (`case "plot"` in `src/server/index.2.mjs` + `LAND`/`landValue`):
+     server checks the plot id, charges price + 5% tax (0 for passport holders), pays the seller on resale,
+     and pays the Land Bank 90% refund. Client no longer sends these as `bank_op` (`cr(..., serverDoesIt)`).
+   - Still client-side/demo (now *without* real money effect): AI-agent / gig sales and affiliate commissions
+     in the client demo data, "Teaching income", store sales to NPCs. To make them real, route them through
+     the server `market` / `edu` modules (they already use `bank.transfer`).
+   - Before real payments: turn `BETA_TEST_CREDIT=off` and replace demo checkout with the payment provider.
 2. **Label or remove remaining demo content:** scripted AI agent replies ("demo"), seeded reviews
    (e.g. ResearchPilot 4.9/318 vs 4.3/3), demo NPC live streams with random viewers, `demo-signature`
    leftovers. Rule: nothing fake may look real.
@@ -161,6 +169,7 @@ zero real crime, fair trade (escrow), one citizen one vote, protect children & e
   (this repo is public — **never commit secrets**).
 
 ## 9. Changelog
+- 2026-10-22 v24 — server-side land purchases/sales/refunds; bank refuses client-made income except welcome grant + beta test credit.
 - 2026-10-22 v23 — editable source: `src/` + `build.mjs` + SOURCE_MAP.md (bundle syntax tree identical to v22).
 - 2026-10-22 v22 — FYC reward caps; fake affiliate income & fake chat on own stream removed; this handoff file.
 - 2026-10-22 v21.2 — opening film v2, unique architecture, navy/gold design system.

@@ -3,6 +3,11 @@
 var OPENING_CAP = +(process.env.OPENING_CAP || 2500);
 var DAILY_GAME_CAP = +(process.env.DAILY_REWARD_CAP || 15e3);
 var MAX_REWARD_PER_OP = +(process.env.MAX_REWARD_PER_OP || 1500);
+// Money the client may ask the bank to create. Everything else (sales, commissions, refunds) is either
+// done by the server itself (land, market, jobs, courses) or was demo-only and is refused.
+var WELCOME_GRANT = +(process.env.WELCOME_GRANT || 2500);
+var BETA_TEST_CREDIT = String(process.env.BETA_TEST_CREDIT || "on") !== "off";
+var mintKind = (label) => /^Welcome grant/i.test(label) ? "welcome" : /demo checkout/i.test(label) ? "test" : "";
 var SPECIAL = /* @__PURE__ */ new Set(["treasury", "escrow"]);
 var r2 = (n) => Math.round(n * 100) / 100;
 function createBank(d) {
@@ -62,8 +67,10 @@ function createBank(d) {
         if (!has(u.id)) {
           acct(u.id);
           const open = Math.max(0, Math.min(OPENING_CAP, Math.round(+m.local || 0)));
-          if (open > 0) transfer("mint", u.id, open, "Opening balance moved from your beta wallet");
-          else d.save();
+          if (open > 0) {
+            transfer("mint", u.id, open, "Opening balance moved from your beta wallet");
+            acct(u.id).welcomed = true;
+          } else d.save();
         }
         notify(u.id);
         reply({ t: "bank_hist", list: history(u.id) });
@@ -85,6 +92,20 @@ function createBank(d) {
           }
           return true;
         }
+        const kind = mintKind(label);
+        if (kind === "welcome") {
+          if (a.welcomed) {
+            notify(u.id);
+            return true;
+          }
+          a.welcomed = true;
+          transfer("mint", u.id, Math.min(amt, WELCOME_GRANT), "Welcome grant from the Central Bank");
+          return true;
+        }
+        if (kind !== "test" || !BETA_TEST_CREDIT) {
+          notify(u.id); // resync the client: this kind of income is not created by the bank
+          return true;
+        }
         if (a.day !== today()) {
           a.day = today();
           a.dayIn = 0;
@@ -97,7 +118,7 @@ function createBank(d) {
         }
         if (ok < amt) {
           notify(u.id);
-          reply({ t: "note", text: `Daily limit for rewards and test packs reached (${DAILY_GAME_CAP.toLocaleString("en-US")} FYC). It resets tomorrow.` });
+          reply({ t: "note", text: `Daily limit for beta test credit reached (${DAILY_GAME_CAP.toLocaleString("en-US")} FYC). It resets tomorrow.` });
         }
         return true;
       }

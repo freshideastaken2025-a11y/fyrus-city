@@ -905,8 +905,9 @@ function Jr() {
 function an(t, e) {
   C({ focus: { kind: t, id: e } });
 }
-function cr(t, e, a, r) {
+function cr(t, e, a, r, serverDoesIt) {
   (t === V.session?.userId &&
+    !serverDoesIt &&
     O.status === "online" &&
     e &&
     O.send({ t: "bank_op", amount: Math.round(e * 100) / 100, label: a }),
