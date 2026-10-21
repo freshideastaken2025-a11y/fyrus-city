@@ -253,7 +253,26 @@ function onMessage(me, raw) {
       return;
     }
     case "report": {
-      db.reports.push({ by: u.id, against: clean(m.id, 40), reason: clean(m.reason, 400), msg: clean(m.msg, 600), at: Date.now() });
+      // Safety: limit report spam, and pause chat for someone several trusted citizens report,
+      // until a judge reviews it in the admin desk.
+      const now = Date.now(), DAY = 864e5, against = clean(m.id, 40);
+      const mine = db.reports.filter((r) => r.by === u.id && now - r.at < DAY);
+      if (mine.length >= 15) return send(me.ws, { t: "err", text: "You have sent many reports today. A judge will review them soon." });
+      if (mine.some((r) => r.against === against)) return send(me.ws, { t: "ok", text: "You already reported this citizen today. A judge will review it." });
+      db.reports.push({ by: u.id, against, reason: clean(m.reason, 400), msg: clean(m.msg, 600), at: now });
+      if (db.reports.length > 5e3) db.reports.splice(0, db.reports.length - 5e3);
+      const target = db.users[against];
+      if (target && !isAdmin(target.id)) {
+        const trusted = (x) => !!x && (x.email || x.google || now - (x.joined || now) > DAY);
+        const by = new Set(db.reports.filter((r) => r.against === against && now - r.at < DAY && trusted(db.users[r.by])).map((r) => r.by));
+        if (by.size >= 3 && !(target.muteUntil > now)) {
+          target.muteUntil = now + DAY;
+          target.autoMuted = now;
+          const l = live.get(target.id);
+          if (l) send(l.ws, { t: "err", text: "Several citizens reported your messages. Your chat is paused for 24 hours while a judge reviews it." });
+          console.log("auto-mute", target.number, by.size, "reports");
+        }
+      }
       save();
       send(me.ws, { t: "ok", text: "Report sent to the Justice ministry." });
       return;
