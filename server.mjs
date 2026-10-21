@@ -3903,27 +3903,27 @@ function createEdu(d) {
     d.db.edu = { ...seed(), enr: {}, certs: {}, earn: {}, secret: crypto.randomBytes(32).toString("hex") };
     d.save();
   }
-  const E = d.db.edu;
-  const SECRET = process.env.CERT_SECRET || E.secret;
+  const E2 = d.db.edu;
+  const SECRET = process.env.CERT_SECRET || E2.secret;
   const sign = (c) => crypto.createHmac("sha256", SECRET).update(JSON.stringify([c.code, c.student, c.studentName, c.teacher, c.teacherName, c.instName || "", c.course, c.courseTitle, c.skills, c.level, c.lessons, c.issuedAt])).digest("hex").slice(0, 32);
   const valid = (c) => !!c && c.sig === sign(c);
   const forStudent = (c) => ({ ...c, lessons: c.lessons.map((l) => ({ title: l.title, body: l.body, video: l.video, q: l.q, opts: l.opts })) });
-  const nameOf2 = (id) => id === ACADEMY ? E.teachers[ACADEMY].name : d.db.users[id]?.name || "Citizen";
-  const canTeachAt = (uid, instId) => !instId || E.inst[instId] && (E.inst[instId].owner === uid || E.inst[instId].staff.includes(uid));
+  const nameOf2 = (id) => id === ACADEMY ? E2.teachers[ACADEMY].name : d.db.users[id]?.name || "Citizen";
+  const canTeachAt = (uid, instId) => !instId || E2.inst[instId] && (E2.inst[instId].owner === uid || E2.inst[instId].staff.includes(uid));
   const changed = () => {
     d.save();
     d.broadcast({ t: "edu_changed" });
   };
   function issue(en, by) {
-    const c = E.courses[en.course];
+    const c = E2.courses[en.course];
     if (!c) return "No such course.";
     if (c.teacher !== by) return "Only the teacher of this course can issue its certificate.";
     if (!en.completedAt) return "The student has not finished every lesson yet.";
-    if (en.cert && E.certs[en.cert]) return E.certs[en.cert];
-    const i = c.inst ? E.inst[c.inst] : void 0;
+    if (en.cert && E2.certs[en.cert]) return E2.certs[en.cert];
+    const i = c.inst ? E2.inst[c.inst] : void 0;
     const base = { code: newCode(), student: en.user, studentName: d.db.users[en.user]?.name || en.userName, teacher: c.teacher, teacherName: nameOf2(c.teacher), inst: i?.id, instName: i?.name, instType: i?.type, instVerified: i?.verified, course: c.id, courseTitle: c.title, skills: c.skills, level: c.level, lessons: c.lessons.length, issuedAt: Date.now() };
     const cert = { ...base, sig: sign(base) };
-    E.certs[cert.code] = cert;
+    E2.certs[cert.code] = cert;
     en.cert = cert.code;
     d.save();
     d.news?.("education", `Certificate issued: "${c.title}"${i ? ` at ${i.name}` : ""}`);
@@ -3932,21 +3932,21 @@ function createEdu(d) {
     return cert;
   }
   function mine(uid) {
-    const teaching = Object.values(E.courses).filter((c) => c.teacher === uid);
+    const teaching = Object.values(E2.courses).filter((c) => c.teacher === uid);
     const ids = new Set(teaching.map((c) => c.id));
-    const earn = E.earn[uid] || 0;
+    const earn = E2.earn[uid] || 0;
     if (earn) {
-      E.earn[uid] = 0;
+      E2.earn[uid] = 0;
       d.save();
     }
     return {
       t: "edu_mine",
-      teacher: E.teachers[uid] || null,
-      enr: Object.values(E.enr).filter((e) => e.user === uid),
-      certs: Object.values(E.certs).filter((c) => c.student === uid),
-      inst: Object.values(E.inst).filter((i) => i.owner === uid || i.staff.includes(uid)),
+      teacher: E2.teachers[uid] || null,
+      enr: Object.values(E2.enr).filter((e) => e.user === uid),
+      certs: Object.values(E2.certs).filter((c) => c.student === uid),
+      inst: Object.values(E2.inst).filter((i) => i.owner === uid || i.staff.includes(uid)),
       teaching,
-      students: Object.values(E.enr).filter((e) => ids.has(e.course)).map((e) => ({ ...e, total: E.courses[e.course].lessons.length })),
+      students: Object.values(E2.enr).filter((e) => ids.has(e.course)).map((e) => ({ ...e, total: E2.courses[e.course].lessons.length })),
       earn
     };
   }
@@ -3957,7 +3957,7 @@ function createEdu(d) {
     const err = (text) => reply({ t: "err", text });
     switch (m.t) {
       case "edu_list":
-        reply({ t: "edu_list", inst: Object.values(E.inst), teachers: Object.values(E.teachers), courses: Object.values(E.courses).map(forStudent) });
+        reply({ t: "edu_list", inst: Object.values(E2.inst), teachers: Object.values(E2.teachers), courses: Object.values(E2.courses).map(forStudent) });
         return true;
       case "edu_mine":
         reply(mine(u.id));
@@ -3968,7 +3968,7 @@ function createEdu(d) {
           err("Add the subject you teach.");
           return true;
         }
-        E.teachers[u.id] = { id: u.id, name: u.name, subject, bio, at: E.teachers[u.id]?.at || Date.now() };
+        E2.teachers[u.id] = { id: u.id, name: u.name, subject, bio, at: E2.teachers[u.id]?.at || Date.now() };
         changed();
         reply(mine(u.id));
         return true;
@@ -3980,23 +3980,23 @@ function createEdu(d) {
           err("Pick a type and a name of at least 3 letters.");
           return true;
         }
-        if (Object.values(E.inst).filter((i2) => i2.owner === u.id).length >= 3) {
+        if (Object.values(E2.inst).filter((i2) => i2.owner === u.id).length >= 3) {
           err("You can register up to 3 institutions.");
           return true;
         }
-        if (Object.values(E.inst).some((i2) => i2.name.toLowerCase() === name.toLowerCase())) {
+        if (Object.values(E2.inst).some((i2) => i2.name.toLowerCase() === name.toLowerCase())) {
           err("That name is already registered.");
           return true;
         }
         const i = { id: "i" + d.rid(6), owner: u.id, type, name, tagline: d.clean(m.tagline, 120), color: /^#[0-9a-f]{6}$/i.test(m.color) ? m.color : "#2f6fe0", staff: [u.id], verified: false, at: Date.now() };
-        E.inst[i.id] = i;
-        if (!E.teachers[u.id]) E.teachers[u.id] = { id: u.id, name: u.name, subject: type === "school" ? "School teacher" : "Instructor", bio: "", at: Date.now() };
+        E2.inst[i.id] = i;
+        if (!E2.teachers[u.id]) E2.teachers[u.id] = { id: u.id, name: u.name, subject: type === "school" ? "School teacher" : "Instructor", bio: "", at: Date.now() };
         changed();
         reply(mine(u.id));
         return true;
       }
       case "edu_staff": {
-        const i = E.inst[m.inst];
+        const i = E2.inst[m.inst];
         if (!i || i.owner !== u.id) {
           err("Only the owner can add teachers.");
           return true;
@@ -4007,7 +4007,7 @@ function createEdu(d) {
           return true;
         }
         if (!i.staff.includes(x.id)) i.staff.push(x.id);
-        if (!E.teachers[x.id]) E.teachers[x.id] = { id: x.id, name: x.name, subject: `Teacher at ${i.name}`, bio: "", at: Date.now() };
+        if (!E2.teachers[x.id]) E2.teachers[x.id] = { id: x.id, name: x.name, subject: `Teacher at ${i.name}`, bio: "", at: Date.now() };
         changed();
         reply(mine(u.id));
         const l = d.liveOf(x.id);
@@ -4015,7 +4015,7 @@ function createEdu(d) {
         return true;
       }
       case "edu_course": {
-        if (!E.teachers[u.id]) {
+        if (!E2.teachers[u.id]) {
           err("Register as a teacher first.");
           return true;
         }
@@ -4035,14 +4035,14 @@ function createEdu(d) {
           err("A course needs a title and at least one lesson.");
           return true;
         }
-        const old = m.id ? E.courses[m.id] : void 0;
+        const old = m.id ? E2.courses[m.id] : void 0;
         if (old && old.teacher !== u.id) {
           err("That is not your course.");
           return true;
         }
-        const i = instId ? E.inst[instId] : void 0;
+        const i = instId ? E2.inst[instId] : void 0;
         const c = { id: old?.id || "c" + d.rid(6), teacher: u.id, teacherName: u.name, inst: i?.id, instName: i?.name, title, summary: d.clean(m.summary, 300), skills: (Array.isArray(m.skills) ? m.skills : String(m.skills || "").split(",")).map((s) => d.clean(s, 30)).filter(Boolean).slice(0, 6), level: ["Beginner", "Intermediate", "Advanced"].includes(m.level) ? m.level : "Beginner", fee: Math.max(0, Math.min(1e5, Math.round(+m.fee || 0))), lessons, students: old?.students || 0, at: old?.at || Date.now() };
-        E.courses[c.id] = c;
+        E2.courses[c.id] = c;
         changed();
         if (!old) d.news?.("education", `New course in Education City: "${c.title}"${c.fee ? "" : " (free)"}`);
         reply(mine(u.id));
@@ -4050,7 +4050,7 @@ function createEdu(d) {
         return true;
       }
       case "edu_enroll": {
-        const c = E.courses[m.course];
+        const c = E2.courses[m.course];
         if (!c) {
           err("No such course.");
           return true;
@@ -4060,7 +4060,7 @@ function createEdu(d) {
           return true;
         }
         const k = c.id + "|" + u.id;
-        if (E.enr[k]) {
+        if (E2.enr[k]) {
           reply(mine(u.id));
           return true;
         }
@@ -4072,9 +4072,9 @@ function createEdu(d) {
               return true;
             }
             d.pay(u.id, "treasury", Math.round((c.fee - share) * 100) / 100, `Education levy 10%: ${c.title}`);
-          } else E.earn[c.teacher] = (E.earn[c.teacher] || 0) + Math.round(c.fee * 0.9);
+          } else E2.earn[c.teacher] = (E2.earn[c.teacher] || 0) + Math.round(c.fee * 0.9);
         }
-        E.enr[k] = { course: c.id, user: u.id, userName: u.name, at: Date.now(), done: [] };
+        E2.enr[k] = { course: c.id, user: u.id, userName: u.name, at: Date.now(), done: [] };
         c.students++;
         {
           const l = d.liveOf(c.teacher);
@@ -4085,8 +4085,8 @@ function createEdu(d) {
         return true;
       }
       case "edu_done": {
-        const c = E.courses[m.course];
-        const en = c && E.enr[c.id + "|" + u.id];
+        const c = E2.courses[m.course];
+        const en = c && E2.enr[c.id + "|" + u.id];
         const i = Math.round(+m.lesson);
         if (!c || !en || !(i >= 0 && i < c.lessons.length)) {
           err("Enrol in the course first.");
@@ -4112,7 +4112,7 @@ function createEdu(d) {
         return true;
       }
       case "edu_issue": {
-        const en = E.enr[String(m.course) + "|" + String(m.student)];
+        const en = E2.enr[String(m.course) + "|" + String(m.student)];
         if (!en) {
           err("That student is not enrolled.");
           return true;
@@ -4126,7 +4126,7 @@ function createEdu(d) {
         return true;
       }
       case "edu_verify": {
-        const c = E.certs[d.clean(m.code, 20).toUpperCase()];
+        const c = E2.certs[d.clean(m.code, 20).toUpperCase()];
         reply({ t: "edu_cert", code: m.code, cert: c && valid(c) ? c : null });
         return true;
       }
@@ -4137,7 +4137,7 @@ function createEdu(d) {
   function http2(path3, res) {
     const mm = path3.match(/^\/(verify|api\/cert)\/([A-Za-z0-9-]{6,20})\/?$/);
     if (!mm) return false;
-    const c = E.certs[mm[2].toUpperCase()];
+    const c = E2.certs[mm[2].toUpperCase()];
     const ok = valid(c);
     if (mm[1] === "api/cert") {
       res.writeHead(ok ? 200 : 404, { "content-type": "application/json", "access-control-allow-origin": "*" });
@@ -4831,7 +4831,7 @@ function createEstate(d) {
     d.db.estate = { plots: {}, studios: {}, passes: {} };
     d.save();
   }
-  const E = d.db.estate;
+  const E2 = d.db.estate;
   const bank2 = d.bank;
   const isPassport = (id) => {
     const p = d.db.users[id]?.passport;
@@ -4842,27 +4842,27 @@ function createEstate(d) {
     if (l) d.send(l.ws, { t: "note", text });
   };
   const pub2 = (id, p) => ({ id, owner: p.owner, ownerName: p.ownerName, style: p.style, sign: p.sign, sale: p.sale, rent: p.rent ? { price: p.rent.price, tenantName: p.rent.tenantName, tenant: p.rent.tenant, paidUntil: p.rent.paidUntil, ending: p.rent.ending } : void 0, auction: p.auction ? { endsAt: p.auction.endsAt, start: p.auction.start, reserve: !!p.auction.reserve, top: p.auction.bids.at(-1)?.amount, topName: p.auction.bids.at(-1)?.name, bids: p.auction.bids.length } : void 0 });
-  const state = () => ({ t: "est_state", plots: Object.fromEntries(Object.entries(E.plots).map(([k, v]) => [k, pub2(k, v)])), studios: Object.keys(E.studios).length, now: Date.now() });
+  const state = () => ({ t: "est_state", plots: Object.fromEntries(Object.entries(E2.plots).map(([k, v]) => [k, pub2(k, v)])), studios: Object.keys(E2.studios).length, now: Date.now() });
   const changed = (ids) => {
     d.save();
-    d.broadcast({ t: "est_update", plots: Object.fromEntries(ids.map((k) => [k, E.plots[k] ? pub2(k, E.plots[k]) : null])) });
+    d.broadcast({ t: "est_update", plots: Object.fromEntries(ids.map((k) => [k, E2.plots[k] ? pub2(k, E2.plots[k]) : null])) });
   };
-  const mine = (uid) => ({ t: "est_mine", owned: Object.entries(E.plots).filter(([, p]) => p.owner === uid).map(([k, p]) => pub2(k, p)), renting: Object.entries(E.plots).filter(([, p]) => p.rent?.tenant === uid).map(([k, p]) => pub2(k, p)), studio: E.studios[uid] || null, passes: (E.passes[uid] || []).filter((p) => p.until > Date.now()), passport: isPassport(uid) });
+  const mine = (uid) => ({ t: "est_mine", owned: Object.entries(E2.plots).filter(([, p]) => p.owner === uid).map(([k, p]) => pub2(k, p)), renting: Object.entries(E2.plots).filter(([, p]) => p.rent?.tenant === uid).map(([k, p]) => pub2(k, p)), studio: E2.studios[uid] || null, passes: (E2.passes[uid] || []).filter((p) => p.until > Date.now()), passport: isPassport(uid) });
   const pushMine = (uid) => {
     const l = d.liveOf(uid);
     if (l) d.send(l.ws, mine(uid));
   };
-  const canEnterRoyal = (uid) => isPassport(uid) || (E.passes[uid] || []).some((p) => p.until > Date.now()) || Object.entries(E.plots).some(([k, p]) => k.startsWith("RS-") && (p.owner === uid || p.rent?.tenant === uid));
+  const canEnterRoyal = (uid) => isPassport(uid) || (E2.passes[uid] || []).some((p) => p.until > Date.now()) || Object.entries(E2.plots).some(([k, p]) => k.startsWith("RS-") && (p.owner === uid || p.rent?.tenant === uid));
   function transferPlot(id, to, paid) {
-    const p = E.plots[id];
+    const p = E2.plots[id];
     const prevOwner = p?.owner;
     const tenant = p?.rent?.tenant ? p.rent : void 0;
-    E.plots[id] = { owner: to.id, ownerName: to.name, boughtAt: Date.now(), paid, style: p?.style, rent: tenant ? { ...tenant, ending: true } : void 0 };
+    E2.plots[id] = { owner: to.id, ownerName: to.name, boughtAt: Date.now(), paid, style: p?.style, rent: tenant ? { ...tenant, ending: true } : void 0 };
     if (prevOwner && prevOwner !== to.id) pushMine(prevOwner);
     pushMine(to.id);
   }
   function finishAuction(id) {
-    const p = E.plots[id];
+    const p = E2.plots[id];
     const a = p?.auction;
     if (!p || !a) return;
     const top = a.bids.at(-1);
@@ -4887,7 +4887,7 @@ function createEstate(d) {
     d.news?.("property", `Auction: plot ${id} sold for ${top.amount.toLocaleString("en-US")} FYC`);
   }
   function collectRent(id) {
-    const p = E.plots[id];
+    const p = E2.plots[id];
     const r = p?.rent;
     if (!p || !r?.tenant || !r.paidUntil || Date.now() < r.paidUntil) return;
     if (r.ending || !bank2.transfer(r.tenant, p.owner, r.price, `Rent: plot ${id}`)) {
@@ -4908,7 +4908,7 @@ function createEstate(d) {
   }
   setInterval(() => {
     const now = Date.now();
-    for (const [id, p] of Object.entries(E.plots)) {
+    for (const [id, p] of Object.entries(E2.plots)) {
       if (p.auction && now >= p.auction.endsAt) finishAuction(id);
       if (p.rent?.tenant && p.rent.paidUntil && now >= p.rent.paidUntil) collectRent(id);
     }
@@ -4919,7 +4919,7 @@ function createEstate(d) {
     const reply = (x) => d.send(me.ws, x);
     const err = (text) => reply({ t: "err", text });
     const plot = m.plot ? estatePlotById(String(m.plot)) : void 0;
-    const rec = plot ? E.plots[plot.id] : void 0;
+    const rec = plot ? E2.plots[plot.id] : void 0;
     const soc = plot ? societyById(plot.soc) : void 0;
     const banned = bank2.acct(u.id).banned;
     switch (m.t) {
@@ -5125,18 +5125,18 @@ function createEstate(d) {
         return true;
       }
       case "est_studio": {
-        if (E.studios[u.id]) {
+        if (E2.studios[u.id]) {
           reply(mine(u.id));
           return true;
         }
-        const used = new Set(Object.values(E.studios));
+        const used = new Set(Object.values(E2.studios));
         let k = 0;
         while (k < STUDIOS && used.has(studioId(k))) k++;
         if (k >= STUDIOS) {
           err("All studios are taken. New towers are coming.");
           return true;
         }
-        E.studios[u.id] = studioId(k);
+        E2.studios[u.id] = studioId(k);
         d.save();
         reply(mine(u.id));
         reply({ t: "ok", text: `Studio ${studioId(k)} in Starter Commons is yours, free.` });
@@ -5152,7 +5152,7 @@ function createEstate(d) {
           err("No citizen has that number.");
           return true;
         }
-        E.passes[g.id] = [...(E.passes[g.id] || []).filter((p) => p.until > Date.now()), { by: u.id, byName: u.name, until: Date.now() + 24 * H2 }];
+        E2.passes[g.id] = [...(E2.passes[g.id] || []).filter((p) => p.until > Date.now()), { by: u.id, byName: u.name, until: Date.now() + 24 * H2 }];
         d.save();
         note(g.id, `${u.name} invited you to Royal Sky Society. Your gate pass is valid for 24 hours.`);
         pushMine(g.id);
@@ -5242,19 +5242,19 @@ function createNews(d) {
     d.db.news = { items: [], seq: 0 };
     d.save();
   }
-  const N = d.db.news;
+  const N2 = d.db.news;
   let world = [];
   let worldAt = 0;
   let worldErr = "";
-  const visible = () => N.items.filter((i) => !i.hidden).slice(-80).reverse();
+  const visible = () => N2.items.filter((i) => !i.hidden).slice(-80).reverse();
   const pub2 = (i) => ({ id: i.id, kind: i.kind, cat: i.cat, title: i.title, body: i.body, at: i.at, byName: i.byName, flags: i.flags?.length || 0 });
   const state = () => ({ t: "news_state", fyrus: visible().map(pub2), world, worldAt, worldErr: world.length ? "" : worldErr, sources: FEEDS.map((f) => f.name) });
   function report2(cat, title, body) {
-    const last = N.items.at(-1);
+    const last = N2.items.at(-1);
     if (last && last.title === title && Date.now() - last.at < 6e4) return;
-    const it = { id: ++N.seq, kind: "fyrus", cat: NEWS_CATS[cat] ? cat : "nation", title: title.slice(0, 160), body: body?.slice(0, 600), at: Date.now() };
-    N.items.push(it);
-    if (N.items.length > 400) N.items.splice(0, N.items.length - 400);
+    const it = { id: ++N2.seq, kind: "fyrus", cat: NEWS_CATS[cat] ? cat : "nation", title: title.slice(0, 160), body: body?.slice(0, 600), at: Date.now() };
+    N2.items.push(it);
+    if (N2.items.length > 400) N2.items.splice(0, N2.items.length - 400);
     d.save();
     d.broadcast({ t: "news_new", item: pub2(it) });
   }
@@ -5314,21 +5314,21 @@ function createNews(d) {
           err(bad.replace("this listing", "this report"));
           return true;
         }
-        const today = N.items.filter((i) => i.by === u.id && Date.now() - i.at < 24 * H3).length;
+        const today = N2.items.filter((i) => i.by === u.id && Date.now() - i.at < 24 * H3).length;
         if (today >= 3) {
           err("You can post 3 citizen reports a day.");
           return true;
         }
-        const it = { id: ++N.seq, kind: "citizen", cat: "citizen", title, body, at: Date.now(), by: u.id, byName: d.shown(u.id), flags: [] };
-        N.items.push(it);
-        if (N.items.length > 400) N.items.splice(0, N.items.length - 400);
+        const it = { id: ++N2.seq, kind: "citizen", cat: "citizen", title, body, at: Date.now(), by: u.id, byName: d.shown(u.id), flags: [] };
+        N2.items.push(it);
+        if (N2.items.length > 400) N2.items.splice(0, N2.items.length - 400);
         d.save();
         d.broadcast({ t: "news_new", item: pub2(it) });
         reply({ t: "ok", text: "Your report is live on Fyrus News (labelled as a citizen report)." });
         return true;
       }
       case "news_flag": {
-        const it = N.items.find((i) => i.id === +m.id);
+        const it = N2.items.find((i) => i.id === +m.id);
         if (!it || it.kind !== "citizen" || it.hidden) return true;
         it.flags = it.flags || [];
         if (!it.flags.includes(u.id) && it.by !== u.id) it.flags.push(u.id);
@@ -5341,7 +5341,7 @@ function createNews(d) {
         return true;
       }
       case "news_remove": {
-        const it = N.items.find((i) => i.id === +m.id);
+        const it = N2.items.find((i) => i.id === +m.id);
         if (!it) return true;
         if (!d.isAdmin(u.id) && it.by !== u.id) {
           err("Only the reporter or a Fyrus judge can remove this.");
@@ -6518,6 +6518,372 @@ function createPolitics(d) {
   return { onMessage: onMessage2, state, titleOf, closeElection };
 }
 
+// src/data/services.ts
+var E = Math.PI / 2;
+var W = -Math.PI / 2;
+var N = Math.PI;
+var S = 0;
+var CIVIC = [
+  {
+    id: "hospital",
+    name: "Fyrus General Hospital",
+    kind: "civic",
+    x: -384,
+    z: -192,
+    face: E,
+    color: "#e5484d",
+    sub: "Emergency \xB7 clinics \xB7 first aid",
+    w: 30,
+    d: 22,
+    interior: true,
+    job: { title: "Nurse shift", pay: 110, stations: ["Check the patient in bed 1", "Check the patient in bed 2", "Bring the first-aid kit", "Update charts at reception", "Restock the medicine cart"] },
+    actions: ["checkup", "firstaid"]
+  },
+  {
+    id: "police",
+    name: "Fyrus Police Station",
+    kind: "civic",
+    x: -384,
+    z: -128,
+    face: E,
+    color: "#2f6fe0",
+    sub: "Help desk \xB7 lost & found \xB7 reports",
+    w: 26,
+    d: 20,
+    interior: true,
+    job: { title: "Community officer shift", pay: 100, stations: ["Answer the help-desk phone", "Log a lost-and-found item", "Check the city camera wall", "Brief the patrol team", "File a visitor report"] },
+    actions: ["report", "lost"]
+  },
+  {
+    id: "fire",
+    name: "Fyrus Fire Station",
+    kind: "civic",
+    x: -384,
+    z: -64,
+    face: E,
+    color: "#ff5a2a",
+    sub: "Fire & rescue \xB7 safety drills",
+    w: 28,
+    d: 22,
+    interior: true,
+    job: { title: "Fire crew drill", pay: 105, stations: ["Check the hoses", "Wash the fire engine", "Test the alarm panel", "Pack the rescue kit", "Slide down the pole"] },
+    actions: ["safety"]
+  },
+  {
+    id: "post",
+    name: "Fyrus Post Office",
+    kind: "civic",
+    x: -384,
+    z: 0,
+    face: E,
+    color: "#ffd23f",
+    sub: "Postcards \xB7 parcels \xB7 mailboxes",
+    w: 24,
+    d: 18,
+    interior: true,
+    job: { title: "Mail sorting shift", pay: 80, stations: ["Sort letters A\u2013M", "Sort letters N\u2013Z", "Weigh a parcel", "Load the delivery van", "Stamp the outgoing mail"] },
+    actions: ["postcard", "mailbox"]
+  },
+  {
+    id: "library",
+    name: "Fyrus Public Library",
+    kind: "civic",
+    x: -384,
+    z: 64,
+    face: E,
+    color: "#8b5a2b",
+    sub: "Classic books \xB7 quiet reading \xB7 study tables",
+    w: 28,
+    d: 22,
+    interior: true,
+    job: { title: "Librarian shift", pay: 75, stations: ["Shelve returned books", "Help a reader find a book", "Scan the returns", "Tidy the study tables", "Set up the story corner"] },
+    actions: ["books"]
+  },
+  {
+    id: "pharmacy",
+    name: "Fyrus Pharmacy",
+    kind: "civic",
+    x: -384,
+    z: 128,
+    face: E,
+    color: "#45e0ae",
+    sub: "Health tips \xB7 vitamins \xB7 first-aid kits",
+    w: 20,
+    d: 16,
+    interior: true,
+    job: { title: "Pharmacy assistant shift", pay: 70, stations: ["Stock the vitamins shelf", "Help a customer at the counter", "Check expiry dates", "Pack a first-aid kit"] },
+    items: ["vitamins", "firstaidkit", "sunscreen", "water"]
+  }
+];
+var BZ = (i) => ({ x: 174 + i % 4 * 12, z: i < 4 ? 80 : 48, face: i < 4 ? N : S });
+var BAZAAR = [
+  { id: "mobile", name: "Orbit Mobiles & Laptops", sub: "Phones, laptops, tablets (Fyrus brands)", color: "#4da3ff", items: ["orbitx2", "novapad", "skybook", "earbuds"], job: { title: "Sales shift", pay: 70, stations: ["Demo a phone", "Set up a laptop", "Restock the cases", "Help at the till"] } },
+  { id: "wifi", name: "Lumen Wi-Fi & Net Caf\xE9", sub: "Wi-Fi passes, gaming PCs, printing", color: "#7fd1ff", items: ["wifiday", "wifimonth", "print"], job: { title: "Caf\xE9 shift", pay: 60, stations: ["Reset a gaming PC", "Sell a Wi-Fi pass", "Fix the printer"] } },
+  { id: "snacks", name: "Crunch Snack Corner", sub: "Chips, chocolate, juices", color: "#ff9a3c", items: ["chips", "choco", "juice", "candy"], job: { title: "Snack shop shift", pay: 55, stations: ["Stock the chip shelf", "Fill the drinks fridge", "Help at the till"] } },
+  { id: "bartan", name: "Bartan House", sub: "Kitchenware, pots, tea sets", color: "#c0c6cc", items: ["teaset", "pot", "thermos"], job: { title: "Shop helper shift", pay: 55, stations: ["Polish the pots", "Pack a tea set", "Arrange the window"] } },
+  { id: "barber", name: "Sharp Edge Barber", sub: "Haircuts, beard trims, styling", color: "#1b1d22", actions: ["haircut"], job: { title: "Barber shift", pay: 75, stations: ["Sweep the floor", "Prepare the chair", "Trim a beard", "Wash the tools"] } },
+  { id: "parlour", name: "Glow Beauty Parlour", sub: "Hair, makeup, nails", color: "#e05a8a", actions: ["makeover"], job: { title: "Salon shift", pay: 75, stations: ["Set up the mirror station", "Mix a hair colour", "Paint nails", "Fold the towels"] } },
+  { id: "diner", name: "Sky Diner", sub: "Restaurant: burgers, karahi, pasta", color: "#2f5d50", items: ["burger", "karahi", "pasta", "lemonade"], job: { title: "Waiter shift", pay: 80, stations: ["Take an order at table 1", "Take an order at table 2", "Serve from the kitchen", "Clear a table"] } },
+  { id: "books", name: "Page Turner Books", sub: "New books, notebooks, pens", color: "#b06ad9", items: ["notebook", "pen", "novel"], job: { title: "Bookshop shift", pay: 55, stations: ["Shelve new books", "Wrap a gift", "Help at the till"] } }
+].map((s, i) => ({ ...s, ...BZ(i), kind: "shop", w: 10, d: 9, interior: true }));
+var FS = (i) => ({ x: 112 + i % 5 * 9, z: i < 5 ? -200 : -184, face: i < 5 ? S : N });
+var FOOD = [
+  { id: "biryani", name: "Biryani House", color: "#d4a64a", items: ["biryani", "raita"] },
+  { id: "chaat", name: "Chaat Corner", color: "#ff9a3c", items: ["golgappa", "chaat"] },
+  { id: "bbq", name: "BBQ Tikka", color: "#8b3a2e", items: ["tikka", "kebab"] },
+  { id: "noodles", name: "Wok Noodles", color: "#e5484d", items: ["noodles", "dumplings"] },
+  { id: "shawarma", name: "Shawarma Express", color: "#c96f4a", items: ["shawarma", "fries"] },
+  { id: "chai", name: "Chai Dhaba", color: "#7a5a3c", items: ["chai", "paratha"] },
+  { id: "icecream", name: "Frost Ice Cream", color: "#7fd1ff", items: ["cone", "kulfi"] },
+  { id: "juice", name: "Fresh Juice Bar", color: "#45e0ae", items: ["mango", "sugarcane"] },
+  { id: "pizza", name: "Slice Pizza", color: "#ffd23f", items: ["pizza", "garlicbread"] },
+  { id: "halwa", name: "Halwa Puri Point", color: "#e6a23c", items: ["halwapuri", "lassi"] }
+].map((s, i) => ({ ...s, ...FS(i), kind: "stall", sub: "Food Street stall", w: 7, d: 4, interior: false, job: { title: "Cook shift", pay: 50, stations: ["Prepare the food", "Serve a customer", "Clean the counter"] } }));
+var FAITH = [
+  { id: "mosque", name: "Fyrus Grand Mosque", x: -128, z: 256, face: E, color: "#2f6a4f", sub: "Masjid \xB7 open for prayer and visitors" },
+  { id: "church", name: "St. Light Church", x: -64, z: 256, face: E, color: "#8a9bb0", sub: "Church \xB7 services and quiet prayer" },
+  { id: "mandir", name: "Shanti Mandir", x: -64, z: 312, face: N, color: "#ff9a3c", sub: "Hindu temple \xB7 aarti and festivals" },
+  { id: "gurdwara", name: "Gurdwara Sahib", x: 64, z: 312, face: N, color: "#d4a64a", sub: "Gurdwara \xB7 free langar for everyone" },
+  { id: "temple", name: "Lotus Buddhist Temple", x: 64, z: 256, face: W, color: "#c0392b", sub: "Buddhist temple \xB7 meditation" },
+  { id: "synagogue", name: "Beit Shalom Synagogue", x: 128, z: 256, face: W, color: "#3a5a7a", sub: "Synagogue \xB7 prayer and community" }
+].map((s) => ({ ...s, kind: "faith", w: 22, d: 18, interior: true }));
+var SERVICES = [...CIVIC, ...BAZAAR, ...FOOD, ...FAITH];
+var svcById = (id) => SERVICES.find((s) => s.id === id);
+var SERVICE_BLOCKS = [
+  ...CIVIC.map((s) => ({ x: s.x, z: s.z, r: 26 })),
+  { x: 192, z: 64, r: 34 },
+  { x: 130, z: -192, r: 32 },
+  ...FAITH.map((s) => ({ x: s.x, z: s.z, r: 18 }))
+];
+function doorOf(s, extra = 2) {
+  const d = (s.d || 10) / 2 + extra;
+  return { x: s.x + Math.sin(s.face) * d, z: s.z + Math.cos(s.face) * d };
+}
+var ITEMS = {
+  vitamins: { name: "Vitamins", price: 8, kind: "item", icon: "\u{1F48A}" },
+  firstaidkit: { name: "First-aid kit", price: 25, kind: "item", icon: "\u{1FA79}" },
+  sunscreen: { name: "Sunscreen", price: 10, kind: "item", icon: "\u{1F9F4}" },
+  water: { name: "Water bottle", price: 2, kind: "food", icon: "\u{1F4A7}" },
+  orbitx2: { name: "Orbit X2 phone", price: 900, kind: "gadget", icon: "\u{1F4F1}" },
+  novapad: { name: "Nova Pad tablet", price: 650, kind: "gadget", icon: "\u{1F4F2}" },
+  skybook: { name: "SkyBook laptop", price: 1400, kind: "gadget", icon: "\u{1F4BB}" },
+  earbuds: { name: "Pulse earbuds", price: 180, kind: "gadget", icon: "\u{1F3A7}" },
+  wifiday: { name: "Wi-Fi day pass", price: 5, kind: "item", icon: "\u{1F4F6}" },
+  wifimonth: { name: "Wi-Fi month pass", price: 60, kind: "item", icon: "\u{1F4E1}" },
+  print: { name: "Printed poster", price: 3, kind: "item", icon: "\u{1F5A8}" },
+  chips: { name: "Chips", price: 3, kind: "food", icon: "\u{1F954}" },
+  choco: { name: "Chocolate", price: 4, kind: "food", icon: "\u{1F36B}" },
+  juice: { name: "Juice box", price: 3, kind: "food", icon: "\u{1F9C3}" },
+  candy: { name: "Candy", price: 2, kind: "food", icon: "\u{1F36C}" },
+  teaset: { name: "Tea set", price: 120, kind: "item", icon: "\u{1FAD6}" },
+  pot: { name: "Cooking pot", price: 70, kind: "item", icon: "\u{1F372}" },
+  thermos: { name: "Thermos", price: 35, kind: "item", icon: "\u{1F964}" },
+  burger: { name: "Sky burger", price: 18, kind: "food", icon: "\u{1F354}" },
+  karahi: { name: "Chicken karahi", price: 28, kind: "food", icon: "\u{1F35B}" },
+  pasta: { name: "Pasta", price: 20, kind: "food", icon: "\u{1F35D}" },
+  lemonade: { name: "Mint lemonade", price: 6, kind: "food", icon: "\u{1F34B}" },
+  notebook: { name: "Notebook", price: 6, kind: "item", icon: "\u{1F4D3}" },
+  pen: { name: "Pen", price: 2, kind: "item", icon: "\u{1F58A}" },
+  novel: { name: "Novel", price: 22, kind: "item", icon: "\u{1F4D5}" },
+  biryani: { name: "Biryani", price: 14, kind: "food", icon: "\u{1F35B}" },
+  raita: { name: "Raita", price: 3, kind: "food", icon: "\u{1F963}" },
+  golgappa: { name: "Gol gappay", price: 6, kind: "food", icon: "\u{1F95F}" },
+  chaat: { name: "Papri chaat", price: 7, kind: "food", icon: "\u{1F957}" },
+  tikka: { name: "Chicken tikka", price: 15, kind: "food", icon: "\u{1F357}" },
+  kebab: { name: "Seekh kebab", price: 12, kind: "food", icon: "\u{1F362}" },
+  noodles: { name: "Wok noodles", price: 12, kind: "food", icon: "\u{1F35C}" },
+  dumplings: { name: "Dumplings", price: 10, kind: "food", icon: "\u{1F95F}" },
+  shawarma: { name: "Shawarma", price: 10, kind: "food", icon: "\u{1F32F}" },
+  fries: { name: "Fries", price: 5, kind: "food", icon: "\u{1F35F}" },
+  chai: { name: "Doodh patti chai", price: 3, kind: "food", icon: "\u2615" },
+  paratha: { name: "Paratha", price: 5, kind: "food", icon: "\u{1FAD3}" },
+  cone: { name: "Ice cream cone", price: 5, kind: "food", icon: "\u{1F366}" },
+  kulfi: { name: "Kulfi", price: 5, kind: "food", icon: "\u{1F361}" },
+  mango: { name: "Mango shake", price: 7, kind: "food", icon: "\u{1F96D}" },
+  sugarcane: { name: "Sugarcane juice", price: 4, kind: "food", icon: "\u{1F964}" },
+  pizza: { name: "Pizza slice", price: 8, kind: "food", icon: "\u{1F355}" },
+  garlicbread: { name: "Garlic bread", price: 5, kind: "food", icon: "\u{1F956}" },
+  halwapuri: { name: "Halwa puri", price: 9, kind: "food", icon: "\u{1F958}" },
+  lassi: { name: "Lassi", price: 5, kind: "food", icon: "\u{1F95B}" }
+};
+var SERVICE_PRICES = { haircut: 20, makeover: 30, postcard: 5 };
+var JOB_RULES = { tasks: 5, minTaskMs: 2500, dailyShifts: 6, cooldownMs: 9e4 };
+
+// server/jobs.ts
+var day = () => (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+var DAILY = () => +(process.env.JOB_DAILY || JOB_RULES.dailyShifts);
+var COOLDOWN = () => +(process.env.JOB_COOLDOWN_MS ?? JOB_RULES.cooldownMs);
+var MIN_TASK = () => +(process.env.JOB_MIN_TASK_MS ?? JOB_RULES.minTaskMs);
+function createJobs(d) {
+  if (!d.db.jobs) {
+    d.db.jobs = { bag: {}, day: {}, mail: {}, totals: { shifts: 0, paid: 0, sold: 0 } };
+    d.save();
+  }
+  const J = d.db.jobs;
+  const bank2 = d.bank;
+  const shifts = /* @__PURE__ */ new Map();
+  const today = (id) => {
+    const t = J.day[id];
+    if (!t || t.day !== day()) J.day[id] = { day: day(), shifts: 0, earned: 0, last: t?.last || 0 };
+    return J.day[id];
+  };
+  function atPlace(l, id) {
+    const s = svcById(id);
+    if (!s) return false;
+    if (s.interior) return l.scene === "gov:svc:" + id;
+    const p = doorOf(s, 0);
+    return (l.scene || "plaza") === "plaza" && Math.hypot((l.x || 0) - p.x, (l.z || 0) - p.z) < 16;
+  }
+  const me = (id) => {
+    const t = today(id);
+    const sh = shifts.get(id);
+    return { t: "jobs_me", bag: J.bag[id] || {}, shifts: t.shifts, earned: t.earned, cap: DAILY(), next: Math.max(0, (t.last || 0) + COOLDOWN() - Date.now()), shift: sh ? { svc: sh.svc, step: sh.step, total: sh.order.length, station: sh.order[sh.step] } : null, mail: (J.mail[id] || []).slice(-30).reverse() };
+  };
+  const push = (id) => {
+    const l = d.liveOf(id);
+    if (l) d.send(l.ws, me(id));
+  };
+  const pay = (to, n, memo) => bank2.transfer("treasury", to, n, memo) || bank2.transfer("mint", to, n, memo);
+  function onMessage2(L, m) {
+    if (typeof m.t !== "string" || !(m.t.startsWith("job_") || m.t.startsWith("shop_") || m.t === "jobs_me" || m.t.startsWith("post_"))) return false;
+    const u = L.u;
+    const reply = (x) => d.send(L.ws, x);
+    const err = (text) => {
+      reply({ t: "err", text });
+      return true;
+    };
+    const ok = (text) => reply({ t: "ok", text });
+    const banned = !!bank2.acct(u.id).banned;
+    switch (m.t) {
+      case "jobs_me":
+        reply(me(u.id));
+        return true;
+      case "job_start": {
+        const s = svcById(String(m.svc));
+        if (!s?.job) return err("There is no job here.");
+        if (banned) return err("This account is suspended.");
+        if (!atPlace(L, s.id)) return err(s.interior ? `Go inside ${s.name} to start the shift.` : `Stand at ${s.name} to start the shift.`);
+        const t = today(u.id);
+        if (t.shifts >= DAILY()) return err(`You've done ${DAILY()} shifts today. Come back tomorrow!`);
+        const wait = (t.last || 0) + COOLDOWN() - Date.now();
+        if (wait > 0) return err(`Take a short break first \u2014 next shift in ${Math.ceil(wait / 1e3)} s.`);
+        const n = Math.min(JOB_RULES.tasks, Math.max(3, s.job.stations.length));
+        const order = [];
+        let prev = -1;
+        for (let i = 0; i < n; i++) {
+          let k = Math.floor(Math.random() * s.job.stations.length);
+          if (k === prev) k = (k + 1) % s.job.stations.length;
+          order.push(k);
+          prev = k;
+        }
+        shifts.set(u.id, { svc: s.id, order, step: 0, last: Date.now(), started: Date.now() });
+        ok(`${s.job.title} started: ${s.job.stations[order[0]]}.`);
+        push(u.id);
+        return true;
+      }
+      case "job_task": {
+        const sh = shifts.get(u.id);
+        if (!sh) return err("You are not on a shift.");
+        const s = svcById(sh.svc);
+        if (!atPlace(L, s.id)) return err(`You left ${s.name}. Go back to finish the shift.`);
+        if (+m.station !== sh.order[sh.step]) return err(`That's not your task. Now: ${s.job.stations[sh.order[sh.step]]}.`);
+        if (Date.now() - sh.last < MIN_TASK()) return err("Take your time \u2014 do the task properly.");
+        sh.step++;
+        sh.last = Date.now();
+        if (sh.step < sh.order.length) {
+          reply({ t: "note", text: `Done (${sh.step}/${sh.order.length}). Next: ${s.job.stations[sh.order[sh.step]]}.` });
+          push(u.id);
+          return true;
+        }
+        shifts.delete(u.id);
+        const t = today(u.id);
+        t.shifts++;
+        t.earned += s.job.pay;
+        t.last = Date.now();
+        J.totals.shifts++;
+        J.totals.paid += s.job.pay;
+        pay(u.id, s.job.pay, `${s.job.title} at ${s.name}`);
+        d.xp?.(u.id, 40);
+        d.save();
+        reply({ t: "job_done", svc: s.id, pay: s.job.pay, title: s.job.title });
+        push(u.id);
+        return true;
+      }
+      case "job_quit": {
+        if (shifts.delete(u.id)) ok("Shift cancelled. No pay for unfinished shifts.");
+        push(u.id);
+        return true;
+      }
+      case "shop_buy": {
+        const s = svcById(String(m.svc));
+        const id = String(m.item);
+        const it = ITEMS[id];
+        if (!s || !it || !(s.items || []).includes(id)) return err("That is not sold here.");
+        if (!atPlace(L, s.id)) return err(`Visit ${s.name} to buy this.`);
+        const q = Math.max(1, Math.min(10, Math.round(+m.qty || 1)));
+        if (!bank2.transfer(u.id, "treasury", it.price * q, `${s.name}: ${q} \xD7 ${it.name}`)) return err(`You need ${it.price * q} FYC.`);
+        const bag = J.bag[u.id] ||= {};
+        bag[id] = Math.min(999, (bag[id] || 0) + q);
+        J.totals.sold += it.price * q;
+        d.save();
+        ok(it.kind === "food" ? `${it.icon} ${it.name} \u2014 in your bag. Eat it any time.` : `${it.icon} ${it.name} is yours.`);
+        push(u.id);
+        return true;
+      }
+      case "shop_use": {
+        const id = String(m.item);
+        const it = ITEMS[id];
+        const bag = J.bag[u.id] || {};
+        if (!it || !bag[id]) return err("Not in your bag.");
+        if (it.kind !== "food") return err(`${it.name} stays in your bag.`);
+        bag[id]--;
+        if (!bag[id]) delete bag[id];
+        d.save();
+        reply({ t: "ate", item: id });
+        push(u.id);
+        return true;
+      }
+      case "shop_service": {
+        const s = svcById(String(m.svc));
+        const k = String(m.kind);
+        if (!s || !(s.actions || []).includes(k)) return err("Not offered here.");
+        if (!atPlace(L, s.id)) return err(`Visit ${s.name} first.`);
+        if (!bank2.transfer(u.id, "treasury", SERVICE_PRICES[k], `${s.name}: ${k}`)) return err(`A ${k} costs ${SERVICE_PRICES[k]} FYC.`);
+        reply({ t: "service_ok", kind: k, svc: s.id });
+        return true;
+      }
+      case "post_send": {
+        if (!atPlace(L, "post")) return err("Postcards are sent from the Post Office.");
+        const to = d.findByNumber(String(m.number || ""));
+        if (!to) return err("No citizen with that +2040 number.");
+        if (to.id === u.id) return err("Send it to someone else.");
+        const text = d.filter(String(m.text || "").replace(/[\u0000-\u001f]/g, " ").trim().slice(0, 280));
+        if (text.length < 2) return err("Write something on the postcard.");
+        const gift = Math.max(0, Math.min(5e3, Math.round(+m.gift || 0)));
+        if (!bank2.transfer(u.id, "treasury", SERVICE_PRICES.postcard, "Post Office: postcard stamp")) return err(`A stamp costs ${SERVICE_PRICES.postcard} FYC.`);
+        let paid = 0;
+        if (gift) {
+          if (bank2.transfer(u.id, to.id, gift, `Gift by post from ${d.shown(u.id)}`)) paid = gift;
+          else ok("Postcard sent, but the gift could not be paid (not enough FYC).");
+        }
+        const box = J.mail[to.id] ||= [];
+        box.push({ from: u.id, fromName: d.shown(u.id), text, gift: paid, at: Date.now() });
+        if (box.length > 60) box.splice(0, box.length - 60);
+        d.save();
+        const l = d.liveOf(to.id);
+        if (l) {
+          d.send(l.ws, { t: "note", text: `\u{1F4EC} A postcard from ${d.shown(u.id)}${paid ? ` with ${gift} FYC` : ""}. Open the Services \u2192 Mailbox.` });
+          push(to.id);
+        }
+        ok(`Postcard on its way to ${d.shown(to.id)}.`);
+        return true;
+      }
+    }
+    return true;
+  }
+  return { onMessage: onMessage2, atPlace, me, services: SERVICES.length };
+}
+
 // server/accounts.ts
 import crypto2 from "node:crypto";
 var GOOGLE_ID = process.env.GOOGLE_CLIENT_ID || "";
@@ -6731,7 +7097,7 @@ import zlib from "node:zlib";
 var XP_DAILY = +(process.env.XP_DAILY_CAP || 3e3);
 var XP_IMPORT_CAP = 2e4;
 var KEEP_BACKUPS = 14;
-var day = () => (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+var day2 = () => (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
 var EVENTS = /^(goal:[a-z]+|tour|now_open|ride:[a-z]+|drive|fly|signup_prompt|lite_on)$/;
 function createOps(d) {
   if (!d.db.ops) {
@@ -6739,7 +7105,7 @@ function createOps(d) {
     d.save();
   }
   const O = d.db.ops;
-  const today = () => O.stats[day()] ||= { visits: 0, newUsers: 0, signups: 0, peak: 0, events: {} };
+  const today = () => O.stats[day2()] ||= { visits: 0, newUsers: 0, signups: 0, peak: 0, events: {} };
   const bump = (k) => {
     today()[k]++;
     const t = today();
@@ -6756,7 +7122,7 @@ function createOps(d) {
   function backupNow() {
     try {
       fs.mkdirSync(bdir, { recursive: true });
-      const f = path.join(bdir, `fyrus-${day()}.json.gz`);
+      const f = path.join(bdir, `fyrus-${day2()}.json.gz`);
       fs.writeFileSync(f, zlib.gzipSync(fs.readFileSync(d.dbFile())));
       const all = fs.readdirSync(bdir).filter((x) => x.startsWith("fyrus-")).sort();
       all.slice(0, Math.max(0, all.length - KEEP_BACKUPS)).forEach((x) => fs.unlinkSync(path.join(bdir, x)));
@@ -6774,10 +7140,10 @@ function createOps(d) {
     }
   };
   setTimeout(() => {
-    if (!backups().some((b) => b.file.includes(day()))) backupNow();
+    if (!backups().some((b) => b.file.includes(day2()))) backupNow();
   }, 2e4);
   setInterval(() => {
-    if (!backups().some((b) => b.file.includes(day()))) backupNow();
+    if (!backups().some((b) => b.file.includes(day2()))) backupNow();
   }, 60 * 6e4);
   if (O.stats) {
     const keys = Object.keys(O.stats).sort();
@@ -6832,7 +7198,7 @@ function createOps(d) {
     return false;
   }
   function xpMsg(u) {
-    return { t: "xp", xp: u.xp || 0, today: u.xpDay === day() ? u.xpToday || 0 : 0, cap: XP_DAILY };
+    return { t: "xp", xp: u.xp || 0, today: u.xpDay === day2() ? u.xpToday || 0 : 0, cap: XP_DAILY };
   }
   const userInfo = (u) => ({ id: u.id, name: u.name, number: u.number, email: u.email || null, google: !!u.google, joined: u.joined, seen: u.seen, online: !!d.liveOf(u.id), bal: d.db.bank?.acct?.[u.id]?.bal ?? null, xp: u.xp || 0, muteUntil: u.muteUntil || 0, banned: u.banned && u.banned.until > Date.now() ? u.banned : null, reports: d.db.reports.filter((r) => r.against === u.id).length });
   function kick(u, text) {
@@ -6859,8 +7225,8 @@ function createOps(d) {
     }
     if (m.t === "xp_add") {
       const n = Math.max(0, Math.min(250, Math.round(+m.n || 0)));
-      if (u.xpDay !== day()) {
-        u.xpDay = day();
+      if (u.xpDay !== day2()) {
+        u.xpDay = day2();
         u.xpToday = 0;
       }
       const ok = Math.min(n, XP_DAILY - (u.xpToday || 0));
@@ -7124,7 +7490,7 @@ function onMessage(me, raw) {
     return;
   }
   const u = me.u;
-  if (edu.onMessage(me, m) || bank.onMessage(me, m) || market.onMessage(me, m) || estate.onMessage(me, m) || news.onMessage(me, m) || ads.onMessage(me, m) || halls.onMessage(me, m) || homes.onMessage(me, m) || politics.onMessage(me, m) || ops.onMessage(me, m)) return;
+  if (edu.onMessage(me, m) || bank.onMessage(me, m) || market.onMessage(me, m) || estate.onMessage(me, m) || news.onMessage(me, m) || ads.onMessage(me, m) || halls.onMessage(me, m) || homes.onMessage(me, m) || politics.onMessage(me, m) || jobs.onMessage(me, m) || ops.onMessage(me, m)) return;
   switch (m.t) {
     case "pos": {
       me.x = +m.x || 0;
@@ -7347,6 +7713,7 @@ var homes = createHomes({ db, save, send, broadcast, liveOf: (id) => live.get(id
   if (l.scene === scene) send(l.ws, m);
 }) });
 var politics = createPolitics({ db, bank, save, send, broadcast, liveOf: (id) => live.get(id), clean, filter, rid, isAdmin, shown: (id) => db.users[id] ? shown(db.users[id]) : "Citizen", news: report });
+var jobs = createJobs({ db, bank, save, send, liveOf: (id) => live.get(id), findByNumber, filter, shown: (id) => db.users[id] ? shown(db.users[id]) : "Citizen" });
 function createUser(name, lang) {
   const token = rid(24);
   const u = { id: "u" + rid(8), tok: sha(token), name: clean(name, 24) || "Citizen", color: "#4da3ff", number: newNumber(), lang: LANGS.some((l) => l.code === lang) ? lang : "en", blocks: [], joined: Date.now(), seen: Date.now() };
