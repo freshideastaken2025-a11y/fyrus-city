@@ -6,7 +6,7 @@
 (function () {
   'use strict';
   if (window.__fyrusPlus) return;
-  window.__fyrusPlus = { version: '1.0.0' };
+  window.__fyrusPlus = { version: '1.1.0' };
 
   var LS = {
     get: function (k, d) { try { var v = localStorage.getItem('fyrusPlus.' + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -564,7 +564,9 @@
     if (!entered && s && s.session && !s.intro && !s.goalOpen && !anyOpen()) {
       entered = true;
       setTimeout(function () {
-        openMood(function () { if (!LS.get('id', null) && !LS.get('idAsked', false)) setTimeout(openIdFlow, 400); });
+        var next = function () { openMood(function () { if (!LS.get('id', null) && !LS.get('idAsked', false)) setTimeout(openIdFlow, 400); }); };
+        var world = window.__fyrusWorld;
+        if (world && world.firstVisit && world.firstVisit()) world.playIntro(next); else next();
       }, 600);
     }
   }
