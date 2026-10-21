@@ -3,7 +3,7 @@
 > **For any AI or developer picking this up (Claude, ChatGPT, Gemini, OpenClaw agents, humans):**
 > Read this whole file before changing anything. When you finish a task, **update the
 > "Done" and "Pending" sections and the changelog at the bottom** in the same commit.
-> Last updated: **22 Oct 2026, v27** (by Claude, night shift).
+> Last updated: **22 Oct 2026, v28.1** (by Claude, night shift).
 
 ---
 
@@ -39,6 +39,7 @@ Claude Pro, ChatGPT Pro, Gemini Pro, OpenClaw + Ollama (local models), Hostinger
 | `server.mjs` (generated, ~7,850 lines) | Node server — generated from `src/server/` by build.mjs. Serves the site, WebSocket `/ws` multiplayer, chat/DMs/groups, +2040 phone numbers, voice signalling, bank/FYC, escrow market, education, news, ads, halls, homes, politics, jobs, accounts (email + Google, password reset via Resend), admin ops, backups. Data = one JSON file `/data/fyrus.json`. |
 | `fyrus-plus.js` | Add-on layer v1.2: mood/weather picker on entry, visa-free **Citizen ID card** from a photo (photo stays on device), **Museum of 2026**, neon **free-plot construction sites**, cinematic view, right-side dock. |
 | `fyrus-world.js` | Country layer v2.0: **lore** (9 provinces, Great Houses, history, Charter, calendar), **Book of Fyrus**, province **banners** in the city, **Frostspine mountains**, film colour grade. Exposes `window.__fyrusWorld`. |
+| `fyrus-arena.js` | **Arcadia Battle Arena** v1.0.1: PUBG-style last-one-standing vs 11 AI rivals, shrinking storm, cover, med kits, mobile joystick + auto-aim; rewards XP only (no FYC). Entry: ⚔️ dock button or the gate near Play City (E). Loaded on demand by `fyrus-plus.js`. |
 | `fyrus-intro.js` | **Opening film** v2.0 (~30 s): heartbeat → gold map reveal → FYRUS title → 9 provinces with unique architecture assembling → "Population: You" + Enter / Read the Book. Original synthesised score. Exposes `window.__fyrusIntro`. |
 | `Dockerfile` | `node:22-alpine`, copies server + all public files, port 80. |
 
@@ -160,7 +161,7 @@ zero real crime, fair trade (escrow), one citizen one vote, protect children & e
    Poly Haven), better night lighting, sound design. Needs P0-4 first.
 10. **Train network** between cities with stations + **bus adda**; ride inside.
 11. **Beach & coast** (sand, palms, promenade) on the Azure Coast; more realistic mountains.
-12. **Arcadia battle arena** — PUBG-style "crime as a game" mode (heists, battles) with no real harm.
+12. **Arcadia battle arena** — v28 ships a battle-royale vs AI. Next: real multiplayer rooms over `/ws`, heist mode, leaderboard.
 13. **Army & police** — parade ground, ranks, ceremonies; zero-crime HUD.
 14. **Concerts & events** — big venue, ticketed events, bars/lounges zone.
 15. **Education ladder** — school → college → University of Fyrus campus, certificates.
@@ -176,6 +177,8 @@ zero real crime, fair trade (escrow), one citizen one vote, protect children & e
 - On 22 Oct 2026 another agent (not Claude) was working **uncommitted** on branch `p1-cities-foundation`:
   a 20-city register `CITIES` + "Cities" tab in `fyrus-world.js`, a champagne-gold theme in
   `src/client/template.html`, and a new `fyrus-visuals.js` (landmark silhouettes). Claude did not touch those.
+- Their uncommitted `template.html` still says `fyrus-plus.js?v=1.2.0` — when they commit, keep `v=1.3.1` (or newer) or the arena will not load for visitors.
+- Copying files to the Mac with Claude's device tools: always use a **new file name** for each version; re-sending the same path can leave the old content.
 - Rule: before committing, run `git branch --show-current` and `git status`. Commit only your own files.
   Work on your own branch; only fast-forward `main` when your work is tested. `main` = live in ~1 minute.
 - On the owner's Mac, git may leave `.git/*.lock` files if file deletion is not allowed for the AI; remove a
@@ -187,6 +190,7 @@ zero real crime, fair trade (escrow), one citizen one vote, protect children & e
   (this repo is public — **never commit secrets**).
 
 ## 10. Changelog
+- 2026-10-22 v28.1 — Arcadia Battle Arena (fyrus-arena.js); index.html rebuilt from committed source only.
 - 2026-10-22 v27 — report limits + auto chat pause after 3 trusted reports.
 - 2026-10-22 v26 — Sample badges, AI resident label, no fake feed views/likes.
 - 2026-10-22 v25 — removed fake ratings/reviews/sales/followers/visits from seed data; live streams no longer simulate chat or viewers.
