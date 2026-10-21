@@ -6,7 +6,7 @@
 (function () {
   'use strict';
   if (window.__fyrusPlus) return;
-  window.__fyrusPlus = { version: '1.3.1' };
+  window.__fyrusPlus = { version: '1.4.0' };
 
   var LS = {
     get: function (k, d) { try { var v = localStorage.getItem('fyrusPlus.' + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -56,6 +56,10 @@
     '.fxp-idwrap{display:grid;place-items:center;margin:8px 0}' +
     '.fxp-idwrap canvas{width:100%;max-width:520px;height:auto;border-radius:16px;box-shadow:0 20px 60px rgba(0,0,0,.5)}' +
     '.fxp-toast{position:fixed;left:50%;bottom:170px;transform:translateX(-50%);z-index:2147483001;background:rgba(10,15,26,.94);border:1px solid rgba(201,169,110,.4);color:#fff;padding:10px 16px;border-radius:12px;font:600 13px Sora,sans-serif}' +
+    'body.fxp-easy .fxp-dock button{width:56px;height:56px;font-size:26px}body.fxp-easy .fxp-dock button span{opacity:1;font-size:14px}' +
+    'body.fxp-easy .fxp-p,body.fxp-easy .fxp-exc p{font-size:17px}body.fxp-easy .fxp-btn{font-size:15px;padding:15px 24px}' +
+    '.fxp-guide{display:grid;gap:10px;margin:6px 0 4px}.fxp-guide div{display:flex;gap:14px;align-items:center;border:1px solid rgba(201,169,110,.25);border-radius:14px;padding:14px 16px;font:500 17px/1.4 "Plus Jakarta Sans",sans-serif}' +
+    '.fxp-guide b{font:400 30px/1 "Bebas Neue",Sora,sans-serif;color:#e8d5a8;min-width:44px;text-align:center}' +
     '@media (max-width:640px){.fxp-dock{top:auto;bottom:150px;transform:none;right:8px}.fxp-dock button{width:40px;height:40px;font-size:18px}.fxp-h{font-size:22px}.fxp-card{padding:16px}}';
   var st = document.createElement('style'); st.textContent = css; document.head.appendChild(st);
 
@@ -494,16 +498,49 @@
     if (W.player.vel && W.player.vel.set) W.player.vel.set(0, 0, 0);
     W.player.target = null;
   }
+  /* Easy mode: bigger text and buttons, a simple guide — for elders and first-time visitors */
+  function setEasy(on, quiet) {
+    var s = S(); if (!s) return;
+    document.body.classList.toggle('fxp-easy', !!on);
+    var prev = LS.get('easyPrevScale', null);
+    if (on) { if (prev == null) LS.set('easyPrevScale', s.settings.hudScale || 1); F().setState({ settings: Object.assign({}, s.settings, { hudScale: 1.3 }) }); }
+    else if (prev != null) { F().setState({ settings: Object.assign({}, s.settings, { hudScale: prev }) }); LS.set('easyPrevScale', null); }
+    LS.set('easy', !!on);
+    var b = document.querySelector('[data-fxp-easy]'); if (b) b.setAttribute('aria-pressed', on ? 'true' : 'false');
+    if (on && !quiet) openEasyGuide();
+    else if (!on && !quiet) toast('Easy mode off');
+  }
+  function openEasyGuide() {
+    var close;
+    var card = el('div', { 'class': 'fxp-card' }, [
+      el('button', { 'class': 'fxp-x', 'aria-label': 'Close', onclick: function () { close(); } }, ['×']),
+      el('div', { 'class': 'fxp-k' }, ['Easy mode is on']),
+      el('div', { 'class': 'fxp-h' }, ['Fyrus in four steps']),
+      el('div', { 'class': 'fxp-guide' }, [
+        el('div', null, [el('b', null, ['1']), 'To walk, use the arrow keys — or touch and drag on your phone.']),
+        el('div', null, [el('b', null, ['2']), 'To talk to someone or open a door, walk close and press E (or tap the button).']),
+        el('div', null, [el('b', null, ['3']), 'To go anywhere, press the 🔍 search at the top and pick a place.']),
+        el('div', null, [el('b', null, ['4']), 'Lost? Press the ☰ menu. Everything is there. Nothing here costs real money.'])
+      ]),
+      el('div', { 'class': 'fxp-row' }, [
+        el('button', { 'class': 'fxp-btn', onclick: function () { close(); } }, ['I understand']),
+        el('button', { 'class': 'fxp-btn ghost', onclick: function () { close(); setEasy(false); } }, ['Turn easy mode off'])
+      ])
+    ]);
+    close = overlay(card);
+  }
   function buildDock() {
     var dock = el('nav', { 'class': 'fxp-dock', 'aria-label': 'Fyrus extras' }, [
       el('button', { onclick: function () { openMood(); }, 'aria-label': 'Change weather' }, ['🌦️', el('span', null, ['Weather & mood'])]),
       el('button', { onclick: openIdFlow, 'aria-label': 'My ID card' }, ['🪪', el('span', null, ['My Fyrus ID'])]),
       el('button', { onclick: function () { var m = window.__fyrusPlus.museumAt; if (m) { teleport(m.door.x, m.door.z, m.x, m.z); toast('You are at the Museum of 2026 — press E to enter'); } else openMuseum(); }, 'aria-label': 'Go to the museum' }, ['🏛️', el('span', null, ['Museum of 2026'])]),
-      el('button', { onclick: function () { setCine(!document.body.classList.contains('fxp-bars')); }, 'aria-label': 'Cinematic view' }, ['🎬', el('span', null, ['Cinematic view'])])
+      el('button', { onclick: function () { setCine(!document.body.classList.contains('fxp-bars')); }, 'aria-label': 'Cinematic view' }, ['🎬', el('span', null, ['Cinematic view'])]),
+      el('button', { onclick: function () { setEasy(!document.body.classList.contains('fxp-easy')); }, 'aria-label': 'Easy mode — bigger text and buttons', 'aria-pressed': 'false', 'data-fxp-easy': '1' }, ['🅰️', el('span', null, ['Easy mode'])])
     ]);
     document.body.appendChild(vig);
     document.body.appendChild(dock);
     setCine(LS.get('cine', false));
+    if (LS.get('easy', false)) setTimeout(function () { setEasy(true, true); }, 1500);
     var hideDock = function () { var s = S(); dock.style.display = (!s || !s.session || s.intro || (s.hud && s.hud.open) || s.activeGame || anyOpen()) ? 'none' : 'flex'; };
     setInterval(hideDock, 400); hideDock();
   }
