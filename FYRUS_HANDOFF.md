@@ -3,7 +3,7 @@
 > **For any AI or developer picking this up (Claude, ChatGPT, Gemini, OpenClaw agents, humans):**
 > Read this whole file before changing anything. When you finish a task, **update the
 > "Done" and "Pending" sections and the changelog at the bottom** in the same commit.
-> Last updated: **23 Oct 2026, v45** (by Claude).
+> Last updated: **23 Oct 2026, v46** (by Claude).
 
 ---
 
@@ -54,8 +54,11 @@ Claude Pro, ChatGPT Pro, Gemini Pro, OpenClaw + Ollama (local models), Hostinger
 | `fyrus-tw.css`, `tailwind.config.js`, `tailwind.in.css` | Pre-compiled Tailwind (v42). Rebuild when you add new Tailwind classes: Tailwind v3.4.17 standalone CLI (GitHub release asset `tailwindcss-linux-x64`, npm may be blocked) `-c tailwind.config.js -i tailwind.in.css -o fyrus-tw.css --minify`, then bump `?v=` on its link in `template.html`. |
 | `src/client/app/018b.js` | **Avatars v2** (v44, `AV2`): stylised full-body characters — lathe torso/pelvis per gender, knee + elbow joints, hands, shoes, big expressive head (eyes with iris/sparkle/lashes, brows, nose, smile, ears), all 13 hairstyles + hijab rebuilt with a face window, clothes details (collars, lapels, tie, buttons, hood, kurta, dress, shalwar…). `019.js` (avatar class) calls `AV2.build/hair`, animates knees/elbows/blinks and exports the class as **`window.__fyrusAvatarClass`** (v45) so add-ons can make people in the same look: country guards & ensemble, Arcade Hall visitors, Arena fighters. |
 | `fyrus-growth.js` | **Growth analytics + invite links** v1.1 (v45 adds *Who visits*: device, OS, browser, region (from the time zone), language, source — WhatsApp/Instagram/Google/invite/utm —, graphics quality and smoothness, posted once per citizen per day to `/api/an/visit`, last-7-day breakdowns in Admin → Growth; no names, no IP stored) (`__fyrusGrowth`): once a minute posts the citizen's area (district / inside / menu tab / 3D room / game) to `/api/an`; reports invite-link opens to `/api/ref`; renders **Admin desk → Growth** (judges only) from `/api/admin/analytics`: new citizens, back next day, back within a week, time per area, where visits end, visit length, invite links (make/copy/WhatsApp/delete via `/api/admin/invites`). Server side in `ops.mjs` (`O.an`, `O.invites`, `u.days`, `u.ref`); the hello message carries `ref` (stored from `?ref=` on first visit). |
+| `fyrus-help.js` | **Help desk** v1.0 (`__fyrusHelp`, v46): ✦ More → *Help & feedback* (problem / idea / question / safety / payment / other; attaches area + device type; works for visitors with an e-mail too), *My messages* with answers (red dot when answered). **Admin desk → Help desk** (judges + moderators; payment tickets judges only): answer, close, reopen; the answer reaches the citizen in the city and by e-mail. New tickets are e-mailed to `SUPPORT_EMAIL` (or `BACKUP_EMAIL`). Server: `ops.mjs` (`O.support`, `/api/support`, `/api/support/mine`, `/api/admin/support`). |
+| `fyrus-pay.js` + `src/server/payments.mjs` | **Payments, ready but OFF** (v46). FYC packs (Starter 5,000 $1.99 · Citizen 15,000 $4.99 · Grand 40,000 $9.99, change with `PAY_PACKS`). Provider adapter, Paddle Billing implemented: `/api/pay/buy` creates a Paddle transaction and returns its checkout link (opens `pay.html`, which loads Paddle.js), **FYC is credited only by the signed webhook** `/api/pay/paddle` (HMAC `Paddle-Signature`, 10-min window, once per transaction id), `/api/pay/status`, `/api/pay/mine`, `/api/admin/pay`. The "💳 Buy FYC" entry in ✦ More only appears when the server says payments are live. **Admin desk → Payments** shows what is missing. See §7 P0-3 for switching on. |
+| `fonts/` | Self-hosted fonts (v46): Sora, Plus Jakarta Sans, Bebas Neue, Playfair Display italic, Pacifico, JetBrains Mono — Latin subsets as WOFF from github.com/google/fonts (SIL OFL 1.1, `fonts/OFL.txt`). No request to Google any more (faster, and better for EU privacy). |
 | `vendor/three-r149.min.js` | three.js r149 build (from the mrdoob/three.js tag r149). |
-| `Dockerfile` | `node:22-alpine`, copies server + all public files (every `fyrus-*.js`, `fyrus-tw.css`, `vendor/`, `vector-bay.html`), port 80. **Add a COPY line for every new public file.** |
+| `Dockerfile` | `node:22-alpine`, copies server + all public files (every `fyrus-*.js`, `fyrus-tw.css`, `vendor/`, `fonts/`, `vector-bay.html`), port 80. **Add a COPY line for every new public file.** |
 
 **Add-on pattern (important):** because the original source is missing, new features are written as
 separate files that hook into the app through two globals the bundle exposes:
@@ -144,6 +147,7 @@ zero real crime, fair trade (escrow), one citizen one vote, protect children & e
 - v42: **safe storage + backups** (see §2), **moderators** (`FYRUS_MODS`) with a moderation log, Skyline Club is 18+ (self-declared age, same as voice), **phone speed** (compiled Tailwind, self-hosted three.js, brotli, long cache).
 - v43: **growth analytics + invite links** for the beta (Admin desk → Growth).
 - v44: **avatars v2** — every citizen avatar redrawn in a stylised full-body look (018b.js).
+- v46: **launch prep** — help desk (Help & feedback + Admin desk → Help desk), payments ready but off (Paddle adapter, webhook-only crediting, Admin → Payments), legal pages with company details from env (`/terms`, `/privacy`, `/refunds`, `/pricing`, `/contact`), **lighter multiplayer** (near people 8×/s, everyone every 2 s, outfits only when changed: 200 users went from 466 KB/s to 64 KB/s per phone), self-hosted fonts. Two-player test (see each other, chat, Vector Bay) passed.
 - v45: the rest of the people in the same look (Vector Bay crowd, guards, ensemble, Arcade visitors, Arena fighters); **Who visits** analytics (device/OS/browser/region/language/source/smoothness); privacy text updated.
 - Ops: GitHub → Coolify auto-deploy webhook working.
 
@@ -168,7 +172,15 @@ zero real crime, fair trade (escrow), one citizen one vote, protect children & e
      demo sign-in and demo store orders already say "(demo)".
    - v26: seeded agents/gigs/brands carry `sample: true` and show **"Sample"** / "Sample listing"; feed posts
      from procedural residents are labelled **"AI resident"** with no fake views/likes. P0-2 is done.
-3. **Payments (one direction first) — waiting for the owner's LLC (expected ~25 Oct 2026):** users pay Fyrus for FYC packs / premium avatar / shop / billboard.
+3. **Payments — code ready (v46), switched off until the merchant account exists.** To switch on (owner, in Coolify, then Redeploy):
+   `PAY_PROVIDER=paddle`, `PADDLE_ENV=sandbox` first (then `live`), `PADDLE_API_KEY`, `PADDLE_WEBHOOK_SECRET`, `PADDLE_CLIENT_TOKEN`,
+   `PADDLE_PRICES=fyc_s:pri_…,fyc_m:pri_…,fyc_l:pri_…` (create one one-time price per pack in Paddle), webhook destination
+   `https://fyrus.io/api/pay/paddle` with events `transaction.completed` and `transaction.paid`; in Paddle also set the default
+   payment link to `https://fyrus.io/pay.html` (a light page that opens Paddle's checkout; `pay.html` in the repo) and approve the domain fyrus.io. Test with Paddle's test card in sandbox, then
+   switch to live keys. At launch set `BETA_TEST_CREDIT=off` (ends free "demo checkout" top-ups). Company details for the
+   legal pages: `LEGAL_ENTITY`, `LEGAL_ADDRESS`, `SUPPORT_EMAIL`. JazzCash / Easypaisa / Safepay: add an entry to `PROVIDERS`
+   in `payments.mjs` (ready / checkout / webhook) — nothing else changes.
+   Original plan (kept for context): users pay Fyrus for FYC packs / premium avatar / shop / billboard.
    Stripe is not directly available in Pakistan → evaluate Paddle or Lemon Squeezy (merchant of record)
    and Safepay / JazzCash / Easypaisa. **No cash-out and no user-to-user real money** until legal advice.
    Physical products: link out to the seller's store.
@@ -231,12 +243,14 @@ zero real crime, fair trade (escrow), one citizen one vote, protect children & e
 ## 9. Known issues / notes
 - Testing from AI sandboxes: npm/CDNs are blocked there; test on the live site in your own tab (see §3).
   GitHub *is* reachable (git clone, release assets) — that is how three.js r149 and the Tailwind CLI were fetched.
-- New env vars (v42, set in Coolify by the owner): `BACKUP_EMAIL` (daily off-site copy), `FYRUS_MODS` (moderators).
+- New env vars (v42, set in Coolify by the owner): `BACKUP_EMAIL` (daily off-site copy), `FYRUS_MODS` (moderators). v46: `SUPPORT_EMAIL`, `LEGAL_ENTITY`, `LEGAL_ADDRESS`, and the payment variables in §7 P0-3.
+- Multiplayer presence (v46): clients that send `caps:["peers2"]` in hello get `{t:"peers",part:1}` messages with only nearby people (same scene, closest 40 within 160 m) and a full list every 2 s; outfits (`o`) are sent once and when changed, the client keeps the last one.
 - `/health` showed `translate:false` on 22 Oct evening — check that `ANTHROPIC_API_KEY` is set if chat translation should be on.
 - The coolify/VPS and OpenClaw setup details are in the owner's private Claude Project doc, not here
   (this repo is public — **never commit secrets**).
 
 ## 10. Changelog
+- 2026-10-23 v46 — help desk, payments ready (off), legal pages + company env, lighter multiplayer presence (caps peers2), self-hosted fonts.
 - 2026-10-23 v45 — v2 avatars for all AI people (`__fyrusAvatarClass`); device/source/region analytics (`/api/an/visit`, Admin → Growth → Who visits).
 - 2026-10-22 v44 — avatars v2 (stylised full body, joints, faces, rebuilt hair).
 - 2026-10-22 v43 — growth analytics (retention, time per area, exits, visit length) + invite links.

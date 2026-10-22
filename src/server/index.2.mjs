@@ -454,11 +454,39 @@ var landValue = (id) => {
   const owned = Object.keys(db.plots).filter((k) => LAND[k]?.code === p.code && db.plots[k]).length;
   return Math.round(p.price * (1 + 0.04 * owned) / 100) * 100;
 };
+/* Presence (v46): every 125 ms each citizen gets the people near them (same place, closest 40 within 160 m);
+   the whole list comes every 2 s. An outfit is sent only when the receiver has not seen it yet or it changed.
+   Clients that do not announce caps:["peers2"] (old open tabs) still get the full list every tick. */
+var PEER_NEAR = 160, PEER_MAX = 40;
+var peerTick = 0;
 setInterval(() => {
   if (!live.size) return;
-  const list = [...live.values()].map((l) => ({ id: l.u.id, name: shown(l.u), color: l.u.stealth ? "#8a8f98" : l.u.color, x: l.x, z: l.z, y: l.y, ry: l.ry, sc: l.scene, o: l.o, v: l.v, vc: l.voice, ph: l.u.stealth ? void 0 : l.u.photo, mk: l.u.stealth ? 1 : void 0 }));
+  peerTick++;
+  const full = peerTick % 16 === 0;
   const withPhoto = Date.now() % 4e3 < 130;
-  live.forEach((l) => send(l.ws, { t: "peers", list: list.filter((p) => p.id !== l.u.id).map((p) => withPhoto ? p : { ...p, ph: void 0 }) }));
+  const all = [...live.values()].map((l) => ({ l, sig: l.o ? JSON.stringify(l.o) : "", e: { id: l.u.id, name: shown(l.u), color: l.u.stealth ? "#8a8f98" : l.u.color, x: l.x, z: l.z, y: l.y, ry: l.ry, sc: l.scene, v: l.v, vc: l.voice, ph: withPhoto && !l.u.stealth ? l.u.photo : void 0, mk: l.u.stealth ? 1 : void 0 } }));
+  live.forEach((me) => {
+    let pick;
+    if (!me.p2 || full) pick = all.filter((p) => p.l !== me);
+    else {
+      pick = [];
+      for (const p of all) {
+        if (p.l === me || p.l.scene !== me.scene) continue;
+        const dd = Math.hypot(p.l.x - me.x, p.l.z - me.z);
+        if (dd < PEER_NEAR) pick.push([dd, p]);
+      }
+      if (pick.length > PEER_MAX) pick.sort((a, b) => a[0] - b[0]).length = PEER_MAX;
+      pick = pick.map((x) => x[1]);
+    }
+    const seen = me.sentO, next = full || !me.p2 ? /* @__PURE__ */ new Map() : seen;
+    const list = pick.map((p) => {
+      const known = seen.get(p.e.id);
+      next.set(p.e.id, p.sig);
+      return known === p.sig ? p.e : { ...p.e, o: p.l.o };
+    });
+    if (full || !me.p2) me.sentO = next;
+    send(me.ws, me.p2 && !full ? { t: "peers", part: 1, list } : { t: "peers", list });
+  });
 }, 125);
 var ADMINS = String(process.env.FYRUS_ADMINS || "").split(",").map((s) => s.trim()).filter(Boolean);
 if (ADMINS.length) console.log("court judges:", ADMINS.length);
@@ -519,9 +547,10 @@ var accounts = createAccounts({ db, save, sha, rid, clean, createUser: (n, l) =>
   return c;
 } });
 var ops = createOps({ db, dataDir: DATA_DIR, dbFile: () => dbFile, dbInfo: () => DB_INFO, save, send, liveOf: (id) => live.get(id), liveCount: () => live.size, isAdmin, isMod, findByNumber, clean, shown: (id) => db.users[id] ? shown(db.users[id]) : "Citizen" });
+var pay = createPayments({ db, save, send, liveOf: (id) => live.get(id), bank, isAdmin });
 var meOf = (u) => ({ ...pub(u), lang: u.lang, blocks: u.blocks, email: u.email || null, google: !!u.google, age18: !!u.age18, admin: isMod(u.id), role: isAdmin(u.id) ? "judge" : isMod(u.id) ? "moderator" : "", guest: !u.email && !u.google });
 var SEC = { "X-Content-Type-Options": "nosniff", "Referrer-Policy": "strict-origin-when-cross-origin", "X-Frame-Options": "SAMEORIGIN", "Strict-Transport-Security": "max-age=31536000; includeSubDomains", "Permissions-Policy": "camera=(self), microphone=(self), geolocation=()" };
-var TYPES3 = { ".html": "text/html; charset=utf-8", ".js": "application/javascript", ".css": "text/css", ".png": "image/png", ".jpg": "image/jpeg", ".svg": "image/svg+xml", ".ico": "image/x-icon", ".json": "application/json", ".txt": "text/plain", ".xml": "application/xml", ".webmanifest": "application/manifest+json" };
+var TYPES3 = { ".html": "text/html; charset=utf-8", ".js": "application/javascript", ".css": "text/css", ".png": "image/png", ".jpg": "image/jpeg", ".svg": "image/svg+xml", ".ico": "image/x-icon", ".json": "application/json", ".txt": "text/plain", ".xml": "application/xml", ".webmanifest": "application/manifest+json", ".woff": "font/woff", ".woff2": "font/woff2" };
 var gzCache = /* @__PURE__ */ new Map();
 var server = http.createServer((req, res) => {
   const url = new URL(req.url || "/", "http://x");
@@ -531,8 +560,9 @@ var server = http.createServer((req, res) => {
   }
   const ip = String(req.headers["x-forwarded-for"] || req.socket.remoteAddress || "").split(",")[0].trim();
   if (accounts.http(req, res, url.pathname, ip)) return;
+  if (pay.http(req, res, url.pathname, ip, accounts.byToken)) return;
   if (ops.http(req, res, url.pathname, ip, accounts.byToken)) return;
-  if (url.pathname === "/terms" || url.pathname === "/privacy") {
+  if (url.pathname === "/terms" || url.pathname === "/privacy" || url.pathname === "/refunds" || url.pathname === "/pricing" || url.pathname === "/contact") {
     res.writeHead(200, { ...SEC, "content-type": "text/html; charset=utf-8" });
     return res.end(legalPage(url.pathname.slice(1)));
   }
@@ -553,7 +583,7 @@ var server = http.createServer((req, res) => {
     const ae = String(req.headers["accept-encoding"] || "");
     const enc = c.br && /\bbr\b/.test(ae) ? "br" : c.gz && /\bgzip\b/.test(ae) ? "gzip" : "";
     /* files asked for with ?v= never change under that name, so phones can keep them for a year */
-    const cache = ext === ".html" ? "no-cache" : url.searchParams.has("v") || p.startsWith("/vendor/") ? "public, max-age=31536000, immutable" : "public, max-age=86400";
+    const cache = ext === ".html" ? "no-cache" : url.searchParams.has("v") || p.startsWith("/vendor/") || p.startsWith("/fonts/") ? "public, max-age=31536000, immutable" : "public, max-age=86400";
     res.writeHead(200, { ...SEC, "content-type": TYPES3[ext] || "application/octet-stream", "cache-control": cache, ...enc ? { "content-encoding": enc, vary: "Accept-Encoding" } : {} });
     res.end(enc === "br" ? c.br : enc === "gzip" ? c.gz : c.raw);
   } catch {
@@ -605,7 +635,7 @@ wss.on("connection", (ws, req) => {
         send(old.ws, { t: "err", text: "You opened Fyrus in another tab." });
         old.ws.close();
       }
-      me = { ws, u, x: 0, z: 36, y: 0, ry: 0, scene: "plaza", voice: false, rate: [], since: Date.now() };
+      me = { ws, u, x: 0, z: 36, y: 0, ry: 0, scene: "plaza", voice: false, rate: [], since: Date.now(), p2: Array.isArray(m.caps) && m.caps.includes("peers2"), sentO: /* @__PURE__ */ new Map() };
       live.set(u.id, me);
       ops.bump("visits");
       ops.seen(u);
@@ -627,6 +657,7 @@ wss.on("connection", (ws, req) => {
       me.u.seen = Date.now();
       save();
       broadcast({ t: "left", id: me.u.id });
+      live.forEach((l) => l.sentO && l.sentO.delete(me.u.id));
       broadcast({ t: "online", n: live.size });
     }
   });

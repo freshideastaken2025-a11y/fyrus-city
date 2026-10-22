@@ -13,8 +13,7 @@
 <body>
 <title>Fyrus City</title>
 <meta name="description" content="Fyrus — an infinite 4D AI city: build your home, explore, play, buy and sell AI">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Bebas+Neue&family=Playfair+Display:ital,wght@1,700&family=Pacifico&family=JetBrains+Mono:wght@400;600;700&display=swap">
+<link rel="stylesheet" href="/fonts/fonts.css?v=1.0.0">
 <!-- Tailwind is compiled ahead of time into /fyrus-tw.css (no 300 KB compiler running on phones) -->
 <style>/* Fyrus brand system — royal blue + signal orange, "blue hour" world.
    Layout: full-bleed 3D world, glass HUD floating above it. */
@@ -907,6 +906,7 @@ var bh = "fyrus.net.token",
           r.send(
             JSON.stringify({
               t: "hello",
+              caps: ["peers2"],
               token: I2.get(bh),
               name: o?.name,
               color: o?.color,
@@ -1010,15 +1010,18 @@ var bh = "fyrus.net.token",
           C({ net: { ...ot().net, online: e.n } });
           break;
         case "peers": {
+          /* v46: "part" messages carry only the people near you; the full list arrives every 2 s.
+             Outfits come once and when they change, so keep the last one. */
           let a = new Set();
           (e.list.forEach((r) => {
             a.add(r.id);
             let o = this.peers.get(r.id);
-            this.peers.set(r.id, { ...r, ph: r.ph ?? o?.ph });
+            this.peers.set(r.id, { ...r, ph: r.ph ?? o?.ph, o: r.o ?? o?.o });
           }),
-            this.peers.forEach((r, o) => {
-              a.has(o) || this.peers.delete(o);
-            }));
+            e.part ||
+              this.peers.forEach((r, o) => {
+                a.has(o) || this.peers.delete(o);
+              }));
           break;
         }
         case "left":
@@ -45623,6 +45626,8 @@ function a5() {
           ["users", "Users", $e],
           ["errors", "Errors", uE],
           ["growth", "Growth", ax],
+          ["support", "Help desk", Fs],
+          ["pay", "Payments", ax],
         ].map(([g, m, f]) =>
           (0, xt.jsxs)(
             "button",
@@ -45636,6 +45641,20 @@ function a5() {
           ),
         ),
       }),
+      e === "pay" &&
+        (0, xt.jsx)("div", {
+          className: "card p-3",
+          ref: (g) => {
+            g && window.__fyrusPay && window.__fyrusPay.mountAdmin(g);
+          },
+        }),
+      e === "support" &&
+        (0, xt.jsx)("div", {
+          className: "card p-3",
+          ref: (g) => {
+            g && window.__fyrusHelp && window.__fyrusHelp.mountAdmin(g);
+          },
+        }),
       e === "growth" &&
         (0, xt.jsx)("div", {
           className: "card p-3",
@@ -50498,5 +50517,7 @@ react/cjs/react-jsx-runtime.production.js:
 <script src="/fyrus-hud.js?v=1.0.1" defer></script>
 <script src="/fyrus-vectorbay.js?v=1.1.0" defer></script>
 <script src="/fyrus-growth.js?v=1.1.0" defer></script>
+<script src="/fyrus-help.js?v=1.0.0" defer></script>
+<script src="/fyrus-pay.js?v=1.0.0" defer></script>
 
 </body></html>

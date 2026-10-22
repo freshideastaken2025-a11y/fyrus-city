@@ -7594,36 +7594,163 @@ function createOps(d) {
     }
     return prevHttp(req, res, p, ip, auth);
   };
+  /* ---------------- help desk (v46): problems, ideas, questions from citizens ----------------
+     Tickets live in O.support (last 2,000). Judges and moderators answer them in Admin desk > Help desk;
+     the answer reaches the citizen in the city (live note) and by e-mail when they left one.
+     New tickets are e-mailed to SUPPORT_EMAIL (or BACKUP_EMAIL) when Resend is configured. */
+  O.support ||= [];
+  const SUP = { to: String(process.env.SUPPORT_EMAIL || process.env.BACKUP_EMAIL || "").trim() };
+  const KINDS = { problem: "Something is broken", idea: "Idea", question: "Question", safety: "Safety / someone is bothering me", payment: "Payment", other: "Other" };
+  const supHits = /* @__PURE__ */ new Map();
+  async function mail(to, subject, text) {
+    if (!to || !OFF.key || !OFF.from) return false;
+    try {
+      const r = await fetch("https://api.resend.com/emails", { method: "POST", headers: { authorization: `Bearer ${OFF.key}`, "content-type": "application/json" }, body: JSON.stringify({ from: OFF.from, to: [to], subject, text }) });
+      return r.ok;
+    } catch {
+      return false;
+    }
+  }
+  const longText = (v, n) => String(v ?? "").replace(/\r/g, "").replace(/[\u0000-\u0009\u000b-\u001f]/g, " ").replace(/\n{3,}/g, "\n\n").trim().slice(0, n);
+  const okEmail = (e) => /^[^\s@]{1,64}@[^\s@]{1,120}\.[a-z]{2,}$/i.test(e);
+  const ticketOut = (t, staff) => ({ id: t.id, at: t.at, kind: t.kind, kindLabel: KINDS[t.kind] || t.kind, text: t.text, status: t.status, replies: t.replies || [], ...(staff ? { name: t.name, number: t.number, email: t.email ? t.email.replace(/^(.).*(@.*)$/, "$1***$2") : "", area: t.area, device: t.device, lang: t.lang } : {}) });
+  const prevHttp2 = http2;
+  http2 = function (req, res, p, ip, auth) {
+    if (p === "/api/support" && req.method === "POST") {
+      readJson(req, 6144, (b) => {
+        const now = Date.now();
+        const hits = (supHits.get(ip) || []).filter((t) => now - t < 36e5);
+        if (supHits.size > 5e3) supHits.clear();
+        const u = b.tok ? auth(String(b.tok)) : null;
+        const text = longText(b.text, 2000);
+        const email = d.clean(b.email, 160).toLowerCase();
+        const kind = KINDS[b.kind] ? b.kind : "other";
+        if (text.length < 5) return json(res, 400, { error: "Please write a few words about it." });
+        if (!u && !okEmail(email)) return json(res, 400, { error: "Please add an e-mail so we can answer you." });
+        if (email && !okEmail(email)) return json(res, 400, { error: "That e-mail does not look right." });
+        if (hits.length >= 8) return json(res, 429, { error: "Too many messages from this connection. Please try again in an hour." });
+        if (u) {
+          const mine = O.support.filter((t) => t.uid === u.id && now - t.at < 864e5).length;
+          if (mine >= 6) return json(res, 429, { error: "You have sent 6 messages today. We will answer them first." });
+        }
+        hits.push(now);
+        supHits.set(ip, hits);
+        let id;
+        do id = "T" + Math.random().toString(36).slice(2, 8).toUpperCase(); while (O.support.some((t) => t.id === id));
+        const t = { id, at: now, kind, text, status: "open", uid: u ? u.id : "", name: u ? d.shown(u.id) : "Visitor", number: u ? u.number : "", email: email || (u && u.email) || "", area: d.clean(b.area, 60), device: d.clean(b.device, 120), lang: d.clean(b.lang, 20), replies: [] };
+        O.support.push(t);
+        if (O.support.length > 2e3) O.support.splice(0, O.support.length - 2e3);
+        d.save();
+        mail(SUP.to, `Fyrus help desk ${id}: ${KINDS[kind]}`, `${t.name}${t.number ? " (" + t.number + ")" : ""}${t.email ? " <" + t.email + ">" : ""}\nWhere: ${t.area || "-"}\nDevice: ${t.device || "-"}\n\n${text}\n\nAnswer it in fyrus.io > Admin desk > Help desk.`);
+        json(res, 200, { ok: true, id });
+      });
+      return true;
+    }
+    if (p === "/api/support/mine") {
+      const u = auth(String(req.headers.authorization || "").replace(/^Bearer\s+/i, ""));
+      if (!u) return json(res, 200, { list: [], unread: 0 }), true;
+      const list = O.support.filter((t) => t.uid === u.id).slice(-20).reverse().map((t) => ticketOut(t, false));
+      let changed = false;
+      if (/[?&]peek=1/.test(req.url || "")) return json(res, 200, { unread: O.support.filter((t) => t.uid === u.id && t.unread).length }), true;
+      O.support.forEach((t) => {
+        if (t.uid === u.id && t.unread) {
+          t.unread = false;
+          changed = true;
+        }
+      });
+      if (changed) d.save();
+      return json(res, 200, { list }), true;
+    }
+    if (p === "/api/admin/support") {
+      const u = auth(String(req.headers.authorization || "").replace(/^Bearer\s+/i, ""));
+      const judge = u && d.isAdmin(u.id), mod = u && (judge || (d.isMod && d.isMod(u.id)));
+      if (!mod) return json(res, 403, { error: "Judges and moderators only" }), true;
+      if (req.method !== "POST") {
+        const open = O.support.filter((t) => t.status !== "closed");
+        const closed = O.support.filter((t) => t.status === "closed").slice(-40);
+        const vis = (t) => judge || t.kind !== "payment";
+        return json(res, 200, { open: open.filter(vis).reverse().slice(0, 200).map((t) => ticketOut(t, true)), closed: closed.filter(vis).reverse().map((t) => ticketOut(t, true)), counts: Object.fromEntries(Object.keys(KINDS).map((k) => [k, open.filter((t) => t.kind === k).length])), mailTo: SUP.to ? SUP.to.replace(/^(.).*(@.*)$/, "$1***$2") : "" }), true;
+      }
+      readJson(req, 4096, (b) => {
+        const t = O.support.find((x) => x.id === String(b.id || ""));
+        if (!t) return json(res, 404, { error: "Not found" });
+        if (t.kind === "payment" && !judge) return json(res, 403, { error: "Payment questions are answered by a judge." });
+        const reply = longText(b.reply, 2000);
+        if (reply) {
+          t.replies ||= [];
+          t.replies.push({ at: Date.now(), by: d.shown(u.id), text: reply });
+          t.unread = true;
+          if (t.uid) {
+            const l = d.liveOf(t.uid);
+            if (l) d.send(l.ws, { t: "note", text: `Fyrus help desk answered your message ${t.id}: ${reply.slice(0, 160)}${reply.length > 160 ? "\u2026" : ""}` });
+          }
+          if (t.email) mail(t.email, `Fyrus help desk: answer to ${t.id}`, `Hello ${t.name},\n\nYou wrote: "${t.text.slice(0, 300)}"\n\nOur answer:\n${reply}\n\n— Fyrus help desk (https://fyrus.io)`);
+        }
+        if (b.status === "closed" || b.status === "open") t.status = b.status;
+        else if (reply) t.status = "answered";
+        O.modlog ||= [];
+        O.modlog.push({ at: Date.now(), by: u.id, byName: d.shown(u.id), role: judge ? "judge" : "moderator", act: "help " + (reply ? "answer" : t.status), target: t.id, hours: 0, note: reply.slice(0, 80) });
+        d.save();
+        json(res, 200, { ok: true, ticket: ticketOut(t, true) });
+      });
+      return true;
+    }
+    return prevHttp2(req, res, p, ip, auth);
+  };
   return { onMessage: onMessage2, http: http2, bump, track, backupNow, xpMsg, seen, joinedVia, left };
 }
 
 // server/legal.ts
-var UPDATED = "20 October 2026";
+var UPDATED = "23 October 2026";
+var ORG = {
+  name: String(process.env.LEGAL_ENTITY || "").trim(),
+  address: String(process.env.LEGAL_ADDRESS || "").trim(),
+  email: String(process.env.SUPPORT_EMAIL || "").trim()
+};
+var escH = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+var whoWeAre = () => `<p>Fyrus is operated by <b>${escH(ORG.name || "the Fyrus team")}</b>${ORG.address ? ", " + escH(ORG.address) : ""}.${ORG.email ? ` E-mail: <a href="mailto:${escH(ORG.email)}">${escH(ORG.email)}</a>.` : ""} In the city, open <b>\u2726 More \u2192 Help & feedback</b> to write to us.</p>`;
 var shell = (title, body) => `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title} \xB7 Fyrus</title>
 <style>body{margin:0;background:#040a1c;color:#e6ecf7;font:16px/1.65 system-ui,-apple-system,Segoe UI,sans-serif}main{max-width:760px;margin:0 auto;padding:40px 18px 80px}h1{font-size:30px;margin:0 0 4px}h2{font-size:19px;margin:30px 0 6px;color:#ffc27a}p,li{color:#c5cee0}a{color:#7fb8ff}.note{background:#0b1430;border:1px solid #1d2c55;border-radius:12px;padding:12px 14px;font-size:14px}small{color:#8a96ad}</style></head>
-<body><main><a href="/">\u2190 Back to Fyrus</a><h1>${title}</h1><small>Last updated ${UPDATED} \xB7 Beta</small>${body}</main></body></html>`;
+<body><main><a href="/">\u2190 Back to Fyrus</a><h1>${title}</h1><small>Last updated ${UPDATED} \xB7 Beta</small>${body}<p style="margin-top:40px"><small><a href="/terms">Terms</a> \xB7 <a href="/privacy">Privacy</a> \xB7 <a href="/refunds">Refunds</a> \xB7 <a href="/pricing">Pricing</a> \xB7 <a href="/contact">Contact</a></small></p></main></body></html>`;
 var TERMS = `
 <p class="note">Fyrus is in beta. These terms are a plain-language draft and may change before the public launch. We will show a notice in the city when they do.</p>
 <h2>1. Who can use Fyrus</h2><p>You must be at least 13 years old. Voice chat is for people 18 and older. If you are under 18, use Fyrus with a parent or guardian's permission.</p>
 <h2>2. Your account</h2><p>Keep your password private. You are responsible for what happens on your account. Guest accounts live on one device until you add an email or sign in with Google.</p>
-<h2>3. Fyrus Coin (FYC) is play money</h2><p>FYC is an in-city credit for use inside Fyrus only. It is not real money, not a cryptocurrency and not an investment. It cannot be exchanged for cash, and its supply and prices can change. Virtual land, homes, passports and items are game features with no real-world value. Nothing in Fyrus promises profit.</p>
+<h2>3. Fyrus Coin (FYC) is play money</h2><p>FYC is an in-city credit for use inside Fyrus only. It is not real money, not a cryptocurrency and not an investment. It cannot be exchanged for cash, sent to other people for real money, or withdrawn, and its supply and prices can change. When FYC packs are sold, you buy a licence to use that FYC inside Fyrus; see <a href="/pricing">Pricing</a> and <a href="/refunds">Refunds</a>. Payments are handled by our payment partner, who is the seller of record and shows the final price with tax before you pay. Virtual land, homes, passports and items are game features with no real-world value. Nothing in Fyrus promises profit.</p>
 <h2>4. Rules of the city</h2><ul><li>No harassment, hate, threats, sexual content involving minors, or content that sexualises anyone without consent.</li><li>No scams, fake listings, asking for payment or contact outside Fyrus, or selling prohibited goods.</li><li>No impersonating real people, brands or officials; no real-world political parties or politicians in Fyrus elections.</li><li>No cheating, bots, exploiting bugs or making several accounts to vote or farm rewards.</li><li>Respect other people's work: upload only content you own or may use.</li></ul>
 <h2>5. Marketplace, escrow and the Fyrus Court</h2><p>Purchases go through Central Bank escrow and can be disputed. Fyrus judges decide disputes based on the evidence in Fyrus. Their decisions inside Fyrus are final for FYC, items and accounts.</p>
 <h2>6. Moderation</h2><p>We may remove content, mute, suspend or ban accounts that break these rules, and refund FYC where it is fair. You can report people and content from the city; we review reports as fast as we can.</p>
 <h2>7. AI in Fyrus</h2><p>AI residents, shopkeepers and translations are generated by AI and are labelled. They can be wrong. Do not rely on them for medical, legal or financial decisions.</p>
 <h2>8. News and links</h2><p>World headlines come from public news feeds and link to the publisher. Citizen reports are written by users and are not verified by Fyrus.</p>
 <h2>9. Changes and ending</h2><p>Fyrus is provided as it is during the beta. Features may change or stop. You can stop using Fyrus at any time and ask us to delete your account.</p>
-<h2>10. Contact</h2><p>Questions or problems: use Report in the city or the Help page.</p>`;
+<h2>10. Contact</h2>${whoWeAre()}`;
 var PRIVACY = `
 <p class="note">This explains what Fyrus stores, why, and your choices. Fyrus servers are in Germany (EU).</p>
 <h2>What we store</h2><ul><li><b>Account:</b> your display name, Fyrus number, email (if you add one), a scrambled (hashed) password, or your Google account id if you sign in with Google.</li><li><b>City data:</b> your FYC statement, properties, listings and orders, courses and certificates, events, messages you send (city chat, groups and DMs), reports, and your avatar settings and optional face photo.</li><li><b>Technical:</b> error reports from your browser (to fix bugs), simple daily counts of visits, and your IP address in short-lived rate limits and server logs.</li><li><b>Usage statistics (our own, no outside trackers):</b> the days you visit (last 120), which invite link you came from, and once a minute the area of Fyrus you are in (for example a district or a menu) so we can see which places people like and where they leave; once a day also the kind of device (phone, tablet or computer), operating system, browser, time zone, language, which site sent you (for example WhatsApp or Google) and how smoothly Fyrus runs on your device. Admins only see totals, not a timeline of a person.</li></ul>
-<h2>What we do not do</h2><ul><li>We do not sell your data.</li><li>We do not show third-party ads based on your data.</li><li>We do not ask for ID cards, bank or card numbers in the beta.</li></ul>
-<h2>Who else processes data</h2><ul><li><b>Anthropic</b> translates chat messages when translation is on (the message text only).</li><li><b>Google</b> confirms your sign-in if you use "Sign in with Google".</li><li><b>Email provider</b> sends password reset codes.</li><li>Our hosting provider stores the server and its backups.</li></ul>
+<h2>What we do not do</h2><ul><li>We do not sell your data.</li><li>We do not show third-party ads based on your data.</li><li>We do not ask for ID cards. Card and bank details for purchases are entered on our payment partner\u2019s page and never reach Fyrus servers; we only receive the order number and whether it was paid.</li></ul>
+<h2>Who else processes data</h2><ul><li><b>Anthropic</b> translates chat messages when translation is on (the message text only).</li><li><b>Google</b> confirms your sign-in if you use "Sign in with Google".</li><li><b>Email provider</b> sends password reset codes and answers from the help desk.</li><li><b>Payment partner</b> (when FYC packs are on sale, for example Paddle) processes your payment, your billing details and tax as the seller of record, under its own privacy policy.</li><li>Our hosting provider stores the server and its backups.</li></ul>
 <h2>Visibility</h2><p>Your name, colour, Fyrus number and avatar are visible to other people in the city. Stealth mode hides your name and photo behind an alias. Blocked people cannot message you.</p>
 <h2>How long</h2><p>Account and city data are kept while your account exists. Backups are kept for 14 days (hourly copies for 48 hours); if the owner turns it on, a daily copy is also e-mailed to the owner for safekeeping. Error reports are kept for the most recent 300.</p>
-<h2>Your rights</h2><p>You can ask to see, correct, export or delete your data, and you can withdraw consent at any time. If you are in the EU you can also complain to your data protection authority. To ask, use the Help page or Report in the city.</p>
+<h2>Help desk messages</h2><p>Messages you send through Help & feedback are kept with the place in Fyrus and the type of device you were using, so the team can fix problems; the most recent 2,000 are kept.</p><h2>Your rights</h2><p>You can ask to see, correct, export or delete your data, and you can withdraw consent at any time. If you are in the EU you can also complain to your data protection authority. To ask, use Help & feedback in the city.</p><h2>Who we are</h2>${whoWeAre()}
 <h2>Children</h2><p>Fyrus is not for children under 13. If you believe a child under 13 has an account, report it and we will remove it.</p>`;
-var legalPage = (kind) => kind === "terms" ? shell("Terms of Use", TERMS) : shell("Privacy Policy", PRIVACY);
+var REFUNDS = () => `
+<p class="note">Plain-language refund policy for FYC packs and other digital items bought with real money.</p>
+<h2>14-day refund</h2><p>You can ask for a full refund within 14 days of a purchase. If you are in the EU or UK, this is your legal right of withdrawal; we also give it to everyone else.</p>
+<h2>How to ask</h2><p>Open <b>\u2726 More \u2192 Help & feedback</b>, choose <b>Payment</b>, and write your order number (it is in the e-mail receipt from our payment partner). You can also reply to the receipt e-mail. We answer within 3 working days.</p>
+<h2>What happens</h2><p>The money goes back to the card or account you paid with, through our payment partner. The FYC from that purchase is removed from your wallet; if you already spent it, we may still refund you once, but repeated refunds of spent FYC can lead to a suspension.</p>
+<h2>Mistakes and problems</h2><p>If you were charged but did not get your FYC, or were charged twice, write to us and we fix it or refund it in full, also after 14 days.</p>
+<h2>Who we are</h2>${whoWeAre()}`;
+var PRICING = () => {
+  const packs = typeof pay !== "undefined" && pay ? pay.PACKS : [];
+  const on = typeof pay !== "undefined" && pay && pay.live();
+  return `<p class="note">${on ? "Prices below are what you pay before local sales tax or VAT, which our payment partner adds at checkout." : "FYC packs are not on sale yet. These are the planned prices."}</p>
+<h2>Entering Fyrus is free</h2><p>Citizenship, walking the city, chat, learning, events and the games are free. Every new citizen gets a free welcome grant of FYC.</p>
+<h2>FYC packs (optional)</h2><ul>${packs.map((p) => `<li><b>${escH(p.label)}</b> \u2014 ${p.fyc.toLocaleString("en")} FYC \u2014 ${escH(p.price)}</li>`).join("")}</ul>
+<p>FYC is play money for use inside Fyrus only. It cannot be withdrawn or exchanged for cash. See <a href="/refunds">Refunds</a>.</p>
+<h2>Who we are</h2>${whoWeAre()}`;
+};
+var CONTACT = () => `<h2>Write to us</h2>${whoWeAre()}<p>For anything about safety (someone bothering you, a child at risk), choose <b>Safety</b> in Help & feedback, or use Report on the person in the city. If someone is in danger in real life, call your local emergency number first.</p>`;
+var legalPage = (kind) => kind === "terms" ? shell("Terms of Use", TERMS) : kind === "refunds" ? shell("Refund Policy", REFUNDS()) : kind === "pricing" ? shell("Pricing", PRICING()) : kind === "contact" ? shell("Contact", CONTACT()) : shell("Privacy Policy", PRIVACY);
 
 // --- Education ladder (v32): Fyrus Public School -> Fyrus College -> University of Fyrus ---
 // Additive seed for Education City. Adds three verified institutions and nine free courses taught by the
@@ -7705,6 +7832,184 @@ function seedLadder(d) {
     }
   }
   if (changed) d.save();
+}
+
+// --- Payments (v46): one direction only — citizens buy FYC packs from Fyrus. Off until the owner adds merchant keys. ---
+// Provider: Paddle Billing (merchant of record). Set in Coolify:
+//   PAY_PROVIDER=paddle
+//   PADDLE_API_KEY=...            (Paddle > Developer tools > Authentication)
+//   PADDLE_WEBHOOK_SECRET=...     (Paddle > Developer tools > Notifications, destination https://fyrus.io/api/pay/paddle)
+//   PADDLE_ENV=sandbox | live     (start with sandbox keys to test, then live)
+//   PADDLE_PRICES=fyc_s:pri_...,fyc_m:pri_...,fyc_l:pri_...   (one Paddle price per pack)
+//   PADDLE_CLIENT_TOKEN=...       (Paddle > Developer tools > Authentication > client-side token; used by /pay.html)
+// In Paddle > Checkout settings set the default payment link to https://fyrus.io/pay.html and approve fyrus.io.
+// Optional: PAY_PACKS='[{"id":"fyc_s","fyc":5000,"label":"Starter","price":"$1.99"}, ...]' to change packs.
+// FYC is credited only by the signed webhook (never by the browser), once per Paddle transaction id.
+// No cash-out and no user-to-user real money. Other providers (JazzCash, Easypaisa, Safepay) plug in as another
+// entry in PROVIDERS with the same three functions: ready(), checkout(order), webhook(req, raw) -> {orderId, txn, paid}.
+var PAY_DEFAULT_PACKS = [
+  { id: "fyc_s", fyc: 5e3, label: "Starter pack", price: "$1.99" },
+  { id: "fyc_m", fyc: 15e3, label: "Citizen pack", price: "$4.99", best: true },
+  { id: "fyc_l", fyc: 4e4, label: "Grand pack", price: "$9.99" }
+];
+function createPayments(d) {
+  if (!d.db.pay) {
+    d.db.pay = { orders: {}, done: {} };
+    d.save();
+  }
+  const P = d.db.pay;
+  const env = process.env;
+  let PACKS = PAY_DEFAULT_PACKS;
+  try {
+    if (env.PAY_PACKS) PACKS = JSON.parse(env.PAY_PACKS).filter((p) => p && p.id && +p.fyc > 0).map((p) => ({ id: String(p.id), fyc: +p.fyc, label: String(p.label || p.id), price: String(p.price || ""), best: !!p.best }));
+  } catch {
+    console.error("PAY_PACKS is not valid JSON; using the default packs");
+  }
+  const prices = {};
+  String(env.PADDLE_PRICES || "").split(",").forEach((x) => {
+    const [k, v] = x.split(":").map((s) => (s || "").trim());
+    if (k && v) prices[k] = v;
+  });
+  const paddleBase = String(env.PADDLE_ENV || "sandbox").toLowerCase() === "live" ? "https://api.paddle.com" : "https://sandbox-api.paddle.com";
+  const PROVIDERS = {
+    paddle: {
+      ready: () => !!(env.PADDLE_API_KEY && env.PADDLE_WEBHOOK_SECRET && env.PADDLE_CLIENT_TOKEN && PACKS.some((p) => prices[p.id])),
+      async checkout(o) {
+        const r = await fetch(paddleBase + "/transactions", {
+          method: "POST",
+          headers: { authorization: `Bearer ${env.PADDLE_API_KEY}`, "content-type": "application/json" },
+          body: JSON.stringify({ items: [{ price_id: prices[o.pack], quantity: 1 }], custom_data: { fyrus_order: o.id, fyrus_user: o.uid }, collection_mode: "automatic" })
+        });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error("Paddle " + r.status + " " + (j.error?.detail || j.error?.code || ""));
+        o.txn = j.data?.id || "";
+        return { url: j.data?.checkout?.url || "", txn: o.txn, clientToken: env.PADDLE_CLIENT_TOKEN || "", env: paddleBase.includes("sandbox") ? "sandbox" : "production" };
+      },
+      webhook(req, raw) {
+        const sig = String(req.headers["paddle-signature"] || "");
+        const parts = Object.fromEntries(sig.split(";").map((kv) => kv.split("=")));
+        if (!parts.ts || !parts.h1) return null;
+        if (Math.abs(Date.now() / 1e3 - +parts.ts) > 600) return null;
+        const want = crypto3.createHmac("sha256", env.PADDLE_WEBHOOK_SECRET).update(parts.ts + ":" + raw).digest("hex");
+        const a = Buffer.from(want), b = Buffer.from(String(parts.h1));
+        if (a.length !== b.length || !crypto3.timingSafeEqual(a, b)) return null;
+        let ev;
+        try {
+          ev = JSON.parse(raw);
+        } catch {
+          return null;
+        }
+        const data = ev.data || {};
+        return { orderId: data.custom_data?.fyrus_order || "", txn: data.id || "", paid: ev.event_type === "transaction.completed" || ev.event_type === "transaction.paid", type: ev.event_type || "" };
+      }
+    }
+  };
+  const provName = String(env.PAY_PROVIDER || "").toLowerCase();
+  const prov = PROVIDERS[provName] || null;
+  const live = () => !!(prov && prov.ready());
+  const json = (res, code, v) => {
+    res.writeHead(code, { "content-type": "application/json", "cache-control": "no-store" });
+    res.end(JSON.stringify(v));
+  };
+  function readRaw(req, max, cb) {
+    let raw = "";
+    req.on("data", (c) => {
+      raw += c;
+      if (raw.length > max) req.destroy();
+    });
+    req.on("end", () => cb(raw));
+  }
+  function credit(o, txn, how) {
+    if (o.status === "paid") return false;
+    if (txn && P.done[txn]) return false;
+    const pack = PACKS.find((p) => p.id === o.pack);
+    if (!pack || !d.db.users[o.uid]) return false;
+    o.status = "paid";
+    o.paidAt = Date.now();
+    o.txn = txn || o.txn;
+    if (txn) P.done[txn] = o.id;
+    d.bank.transfer("mint", o.uid, pack.fyc, `Bought ${pack.label} (${pack.fyc.toLocaleString("en")} FYC) \xB7 ${how} ${o.txn || o.id}`);
+    const l = d.liveOf(o.uid);
+    if (l) d.send(l.ws, { t: "note", text: `Thank you! ${pack.fyc.toLocaleString("en")} FYC were added to your wallet.` });
+    d.save();
+    return true;
+  }
+  const keepOrders = () => {
+    const ids = Object.keys(P.orders);
+    if (ids.length > 2e4) ids.sort((a, b) => P.orders[a].at - P.orders[b].at).slice(0, ids.length - 2e4).forEach((k) => delete P.orders[k]);
+  };
+  const buyHits = /* @__PURE__ */ new Map();
+  function http2(req, res, p, ip, auth) {
+    if (!p.startsWith("/api/pay") && p !== "/api/admin/pay") return false;
+    if (p === "/api/pay/config") return json(res, 200, { live: live(), provider: live() ? provName : "", clientToken: live() && provName === "paddle" ? env.PADDLE_CLIENT_TOKEN : "", env: paddleBase.includes("sandbox") ? "sandbox" : "production", packs: PACKS.map((x) => ({ ...x, ready: !prov || provName !== "paddle" || !!prices[x.id] })), note: live() ? "" : "Payments open soon." }), true;
+    if (p === "/api/pay/buy" && req.method === "POST") {
+      readRaw(req, 1024, async (raw) => {
+        let b = {};
+        try {
+          b = JSON.parse(raw || "{}");
+        } catch {
+        }
+        const u = auth(String(req.headers.authorization || "").replace(/^Bearer\s+/i, ""));
+        if (!u) return json(res, 401, { error: "Enter Fyrus first." });
+        if (!live()) return json(res, 503, { error: "Payments open soon." });
+        if (u.banned && u.banned.until > Date.now()) return json(res, 403, { error: "This account is suspended." });
+        const pack = PACKS.find((x) => x.id === String(b.pack || ""));
+        if (!pack || (provName === "paddle" && !prices[pack.id])) return json(res, 400, { error: "Unknown pack." });
+        const now = Date.now();
+        const hits = (buyHits.get(u.id) || []).filter((t) => now - t < 36e5);
+        if (hits.length >= 12) return json(res, 429, { error: "Too many checkouts in an hour. Please wait a little." });
+        hits.push(now);
+        buyHits.set(u.id, hits);
+        if (buyHits.size > 1e4) buyHits.clear();
+        const o = { id: "O" + crypto3.randomBytes(6).toString("hex"), uid: u.id, pack: pack.id, fyc: pack.fyc, price: pack.price, at: now, status: "open", provider: provName };
+        try {
+          const c = await prov.checkout(o);
+          P.orders[o.id] = o;
+          keepOrders();
+          d.save();
+          json(res, 200, { ok: true, order: o.id, ...c });
+        } catch (e) {
+          console.error("checkout failed", e.message);
+          json(res, 502, { error: "The payment service did not answer. Please try again in a minute." });
+        }
+      });
+      return true;
+    }
+    if (p === "/api/pay/status") {
+      const u = auth(String(req.headers.authorization || "").replace(/^Bearer\s+/i, ""));
+      const id = new URL(req.url || "/", "http://x").searchParams.get("order") || "";
+      const o = P.orders[id];
+      if (!u || !o || o.uid !== u.id) return json(res, 404, { error: "Not found" }), true;
+      return json(res, 200, { status: o.status, fyc: o.fyc }), true;
+    }
+    if (p === "/api/pay/mine") {
+      const u = auth(String(req.headers.authorization || "").replace(/^Bearer\s+/i, ""));
+      if (!u) return json(res, 200, { list: [] }), true;
+      return json(res, 200, { list: Object.values(P.orders).filter((o) => o.uid === u.id && o.status === "paid").sort((a, b) => b.at - a.at).slice(0, 30).map((o) => ({ id: o.id, at: o.paidAt, fyc: o.fyc, price: o.price })) }), true;
+    }
+    if (p === "/api/pay/" + provName && req.method === "POST" && prov) {
+      readRaw(req, 65536, (raw) => {
+        const ev = prov.ready() ? prov.webhook(req, raw) : null;
+        if (!ev) return json(res, 400, { error: "bad signature" });
+        if (ev.paid) {
+          const o = P.orders[ev.orderId];
+          if (o) credit(o, ev.txn, provName);
+          else console.error("payment for unknown order", ev.orderId, ev.txn);
+        }
+        json(res, 200, { ok: true });
+      });
+      return true;
+    }
+    if (p === "/api/admin/pay") {
+      const u = auth(String(req.headers.authorization || "").replace(/^Bearer\s+/i, ""));
+      if (!u || !d.isAdmin(u.id)) return json(res, 403, { error: "Judges only" }), true;
+      const all = Object.values(P.orders);
+      const paid = all.filter((o) => o.status === "paid");
+      return json(res, 200, { live: live(), provider: provName || "", env: provName === "paddle" ? (paddleBase.includes("sandbox") ? "sandbox" : "live") : "", missing: provName === "paddle" ? ["PADDLE_API_KEY", "PADDLE_WEBHOOK_SECRET", "PADDLE_CLIENT_TOKEN"].filter((k) => !env[k]).concat(PACKS.filter((x) => !prices[x.id]).map((x) => "price for " + x.id)) : ["PAY_PROVIDER"], orders: all.length, paid: paid.length, fycSold: paid.reduce((s, o) => s + o.fyc, 0), last: paid.sort((a, b) => b.paidAt - a.paidAt).slice(0, 20).map((o) => ({ id: o.id, at: o.paidAt, who: d.db.users[o.uid]?.number || "", fyc: o.fyc, price: o.price, txn: o.txn })) }), true;
+    }
+    return json(res, 404, { error: "Not found" }), true;
+  }
+  return { http: http2, live, PACKS };
 }
 // server/index.ts
 var PORT = Number(process.env.PORT || 80);
@@ -8162,11 +8467,39 @@ var landValue = (id) => {
   const owned = Object.keys(db.plots).filter((k) => LAND[k]?.code === p.code && db.plots[k]).length;
   return Math.round(p.price * (1 + 0.04 * owned) / 100) * 100;
 };
+/* Presence (v46): every 125 ms each citizen gets the people near them (same place, closest 40 within 160 m);
+   the whole list comes every 2 s. An outfit is sent only when the receiver has not seen it yet or it changed.
+   Clients that do not announce caps:["peers2"] (old open tabs) still get the full list every tick. */
+var PEER_NEAR = 160, PEER_MAX = 40;
+var peerTick = 0;
 setInterval(() => {
   if (!live.size) return;
-  const list = [...live.values()].map((l) => ({ id: l.u.id, name: shown(l.u), color: l.u.stealth ? "#8a8f98" : l.u.color, x: l.x, z: l.z, y: l.y, ry: l.ry, sc: l.scene, o: l.o, v: l.v, vc: l.voice, ph: l.u.stealth ? void 0 : l.u.photo, mk: l.u.stealth ? 1 : void 0 }));
+  peerTick++;
+  const full = peerTick % 16 === 0;
   const withPhoto = Date.now() % 4e3 < 130;
-  live.forEach((l) => send(l.ws, { t: "peers", list: list.filter((p) => p.id !== l.u.id).map((p) => withPhoto ? p : { ...p, ph: void 0 }) }));
+  const all = [...live.values()].map((l) => ({ l, sig: l.o ? JSON.stringify(l.o) : "", e: { id: l.u.id, name: shown(l.u), color: l.u.stealth ? "#8a8f98" : l.u.color, x: l.x, z: l.z, y: l.y, ry: l.ry, sc: l.scene, v: l.v, vc: l.voice, ph: withPhoto && !l.u.stealth ? l.u.photo : void 0, mk: l.u.stealth ? 1 : void 0 } }));
+  live.forEach((me) => {
+    let pick;
+    if (!me.p2 || full) pick = all.filter((p) => p.l !== me);
+    else {
+      pick = [];
+      for (const p of all) {
+        if (p.l === me || p.l.scene !== me.scene) continue;
+        const dd = Math.hypot(p.l.x - me.x, p.l.z - me.z);
+        if (dd < PEER_NEAR) pick.push([dd, p]);
+      }
+      if (pick.length > PEER_MAX) pick.sort((a, b) => a[0] - b[0]).length = PEER_MAX;
+      pick = pick.map((x) => x[1]);
+    }
+    const seen = me.sentO, next = full || !me.p2 ? /* @__PURE__ */ new Map() : seen;
+    const list = pick.map((p) => {
+      const known = seen.get(p.e.id);
+      next.set(p.e.id, p.sig);
+      return known === p.sig ? p.e : { ...p.e, o: p.l.o };
+    });
+    if (full || !me.p2) me.sentO = next;
+    send(me.ws, me.p2 && !full ? { t: "peers", part: 1, list } : { t: "peers", list });
+  });
 }, 125);
 var ADMINS = String(process.env.FYRUS_ADMINS || "").split(",").map((s) => s.trim()).filter(Boolean);
 if (ADMINS.length) console.log("court judges:", ADMINS.length);
@@ -8227,9 +8560,10 @@ var accounts = createAccounts({ db, save, sha, rid, clean, createUser: (n, l) =>
   return c;
 } });
 var ops = createOps({ db, dataDir: DATA_DIR, dbFile: () => dbFile, dbInfo: () => DB_INFO, save, send, liveOf: (id) => live.get(id), liveCount: () => live.size, isAdmin, isMod, findByNumber, clean, shown: (id) => db.users[id] ? shown(db.users[id]) : "Citizen" });
+var pay = createPayments({ db, save, send, liveOf: (id) => live.get(id), bank, isAdmin });
 var meOf = (u) => ({ ...pub(u), lang: u.lang, blocks: u.blocks, email: u.email || null, google: !!u.google, age18: !!u.age18, admin: isMod(u.id), role: isAdmin(u.id) ? "judge" : isMod(u.id) ? "moderator" : "", guest: !u.email && !u.google });
 var SEC = { "X-Content-Type-Options": "nosniff", "Referrer-Policy": "strict-origin-when-cross-origin", "X-Frame-Options": "SAMEORIGIN", "Strict-Transport-Security": "max-age=31536000; includeSubDomains", "Permissions-Policy": "camera=(self), microphone=(self), geolocation=()" };
-var TYPES3 = { ".html": "text/html; charset=utf-8", ".js": "application/javascript", ".css": "text/css", ".png": "image/png", ".jpg": "image/jpeg", ".svg": "image/svg+xml", ".ico": "image/x-icon", ".json": "application/json", ".txt": "text/plain", ".xml": "application/xml", ".webmanifest": "application/manifest+json" };
+var TYPES3 = { ".html": "text/html; charset=utf-8", ".js": "application/javascript", ".css": "text/css", ".png": "image/png", ".jpg": "image/jpeg", ".svg": "image/svg+xml", ".ico": "image/x-icon", ".json": "application/json", ".txt": "text/plain", ".xml": "application/xml", ".webmanifest": "application/manifest+json", ".woff": "font/woff", ".woff2": "font/woff2" };
 var gzCache = /* @__PURE__ */ new Map();
 var server = http.createServer((req, res) => {
   const url = new URL(req.url || "/", "http://x");
@@ -8239,8 +8573,9 @@ var server = http.createServer((req, res) => {
   }
   const ip = String(req.headers["x-forwarded-for"] || req.socket.remoteAddress || "").split(",")[0].trim();
   if (accounts.http(req, res, url.pathname, ip)) return;
+  if (pay.http(req, res, url.pathname, ip, accounts.byToken)) return;
   if (ops.http(req, res, url.pathname, ip, accounts.byToken)) return;
-  if (url.pathname === "/terms" || url.pathname === "/privacy") {
+  if (url.pathname === "/terms" || url.pathname === "/privacy" || url.pathname === "/refunds" || url.pathname === "/pricing" || url.pathname === "/contact") {
     res.writeHead(200, { ...SEC, "content-type": "text/html; charset=utf-8" });
     return res.end(legalPage(url.pathname.slice(1)));
   }
@@ -8261,7 +8596,7 @@ var server = http.createServer((req, res) => {
     const ae = String(req.headers["accept-encoding"] || "");
     const enc = c.br && /\bbr\b/.test(ae) ? "br" : c.gz && /\bgzip\b/.test(ae) ? "gzip" : "";
     /* files asked for with ?v= never change under that name, so phones can keep them for a year */
-    const cache = ext === ".html" ? "no-cache" : url.searchParams.has("v") || p.startsWith("/vendor/") ? "public, max-age=31536000, immutable" : "public, max-age=86400";
+    const cache = ext === ".html" ? "no-cache" : url.searchParams.has("v") || p.startsWith("/vendor/") || p.startsWith("/fonts/") ? "public, max-age=31536000, immutable" : "public, max-age=86400";
     res.writeHead(200, { ...SEC, "content-type": TYPES3[ext] || "application/octet-stream", "cache-control": cache, ...enc ? { "content-encoding": enc, vary: "Accept-Encoding" } : {} });
     res.end(enc === "br" ? c.br : enc === "gzip" ? c.gz : c.raw);
   } catch {
@@ -8313,7 +8648,7 @@ wss.on("connection", (ws, req) => {
         send(old.ws, { t: "err", text: "You opened Fyrus in another tab." });
         old.ws.close();
       }
-      me = { ws, u, x: 0, z: 36, y: 0, ry: 0, scene: "plaza", voice: false, rate: [], since: Date.now() };
+      me = { ws, u, x: 0, z: 36, y: 0, ry: 0, scene: "plaza", voice: false, rate: [], since: Date.now(), p2: Array.isArray(m.caps) && m.caps.includes("peers2"), sentO: /* @__PURE__ */ new Map() };
       live.set(u.id, me);
       ops.bump("visits");
       ops.seen(u);
@@ -8335,6 +8670,7 @@ wss.on("connection", (ws, req) => {
       me.u.seen = Date.now();
       save();
       broadcast({ t: "left", id: me.u.id });
+      live.forEach((l) => l.sentO && l.sentO.delete(me.u.id));
       broadcast({ t: "online", n: live.size });
     }
   });

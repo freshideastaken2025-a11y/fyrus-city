@@ -748,6 +748,7 @@ var bh = "fyrus.net.token",
           r.send(
             JSON.stringify({
               t: "hello",
+              caps: ["peers2"],
               token: I2.get(bh),
               name: o?.name,
               color: o?.color,
@@ -851,15 +852,18 @@ var bh = "fyrus.net.token",
           C({ net: { ...ot().net, online: e.n } });
           break;
         case "peers": {
+          /* v46: "part" messages carry only the people near you; the full list arrives every 2 s.
+             Outfits come once and when they change, so keep the last one. */
           let a = new Set();
           (e.list.forEach((r) => {
             a.add(r.id);
             let o = this.peers.get(r.id);
-            this.peers.set(r.id, { ...r, ph: r.ph ?? o?.ph });
+            this.peers.set(r.id, { ...r, ph: r.ph ?? o?.ph, o: r.o ?? o?.o });
           }),
-            this.peers.forEach((r, o) => {
-              a.has(o) || this.peers.delete(o);
-            }));
+            e.part ||
+              this.peers.forEach((r, o) => {
+                a.has(o) || this.peers.delete(o);
+              }));
           break;
         }
         case "left":

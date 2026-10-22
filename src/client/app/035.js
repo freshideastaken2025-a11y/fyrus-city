@@ -603,6 +603,8 @@ function a5() {
           ["users", "Users", $e],
           ["errors", "Errors", uE],
           ["growth", "Growth", ax],
+          ["support", "Help desk", Fs],
+          ["pay", "Payments", ax],
         ].map(([g, m, f]) =>
           (0, xt.jsxs)(
             "button",
@@ -616,6 +618,20 @@ function a5() {
           ),
         ),
       }),
+      e === "pay" &&
+        (0, xt.jsx)("div", {
+          className: "card p-3",
+          ref: (g) => {
+            g && window.__fyrusPay && window.__fyrusPay.mountAdmin(g);
+          },
+        }),
+      e === "support" &&
+        (0, xt.jsx)("div", {
+          className: "card p-3",
+          ref: (g) => {
+            g && window.__fyrusHelp && window.__fyrusHelp.mountAdmin(g);
+          },
+        }),
       e === "growth" &&
         (0, xt.jsx)("div", {
           className: "card p-3",

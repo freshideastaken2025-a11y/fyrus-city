@@ -479,6 +479,109 @@ function createOps(d) {
     }
     return prevHttp(req, res, p, ip, auth);
   };
+  /* ---------------- help desk (v46): problems, ideas, questions from citizens ----------------
+     Tickets live in O.support (last 2,000). Judges and moderators answer them in Admin desk > Help desk;
+     the answer reaches the citizen in the city (live note) and by e-mail when they left one.
+     New tickets are e-mailed to SUPPORT_EMAIL (or BACKUP_EMAIL) when Resend is configured. */
+  O.support ||= [];
+  const SUP = { to: String(process.env.SUPPORT_EMAIL || process.env.BACKUP_EMAIL || "").trim() };
+  const KINDS = { problem: "Something is broken", idea: "Idea", question: "Question", safety: "Safety / someone is bothering me", payment: "Payment", other: "Other" };
+  const supHits = /* @__PURE__ */ new Map();
+  async function mail(to, subject, text) {
+    if (!to || !OFF.key || !OFF.from) return false;
+    try {
+      const r = await fetch("https://api.resend.com/emails", { method: "POST", headers: { authorization: `Bearer ${OFF.key}`, "content-type": "application/json" }, body: JSON.stringify({ from: OFF.from, to: [to], subject, text }) });
+      return r.ok;
+    } catch {
+      return false;
+    }
+  }
+  const longText = (v, n) => String(v ?? "").replace(/\r/g, "").replace(/[\u0000-\u0009\u000b-\u001f]/g, " ").replace(/\n{3,}/g, "\n\n").trim().slice(0, n);
+  const okEmail = (e) => /^[^\s@]{1,64}@[^\s@]{1,120}\.[a-z]{2,}$/i.test(e);
+  const ticketOut = (t, staff) => ({ id: t.id, at: t.at, kind: t.kind, kindLabel: KINDS[t.kind] || t.kind, text: t.text, status: t.status, replies: t.replies || [], ...(staff ? { name: t.name, number: t.number, email: t.email ? t.email.replace(/^(.).*(@.*)$/, "$1***$2") : "", area: t.area, device: t.device, lang: t.lang } : {}) });
+  const prevHttp2 = http2;
+  http2 = function (req, res, p, ip, auth) {
+    if (p === "/api/support" && req.method === "POST") {
+      readJson(req, 6144, (b) => {
+        const now = Date.now();
+        const hits = (supHits.get(ip) || []).filter((t) => now - t < 36e5);
+        if (supHits.size > 5e3) supHits.clear();
+        const u = b.tok ? auth(String(b.tok)) : null;
+        const text = longText(b.text, 2000);
+        const email = d.clean(b.email, 160).toLowerCase();
+        const kind = KINDS[b.kind] ? b.kind : "other";
+        if (text.length < 5) return json(res, 400, { error: "Please write a few words about it." });
+        if (!u && !okEmail(email)) return json(res, 400, { error: "Please add an e-mail so we can answer you." });
+        if (email && !okEmail(email)) return json(res, 400, { error: "That e-mail does not look right." });
+        if (hits.length >= 8) return json(res, 429, { error: "Too many messages from this connection. Please try again in an hour." });
+        if (u) {
+          const mine = O.support.filter((t) => t.uid === u.id && now - t.at < 864e5).length;
+          if (mine >= 6) return json(res, 429, { error: "You have sent 6 messages today. We will answer them first." });
+        }
+        hits.push(now);
+        supHits.set(ip, hits);
+        let id;
+        do id = "T" + Math.random().toString(36).slice(2, 8).toUpperCase(); while (O.support.some((t) => t.id === id));
+        const t = { id, at: now, kind, text, status: "open", uid: u ? u.id : "", name: u ? d.shown(u.id) : "Visitor", number: u ? u.number : "", email: email || (u && u.email) || "", area: d.clean(b.area, 60), device: d.clean(b.device, 120), lang: d.clean(b.lang, 20), replies: [] };
+        O.support.push(t);
+        if (O.support.length > 2e3) O.support.splice(0, O.support.length - 2e3);
+        d.save();
+        mail(SUP.to, `Fyrus help desk ${id}: ${KINDS[kind]}`, `${t.name}${t.number ? " (" + t.number + ")" : ""}${t.email ? " <" + t.email + ">" : ""}\nWhere: ${t.area || "-"}\nDevice: ${t.device || "-"}\n\n${text}\n\nAnswer it in fyrus.io > Admin desk > Help desk.`);
+        json(res, 200, { ok: true, id });
+      });
+      return true;
+    }
+    if (p === "/api/support/mine") {
+      const u = auth(String(req.headers.authorization || "").replace(/^Bearer\s+/i, ""));
+      if (!u) return json(res, 200, { list: [], unread: 0 }), true;
+      const list = O.support.filter((t) => t.uid === u.id).slice(-20).reverse().map((t) => ticketOut(t, false));
+      let changed = false;
+      if (/[?&]peek=1/.test(req.url || "")) return json(res, 200, { unread: O.support.filter((t) => t.uid === u.id && t.unread).length }), true;
+      O.support.forEach((t) => {
+        if (t.uid === u.id && t.unread) {
+          t.unread = false;
+          changed = true;
+        }
+      });
+      if (changed) d.save();
+      return json(res, 200, { list }), true;
+    }
+    if (p === "/api/admin/support") {
+      const u = auth(String(req.headers.authorization || "").replace(/^Bearer\s+/i, ""));
+      const judge = u && d.isAdmin(u.id), mod = u && (judge || (d.isMod && d.isMod(u.id)));
+      if (!mod) return json(res, 403, { error: "Judges and moderators only" }), true;
+      if (req.method !== "POST") {
+        const open = O.support.filter((t) => t.status !== "closed");
+        const closed = O.support.filter((t) => t.status === "closed").slice(-40);
+        const vis = (t) => judge || t.kind !== "payment";
+        return json(res, 200, { open: open.filter(vis).reverse().slice(0, 200).map((t) => ticketOut(t, true)), closed: closed.filter(vis).reverse().map((t) => ticketOut(t, true)), counts: Object.fromEntries(Object.keys(KINDS).map((k) => [k, open.filter((t) => t.kind === k).length])), mailTo: SUP.to ? SUP.to.replace(/^(.).*(@.*)$/, "$1***$2") : "" }), true;
+      }
+      readJson(req, 4096, (b) => {
+        const t = O.support.find((x) => x.id === String(b.id || ""));
+        if (!t) return json(res, 404, { error: "Not found" });
+        if (t.kind === "payment" && !judge) return json(res, 403, { error: "Payment questions are answered by a judge." });
+        const reply = longText(b.reply, 2000);
+        if (reply) {
+          t.replies ||= [];
+          t.replies.push({ at: Date.now(), by: d.shown(u.id), text: reply });
+          t.unread = true;
+          if (t.uid) {
+            const l = d.liveOf(t.uid);
+            if (l) d.send(l.ws, { t: "note", text: `Fyrus help desk answered your message ${t.id}: ${reply.slice(0, 160)}${reply.length > 160 ? "\u2026" : ""}` });
+          }
+          if (t.email) mail(t.email, `Fyrus help desk: answer to ${t.id}`, `Hello ${t.name},\n\nYou wrote: "${t.text.slice(0, 300)}"\n\nOur answer:\n${reply}\n\n— Fyrus help desk (https://fyrus.io)`);
+        }
+        if (b.status === "closed" || b.status === "open") t.status = b.status;
+        else if (reply) t.status = "answered";
+        O.modlog ||= [];
+        O.modlog.push({ at: Date.now(), by: u.id, byName: d.shown(u.id), role: judge ? "judge" : "moderator", act: "help " + (reply ? "answer" : t.status), target: t.id, hours: 0, note: reply.slice(0, 80) });
+        d.save();
+        json(res, 200, { ok: true, ticket: ticketOut(t, true) });
+      });
+      return true;
+    }
+    return prevHttp2(req, res, p, ip, auth);
+  };
   return { onMessage: onMessage2, http: http2, bump, track, backupNow, xpMsg, seen, joinedVia, left };
 }
 

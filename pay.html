@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Fyrus · Secure checkout</title>
+<link rel="stylesheet" href="/fonts/fonts.css?v=1.0.0">
+<style>
+:root{--gold:#c9a96e;--hi:#e8d5a8;--ivory:#f4efe6;--muted:#9aa3b2}
+html,body{margin:0;min-height:100%;background:#0a0f1a;color:var(--ivory);font:15px/1.6 "Plus Jakarta Sans",system-ui,sans-serif}
+main{max-width:520px;margin:0 auto;padding:40px 18px;text-align:center}
+h1{font:400 40px/1 "Bebas Neue",Sora,sans-serif;letter-spacing:.06em;color:var(--hi);margin:10px 0}
+p{color:var(--muted)}a{color:var(--hi)}
+.ok{color:#bff5e3}.bad{color:#ffd2d2}
+.btn{display:inline-block;margin-top:18px;padding:12px 26px;border-radius:999px;background:var(--gold);color:#0a0f1a;text-decoration:none;font:700 14px Sora,sans-serif}
+</style></head>
+<body><main>
+<div style="font:500 11px 'JetBrains Mono',monospace;letter-spacing:.24em;color:var(--gold)">FYRUS · CENTRAL BANK</div>
+<h1>Secure checkout</h1>
+<p id="s">Opening the secure payment window…</p>
+<p style="font-size:12px">Payments are handled by our payment partner. Your card details never reach Fyrus. FYC is play money for use inside Fyrus only. <a href="/refunds">Refunds</a> · <a href="/terms">Terms</a></p>
+<a class="btn" href="/">Back to Fyrus</a>
+</main>
+<script>
+(function () {
+  var s = document.getElementById('s');
+  var q = new URLSearchParams(location.search);
+  if (!q.get('_ptxn')) { s.textContent = 'Choose a pack in Fyrus: ✦ More → Buy FYC.'; return; }
+  fetch('/api/pay/config').then(function (r) { return r.json(); }).then(function (c) {
+    if (!c.live || !c.clientToken) { s.textContent = 'Payments are not open yet.'; return; }
+    var js = document.createElement('script');
+    js.src = 'https://cdn.paddle.com/paddle/v2/paddle.js';
+    js.onload = function () {
+      try {
+        if (c.env === 'sandbox') window.Paddle.Environment.set('sandbox');
+        window.Paddle.Initialize({ token: c.clientToken, eventCallback: function (e) {
+          if (e && e.name === 'checkout.completed') { s.className = 'ok'; s.textContent = '✓ Paid. Your FYC arrive in your Fyrus wallet within a minute. You can close this tab.'; }
+          if (e && e.name === 'checkout.closed') { if (s.className !== 'ok') s.textContent = 'Checkout closed. Nothing was charged unless you finished paying.'; }
+        } });
+        s.textContent = 'The payment window is open.';
+      } catch (err) { s.className = 'bad'; s.textContent = 'The payment window could not open. Please try again or write to us in Help & feedback.'; }
+    };
+    js.onerror = function () { s.className = 'bad'; s.textContent = 'Could not reach the payment partner. Check your connection and reload this page.'; };
+    document.head.appendChild(js);
+  }).catch(function () { s.className = 'bad'; s.textContent = 'Could not reach Fyrus. Reload this page.'; });
+})();
+</script>
+</body></html>
