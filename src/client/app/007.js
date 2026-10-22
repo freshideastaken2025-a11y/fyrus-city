@@ -792,6 +792,7 @@ function eu(t) {
     (C((a) => ({ dream: { ...a.dream, home: t } })),
     wi({ style: e.style, floors: e.floors, garden: e.garden, theme: e.theme }));
 }
+window.__fyrusDream = { homes: Qn, buy: (h) => id("home", h), moveIn: (h) => eu(h), state: () => V.dream };
 function Vs() {
   V.scene.mode !== "plaza" && Jr();
   let t = Xr.find((e) => e.id === V.dream.car) || Xr[0];

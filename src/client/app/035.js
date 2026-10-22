@@ -1349,6 +1349,20 @@ function ZB({ h: t, open: e, toggle: a }) {
                           ),
                         ],
                       }),
+                      window.__fyrusHome3D &&
+                        (0, kt.jsx)("button", {
+                          id: "ext-3d",
+                          className: "btn btn-ghost btn-sm mr-2",
+                          onClick: () =>
+                            window.__fyrusHome3D.open({
+                              mode: "exterior",
+                              ext: i,
+                              onSave: (x) => {
+                                (s(x), zM(t.key, x));
+                              },
+                            }),
+                          children: "Preview in 3D",
+                        }),
                       (0, kt.jsxs)("button", {
                         id: "ext-save",
                         className: "btn btn-primary btn-sm",

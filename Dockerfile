@@ -9,6 +9,7 @@ COPY fyrus-arena.js ./public/fyrus-arena.js
 COPY vector-bay.html ./public/vector-bay.html
 COPY fyrus-country.js ./public/fyrus-country.js
 COPY fyrus-hall.js ./public/fyrus-hall.js
+COPY fyrus-home3d.js ./public/fyrus-home3d.js
 ENV PORT=80 DATA_DIR=/data PUBLIC_DIR=/app/public NODE_ENV=production
 EXPOSE 80
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s CMD wget -qO- http://127.0.0.1/health || exit 1

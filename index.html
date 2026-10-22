@@ -6856,6 +6856,7 @@ function eu(t) {
     (C((a) => ({ dream: { ...a.dream, home: t } })),
     wi({ style: e.style, floors: e.floors, garden: e.garden, theme: e.theme }));
 }
+window.__fyrusDream = { homes: Qn, buy: (h) => id("home", h), moveIn: (h) => eu(h), state: () => V.dream };
 function Vs() {
   V.scene.mode !== "plaza" && Jr();
   let t = Xr.find((e) => e.id === V.dream.car) || Xr[0];
@@ -37610,7 +37611,10 @@ function By() {
                 children: [
                   (0, $t.jsx)("div", {
                     className: "h-16 rounded-md mb-2 grid place-items-end justify-center pb-2",
-                    style: { background: "linear-gradient(#9cc3e6,#d9e8f2)" },
+                    role: "button",
+                    title: "View in 3D",
+                    onClick: () => window.__fyrusHome3D?.open({ mode: "catalogue", start: o.id }),
+                    style: { background: "linear-gradient(#9cc3e6,#d9e8f2)", cursor: "pointer" },
                     children: (0, $t.jsx)("div", {
                       style: {
                         width: 70,
@@ -37633,6 +37637,13 @@ function By() {
                         className: "text-sm font-bold tabular flex-1",
                         children: o.price ? q(o.price) : "Free",
                       }),
+                      window.__fyrusHome3D &&
+                        (0, $t.jsx)("button", {
+                          className: "btn btn-ghost btn-sm",
+                          "data-home3d": o.id,
+                          onClick: () => window.__fyrusHome3D.open({ mode: "catalogue", start: o.id }),
+                          children: "3D",
+                        }),
                       n
                         ? i
                           ? (0, $t.jsxs)("span", {
@@ -46116,6 +46127,20 @@ function ZB({ h: t, open: e, toggle: a }) {
                           ),
                         ],
                       }),
+                      window.__fyrusHome3D &&
+                        (0, kt.jsx)("button", {
+                          id: "ext-3d",
+                          className: "btn btn-ghost btn-sm mr-2",
+                          onClick: () =>
+                            window.__fyrusHome3D.open({
+                              mode: "exterior",
+                              ext: i,
+                              onSave: (x) => {
+                                (s(x), zM(t.key, x));
+                              },
+                            }),
+                          children: "Preview in 3D",
+                        }),
                       (0, kt.jsxs)("button", {
                         id: "ext-save",
                         className: "btn btn-primary btn-sm",
@@ -50177,7 +50202,8 @@ react/cjs/react-jsx-runtime.production.js:
 <script src="/fyrus-plus.js?v=1.4.0" defer></script>
 <script src="/fyrus-world.js?v=2.0.0" defer></script>
 <script src="/fyrus-intro.js?v=2.0.0" defer></script>
-<script src="/fyrus-country.js?v=1.2.2" defer></script>
+<script src="/fyrus-country.js?v=1.2.3" defer></script>
 <script src="/fyrus-hall.js?v=1.0.0" defer></script>
+<script src="/fyrus-home3d.js?v=1.0.0" defer></script>
 
 </body></html>

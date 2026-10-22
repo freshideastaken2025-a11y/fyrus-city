@@ -1438,7 +1438,10 @@ function By() {
                 children: [
                   (0, $t.jsx)("div", {
                     className: "h-16 rounded-md mb-2 grid place-items-end justify-center pb-2",
-                    style: { background: "linear-gradient(#9cc3e6,#d9e8f2)" },
+                    role: "button",
+                    title: "View in 3D",
+                    onClick: () => window.__fyrusHome3D?.open({ mode: "catalogue", start: o.id }),
+                    style: { background: "linear-gradient(#9cc3e6,#d9e8f2)", cursor: "pointer" },
                     children: (0, $t.jsx)("div", {
                       style: {
                         width: 70,
@@ -1461,6 +1464,13 @@ function By() {
                         className: "text-sm font-bold tabular flex-1",
                         children: o.price ? q(o.price) : "Free",
                       }),
+                      window.__fyrusHome3D &&
+                        (0, $t.jsx)("button", {
+                          className: "btn btn-ghost btn-sm",
+                          "data-home3d": o.id,
+                          onClick: () => window.__fyrusHome3D.open({ mode: "catalogue", start: o.id }),
+                          children: "3D",
+                        }),
                       n
                         ? i
                           ? (0, $t.jsxs)("span", {
