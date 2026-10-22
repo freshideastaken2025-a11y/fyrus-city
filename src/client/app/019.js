@@ -101,285 +101,10 @@ var c7 = (t, e) => {
       this.mask && (this.mask.visible = e);
     }
     buildBody() {
-      let e = this.outfit,
-        a = this.mats,
-        r = e.gender === "f";
-      (this.hips.clear(),
-        (this.legs = []),
-        (this.arms = []),
-        (this.head = new U.Group()),
-        (this.mask = null),
-        (this.face = null),
-        (this.shapeSig = [
-          e.gender,
-          e.topStyle,
-          e.bottomStyle,
-          e.hair,
-          e.face,
-          e.brows,
-          e.beard,
-          e.glasses,
-          e.height,
-        ].join("|")));
-      let o = r ? 0.88 : 1,
-        n = r ? 1.08 : 1;
-      ((this.hips.position.y = 0.95), this.body.scale.setScalar((r ? 0.95 : 1) * (e.height || 1)));
-      let i = e.bottomStyle === "shorts" || e.bottomStyle === "skirt" || e.topStyle === "dress",
-        s = e.bottomStyle === "shalwar",
-        l = new U.Mesh(ZN, a.bottom);
-      (l.scale.set(n, 1, n), (l.castShadow = !0), this.hips.add(l));
-      for (let x of [-1, 1]) {
-        let k = new U.Group();
-        k.position.set((r ? 0.095 : 0.1) * x, -0.02, 0);
-        let b = new U.Mesh(d7, i ? a.skin : a.bottom);
-        ((b.castShadow = !0), s && b.scale.set(1.35, 1, 1.35));
-        let w = new U.Mesh(u7, a.shoes);
-        if (((w.castShadow = !0), k.add(b, w), e.bottomStyle === "shorts")) {
-          let L = new U.Mesh(h7, a.bottom);
-          k.add(L);
-        }
-        (this.legs.push(k), this.hips.add(k));
-      }
-      if (e.bottomStyle === "skirt" && e.topStyle !== "dress") {
-        let x = new U.Mesh(new U.CylinderGeometry(0.2 * n, 0.3, 0.42, 16, 1, !0), a.bottom);
-        ((x.material.side = U.DoubleSide), (x.position.y = -0.17), this.hips.add(x));
-      }
-      let c = new U.Mesh(qN, a.top);
-      if (((c.position.y = 0.4), c.scale.set(o, 1, 0.62), (c.castShadow = !0), this.hips.add(c), r))
-        for (let x of [-1, 1]) {
-          let k = new U.Mesh(new U.SphereGeometry(0.07, 12, 8), a.top);
-          (k.position.set(0.075 * x, 0.5, 0.085), k.scale.set(1, 0.85, 0.75), this.hips.add(k));
-        }
-      let d = new U.Mesh(new U.SphereGeometry(0.22, 14, 8), a.top);
-      (d.scale.set(o, 0.4, 0.6), (d.position.y = 0.68), this.hips.add(d));
-      let h = e.topStyle;
-      if (h === "hoodie") {
-        let x = new U.Mesh(new U.SphereGeometry(0.15, 14, 10, 0, Math.PI * 2, 0, Math.PI / 2), a.top);
-        ((x.rotation.x = -1.9), x.position.set(0, 0.74, -0.07), this.hips.add(x));
-        let k = new U.Mesh(new U.BoxGeometry(0.22, 0.09, 0.02), a.top2);
-        (k.position.set(0, 0.2, 0.115), this.hips.add(k));
-        for (let b of [-1, 1]) {
-          let w = new U.Mesh(new U.CylinderGeometry(0.005, 0.005, 0.14, 4), a.white);
-          (w.position.set(0.035 * b, 0.6, 0.13), this.hips.add(w));
-        }
-      }
-      if (h === "jacket" || h === "suit") {
-        for (let k of [-1, 1]) {
-          let b = new U.Mesh(new U.BoxGeometry(0.1, 0.5, 0.02), a.top2);
-          (b.position.set(0.075 * k, 0.42, 0.125), (b.rotation.z = -0.1 * k), this.hips.add(b));
-        }
-        let x = new U.Mesh(new U.BoxGeometry(0.07, 0.48, 0.015), a.white);
-        if ((x.position.set(0, 0.44, 0.122), this.hips.add(x), h === "suit")) {
-          let k = new U.Mesh(new U.BoxGeometry(0.035, 0.32, 0.012), a.tie);
-          (k.position.set(0, 0.5, 0.132), this.hips.add(k));
-        }
-      }
-      if (h === "shirt") {
-        for (let x of [-1, 1]) {
-          let k = new U.Mesh(new U.BoxGeometry(0.08, 0.04, 0.02), a.top2);
-          (k.position.set(0.04 * x, 0.7, 0.11), (k.rotation.z = 0.5 * x), this.hips.add(k));
-        }
-        for (let x = 0; x < 4; x++) {
-          let k = new U.Mesh(new U.SphereGeometry(0.008, 6, 4), a.white);
-          (k.position.set(0, 0.62 - x * 0.12, 0.13), this.hips.add(k));
-        }
-      }
-      if (h === "kurta" || h === "dress") {
-        let x = h === "dress" ? 0.62 : 0.5,
-          k = new U.Mesh(new U.CylinderGeometry(0.2 * o, h === "dress" ? 0.34 : 0.25, x, 16, 1, !0), a.top);
-        if (
-          ((k.material = a.top),
-          (k.material.side = U.DoubleSide),
-          (k.position.y = 0.12 - x / 2 + 0.1),
-          this.hips.add(k),
-          h === "kurta")
-        ) {
-          let b = new U.Mesh(new U.BoxGeometry(0.04, 0.22, 0.012), a.top2);
-          (b.position.set(0, 0.6, 0.12), this.hips.add(b));
-        }
-      }
-      h === "tank" && c.scale.set(o * 0.97, 1, 0.6);
-      for (let x of [-1, 1]) {
-        let k = new U.Group();
-        k.position.set(0.25 * x * o, 0.66, 0);
-        let b = new U.Mesh(p7, h === "tank" ? a.skin : a.top),
-          w = h === "hoodie" || h === "jacket" || h === "suit" || h === "shirt" || h === "kurta",
-          L = new U.Mesh(w ? f7 : g7, w ? a.top : a.skin),
-          E = new U.Mesh(m7, a.skin);
-        ((b.castShadow = L.castShadow = !0),
-          k.add(b, L, E),
-          (k.rotation.z = 0.08 * x),
-          this.arms.push(k),
-          this.hips.add(k));
-      }
-      let u = new U.Mesh(XN, e.hair === "hijab" ? a.hair : a.skin);
-      ((u.position.y = 0.76), this.hips.add(u), (this.head.position.y = 0.92), this.hips.add(this.head));
-      let p = {
-          oval: [0.95, 1.12, 1],
-          round: [1.02, 1.04, 1.02],
-          long: [0.9, 1.2, 0.98],
-          square: [1.02, 1.08, 1],
-        }[e.face] || [0.95, 1.12, 1],
-        v = new U.Mesh(KN, a.skin);
-      if ((v.scale.set(p[0], p[1], p[2]), (v.castShadow = !0), this.head.add(v), e.face === "square")) {
-        let x = new U.Mesh(new U.BoxGeometry(0.17, 0.07, 0.16), a.skin);
-        (x.position.set(0, -0.085, 0.01), this.head.add(x));
-      }
-      for (let x of [-1, 1]) {
-        for (let S of [0]);
-        let k = new U.Mesh(new U.SphereGeometry(0.025, 8, 6), a.skin);
-        (k.scale.set(0.5, 1, 0.8), k.position.set(0.118 * p[0] * x, 0, 0), this.head.add(k));
-        let b = new U.Mesh(Kx, a.eye);
-        (b.scale.set(1, 0.75, 0.55), b.position.set(0.042 * x, 0.022, 0.108), this.head.add(b));
-        let w = new U.Mesh(s7, a.iris);
-        (w.position.set(0.042 * x, 0.022, 0.118), this.head.add(w));
-        let L = new U.Mesh(l7, a.pupil);
-        (L.position.set(0.042 * x, 0.022, 0.1255), this.head.add(L));
-        let E = e.brows === "thick" ? 0.012 : e.brows === "thin" ? 0.005 : 0.008,
-          T = new U.Mesh(new U.BoxGeometry(0.04, E, 0.01), a.hair);
-        if ((T.position.set(0.043 * x, 0.052, 0.116), (T.rotation.z = -0.12 * x), this.head.add(T), r)) {
-          let S = new U.Mesh(new U.BoxGeometry(0.03, 0.004, 0.008), a.pupil);
-          (S.position.set(0.045 * x, 0.034, 0.12), this.head.add(S));
-        }
-      }
-      let g = new U.Mesh(new U.ConeGeometry(0.016, 0.045, 6), a.skin);
-      ((g.rotation.x = Math.PI / 2 - 0.25), g.position.set(0, -0.005, 0.128), this.head.add(g));
-      let m = new U.Mesh(new U.BoxGeometry(r ? 0.042 : 0.038, r ? 0.011 : 0.008, 0.01), a.lips);
-      (m.position.set(0, -0.052, 0.114), this.head.add(m));
-      let f = e.beard;
-      if (f === "stubble") {
-        let x = new U.Mesh(
-          new U.SphereGeometry(0.128, 18, 10, -Math.PI * 0.45, Math.PI * 0.9, Math.PI * 0.55, Math.PI * 0.3),
-          new U.MeshStandardMaterial({
-            color: this.outfit.hairColor,
-            transparent: !0,
-            opacity: 0.35,
-            roughness: 1,
-          }),
-        );
-        (x.scale.set(p[0], p[1], p[2]), this.head.add(x));
-      }
-      if (f === "short" || f === "full") {
-        let x = new U.Mesh(
-          new U.SphereGeometry(
-            0.13,
-            18,
-            10,
-            -Math.PI * 0.45,
-            Math.PI * 0.9,
-            Math.PI * 0.56,
-            f === "full" ? Math.PI * 0.42 : Math.PI * 0.3,
-          ),
-          a.hair,
-        );
-        (x.scale.set(p[0] * 1.02, p[1] * (f === "full" ? 1.08 : 1.02), p[2] * 1.04), this.head.add(x));
-      }
-      if (f === "moustache" || f === "short" || f === "full") {
-        let x = new U.Mesh(new U.BoxGeometry(0.05, 0.012, 0.012), a.hair);
-        (x.position.set(0, -0.036, 0.122), this.head.add(x));
-      }
-      let y = e.glasses;
-      if (y !== "none") {
-        for (let k of [-1, 1]) {
-          if (y === "round") {
-            let w = new U.Mesh(new U.TorusGeometry(0.022, 0.003, 6, 16), a.glass);
-            (w.position.set(0.043 * k, 0.022, 0.128), this.head.add(w));
-          } else {
-            let w = new U.Mesh(new U.BoxGeometry(0.05, 0.034, 0.006), y === "shades" ? a.glass : a.lens);
-            if ((w.position.set(0.043 * k, 0.022, 0.129), this.head.add(w), y === "square")) {
-              let L = new U.Mesh(new U.BoxGeometry(0.054, 0.004, 0.007), a.glass);
-              (L.position.set(0.043 * k, 0.04, 0.129), this.head.add(L));
-            }
-          }
-          let b = new U.Mesh(new U.BoxGeometry(0.004, 0.004, 0.11), a.glass);
-          (b.position.set(0.11 * k, 0.025, 0.07), this.head.add(b));
-        }
-        let x = new U.Mesh(new U.BoxGeometry(0.02, 0.004, 0.004), a.glass);
-        (x.position.set(0, 0.03, 0.13), this.head.add(x));
-      }
-      (this.head.add(this.acc),
-        this.buildHair(),
-        this.maskOn && this.setMask(!0),
-        this.photoUrl && this.setPhoto(this.photoUrl));
+      AV2.build(this);
     }
     buildHair() {
-      (this.head.remove(this.hairGroup), (this.hairGroup = new U.Group()));
-      let e = this.outfit,
-        a = this.mats.hair,
-        r = (i) => this.hairGroup.add(i),
-        o = e.hair,
-        n = (i = 1, s = 1.1, l = 1.05) => {
-          let c = new U.Mesh(JN, a);
-          return ((c.position.y = 0.02), c.scale.set(i, s, l), r(c), c);
-        };
-      if (o === "hijab") {
-        let i = new U.Mesh(new U.SphereGeometry(0.145, 22, 16, 0, Math.PI * 2, 0, Math.PI * 0.78), a);
-        (i.scale.set(1, 1.12, 1.08), i.position.set(0, 0.005, -0.01), r(i));
-        let s = new U.Mesh(new U.CylinderGeometry(0.12, 0.2, 0.2, 18, 1, !0), a);
-        ((s.material.side = U.DoubleSide), s.position.set(0, -0.16, -0.01), r(s));
-        let l = new U.Mesh(new U.TorusGeometry(0.118, 0.012, 6, 24, Math.PI), a);
-        (l.position.set(0, -0.005, 0.03), l.rotation.set(-0.15, 0, 0), l.scale.set(1, 1.15, 1), r(l));
-      } else
-        o === "buzz"
-          ? n(1, 1.02, 1).scale.multiplyScalar(0.97)
-          : o !== "bald" && n(1, o === "afro" ? 1 : 1.1, 1.05);
-      if (o === "long" || o === "braids") {
-        let i = new U.Mesh(new U.BoxGeometry(0.24, o === "braids" ? 0.42 : 0.34, 0.08), a);
-        (i.position.set(0, -0.13, -0.09), r(i));
-        for (let s of [-1, 1]) {
-          let l = new U.Mesh(new U.BoxGeometry(0.05, 0.22, 0.09), a);
-          (l.position.set(0.115 * s, -0.06, -0.02), r(l));
-        }
-        if (o === "braids")
-          for (let s = 0; s < 5; s++) {
-            let l = new U.Mesh(new U.SphereGeometry(0.025, 8, 6), a);
-            (l.position.set(-0.08 + s * 0.04, -0.36, -0.1), r(l));
-          }
-      }
-      if (o === "bun") {
-        let i = new U.Mesh(new U.SphereGeometry(0.07, 10, 8), a);
-        (i.position.set(0, 0.12, -0.1), r(i));
-      }
-      if (o === "ponytail") {
-        let i = new U.Mesh(new U.SphereGeometry(0.04, 8, 6), a);
-        (i.position.set(0, 0.06, -0.135), r(i));
-        let s = new U.Mesh(new U.CylinderGeometry(0.035, 0.015, 0.28, 8), a);
-        (s.position.set(0, -0.08, -0.16), (s.rotation.x = 0.25), r(s));
-      }
-      if (o === "curly")
-        for (let i = 0; i < 18; i++) {
-          let s = (i / 18) * Math.PI * 2,
-            l = new U.Mesh(new U.SphereGeometry(0.035, 8, 6), a);
-          (l.position.set(Math.cos(s) * 0.12, 0.08 + (i % 3) * 0.02, Math.sin(s) * 0.12 - 0.01),
-            l.position.z < 0.08 && r(l));
-        }
-      if (o === "afro") {
-        let i = new U.Mesh(new U.IcosahedronGeometry(0.2, 2), a);
-        (i.position.set(0, 0.08, -0.03), i.scale.set(1, 0.85, 0.95), r(i));
-      }
-      if (o === "mohawk") {
-        for (let i = 0; i < 6; i++) {
-          let s = new U.Mesh(new U.ConeGeometry(0.025, 0.1, 6), a);
-          (s.position.set(0, 0.15 - Math.abs(i - 2.5) * 0.008, 0.08 - i * 0.04),
-            (s.rotation.x = -0.3 + i * 0.12),
-            r(s));
-        }
-        this.hairGroup.children[0] && this.hairGroup.children[0].scale.set(0.9, 0.95, 1);
-      }
-      if (o === "side") {
-        let i = new U.Mesh(new U.BoxGeometry(0.14, 0.05, 0.12), a);
-        (i.position.set(0.04, 0.11, 0.06), (i.rotation.z = -0.35), r(i));
-      }
-      if (o === "cap") {
-        let i = new U.Mesh(
-          new U.SphereGeometry(0.14, 16, 8, 0, Math.PI * 2, 0, Math.PI * 0.5),
-          this.mats.top,
-        );
-        i.position.y = 0.03;
-        let s = new U.Mesh(new U.BoxGeometry(0.2, 0.015, 0.14), this.mats.top);
-        (s.position.set(0, 0.04, 0.15), r(i), r(s));
-      }
-      this.head.add(this.hairGroup);
+      AV2.hair(this);
     }
     setOutfit(e) {
       this.outfit = Vg({ ...this.outfit, ...e });
@@ -498,6 +223,13 @@ var c7 = (t, e) => {
         (this.arms[1].rotation.z = 0.08),
         this.hips.rotation.set(r * 0.12, 0, 0),
         this.body.rotation.set(0, 0, 0));
+      /* knees and elbows (avatars v2): the back leg bends, arms bend a little while walking */
+      if (this.knees)
+        for (let l = 0; l < 2; l++) {
+          let c = this.legs[l].rotation.x;
+          ((this.knees[l].rotation.x = 0.05 + Math.max(0, -c) * 1.25 + Math.max(0, c) * 0.25),
+            this.elbows[l] && (this.elbows[l].rotation.x = -(0.18 + Math.abs(this.arms[l].rotation.x) * 0.45)));
+        }
       let i =
         Math.abs(Math.sin(this.phase * 2)) * 0.05 * Math.min(1, this.speed / 2) +
         Math.sin(a * 1.8 + this.phase) * 0.006;
@@ -518,7 +250,10 @@ var c7 = (t, e) => {
           (this.legs[1].rotation.x = -Math.sin(l * 2) * 0.35));
       }
       if (
-        (this.sitting && ((this.legs[0].rotation.x = this.legs[1].rotation.x = -1.4), (i = -0.42)),
+        (this.sitting &&
+          ((this.legs[0].rotation.x = this.legs[1].rotation.x = -1.4),
+          (i = -0.42),
+          this.knees && (this.knees[0].rotation.x = this.knees[1].rotation.x = 1.4)),
         this.emote)
       ) {
         this.emoteT += e;
@@ -548,10 +283,7 @@ var c7 = (t, e) => {
       let s = this.blinkT < 0.12;
       if (
         (this.blinkT < 0 && (this.blinkT = 2.5 + Math.random() * 3.5),
-        this.head.children.forEach((l) => {
-          let c = l.geometry;
-          (c === Kx || c === s7 || c === l7) && (l.scale.y = s ? 0.1 : c === Kx ? 0.75 : 1);
-        }),
+        (this.eyes || []).forEach((l) => (l.scale.y = s ? 0.12 : 1)),
         (this.body.position.y = i),
         (this.board.visible = this.hovering),
         (this.board.position.y = 0.32 - i + i),
