@@ -1490,6 +1490,7 @@ function yy({ outfit: t, photo: e, height: a = 300 }) {
             window.removeEventListener("pointerup", w),
             p.dispose(),
             i.dispose(),
+            i.forceContextLoss?.(),
             n.removeChild(i.domElement),
             (o.current = null));
         }

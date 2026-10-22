@@ -1245,6 +1245,7 @@ void main(){
         window.removeEventListener("pointermove", this.onMove),
         this.ro.disconnect(),
         this.renderer.dispose(),
+        this.renderer.forceContextLoss?.(),
         this.renderer.domElement.remove());
     }
   };

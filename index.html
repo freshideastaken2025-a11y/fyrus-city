@@ -10470,6 +10470,7 @@ void main(){
         window.removeEventListener("pointermove", this.onMove),
         this.ro.disconnect(),
         this.renderer.dispose(),
+        this.renderer.forceContextLoss?.(),
         this.renderer.domElement.remove());
     }
   };
@@ -13394,6 +13395,7 @@ function ux({ p1: t, onEnd: e, online: a }) {
             window.removeEventListener("keyup", Lt),
             zr?.leave(),
             c.dispose(),
+            c.forceContextLoss?.(),
             c.domElement.remove(),
             d.traverse((it) => {
               it.geometry?.dispose?.();
@@ -14588,6 +14590,7 @@ function kx() {
             window.removeEventListener("pointermove", B),
             window.removeEventListener("pointerup", X),
             s.dispose(),
+            s.forceContextLoss?.(),
             s.domElement.remove());
         }
       );
@@ -25676,7 +25679,21 @@ var qg = (t, e) =>
       this.clipDur = 15;
       this.el = e;
       let a = ot();
-      ((this.renderer = new W.WebGLRenderer({ antialias: !0, powerPreference: "high-performance" })),
+      ((this.renderer = (() => {
+        let profiles = [
+            { antialias: !0, powerPreference: "high-performance" },
+            { antialias: !1, powerPreference: "default" },
+            { antialias: !1, powerPreference: "low-power", failIfMajorPerformanceCaveat: !1, precision: "mediump" },
+          ],
+          last = null;
+        for (let p of profiles)
+          try {
+            return new W.WebGLRenderer(p);
+          } catch (x) {
+            ((last = x), console.warn("[World] WebGL profile failed, trying a lighter one", p, x?.message));
+          }
+        throw last || new Error("Error creating WebGL context.");
+      })()),
         this.applyQuality(a.settings.quality),
         (this.renderer.outputEncoding = W.sRGBEncoding),
         (this.renderer.toneMapping = W.ACESFilmicToneMapping),
@@ -34184,6 +34201,7 @@ function yy({ outfit: t, photo: e, height: a = 300 }) {
             window.removeEventListener("pointerup", w),
             p.dispose(),
             i.dispose(),
+            i.forceContextLoss?.(),
             n.removeChild(i.domElement),
             (o.current = null));
         }
@@ -35341,6 +35359,9 @@ function wy() {
           z: n.z + 2,
           face: { x: n.x, z: n.z },
         });
+    }),
+    (Array.isArray(window.__fyrusPlaces) ? window.__fyrusPlaces : []).forEach((n) => {
+      n && n.id && n.name && e.push({ ...n, id: "x:" + n.id });
     }),
     e
   );
@@ -48537,6 +48558,10 @@ function l5() {
         recentPlaces: [g.id, ...(ot().settings.recentPlaces || []).filter((m) => m !== g.id)].slice(0, 6),
       }),
     h = (g) => {
+      if (g.url) {
+        (d(g), c(), window.__fyrusCountry?.fly ? window.__fyrusCountry.fly(g.flight || { name: g.name, province: g.sub || "", url: g.url, id: g.id }) : (location.href = g.url));
+        return;
+      }
       if ((d(g), c(), g.hall)) {
         Gs(g.hall);
         return;
@@ -50130,6 +50155,6 @@ react/cjs/react-jsx-runtime.production.js:
 <script src="/fyrus-plus.js?v=1.4.0" defer></script>
 <script src="/fyrus-world.js?v=2.0.0" defer></script>
 <script src="/fyrus-intro.js?v=2.0.0" defer></script>
-<script src="/fyrus-country.js?v=1.1.1" defer></script>
+<script src="/fyrus-country.js?v=1.2.0" defer></script>
 
 </body></html>

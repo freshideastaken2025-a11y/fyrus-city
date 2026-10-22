@@ -161,7 +161,21 @@ var qg = (t, e) =>
       this.clipDur = 15;
       this.el = e;
       let a = ot();
-      ((this.renderer = new W.WebGLRenderer({ antialias: !0, powerPreference: "high-performance" })),
+      ((this.renderer = (() => {
+        let profiles = [
+            { antialias: !0, powerPreference: "high-performance" },
+            { antialias: !1, powerPreference: "default" },
+            { antialias: !1, powerPreference: "low-power", failIfMajorPerformanceCaveat: !1, precision: "mediump" },
+          ],
+          last = null;
+        for (let p of profiles)
+          try {
+            return new W.WebGLRenderer(p);
+          } catch (x) {
+            ((last = x), console.warn("[World] WebGL profile failed, trying a lighter one", p, x?.message));
+          }
+        throw last || new Error("Error creating WebGL context.");
+      })()),
         this.applyQuality(a.settings.quality),
         (this.renderer.outputEncoding = W.sRGBEncoding),
         (this.renderer.toneMapping = W.ACESFilmicToneMapping),

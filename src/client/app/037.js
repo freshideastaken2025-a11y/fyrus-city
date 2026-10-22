@@ -751,6 +751,10 @@ function l5() {
         recentPlaces: [g.id, ...(ot().settings.recentPlaces || []).filter((m) => m !== g.id)].slice(0, 6),
       }),
     h = (g) => {
+      if (g.url) {
+        (d(g), c(), window.__fyrusCountry?.fly ? window.__fyrusCountry.fly(g.flight || { name: g.name, province: g.sub || "", url: g.url, id: g.id }) : (location.href = g.url));
+        return;
+      }
       if ((d(g), c(), g.hall)) {
         Gs(g.hall);
         return;

@@ -1064,6 +1064,9 @@ function wy() {
           face: { x: n.x, z: n.z },
         });
     }),
+    (Array.isArray(window.__fyrusPlaces) ? window.__fyrusPlaces : []).forEach((n) => {
+      n && n.id && n.name && e.push({ ...n, id: "x:" + n.id });
+    }),
     e
   );
 }

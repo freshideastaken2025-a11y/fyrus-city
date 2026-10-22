@@ -95,6 +95,7 @@ function kx() {
             window.removeEventListener("pointermove", B),
             window.removeEventListener("pointerup", X),
             s.dispose(),
+            s.forceContextLoss?.(),
             s.domElement.remove());
         }
       );

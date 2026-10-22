@@ -5,7 +5,7 @@
 (function () {
   'use strict';
   if (window.__fyrusCountry) return;
-  var API = window.__fyrusCountry = { version: '1.1.1' };
+  var API = window.__fyrusCountry = { version: '1.2.0' };
   var GOLD = '#c9a96e', GOLD_HI = '#e8d5a8', IVORY = '#f4efe6', MUTED = '#9aa3b2';
   var LS = {
     get: function (k, d) { try { var v = localStorage.getItem('fyrusCountry.' + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -98,9 +98,43 @@
   }
 
   /* ---------------- travel actions ---------------- */
+  /* a small gold-and-ivory sky pod used for in-city rides */
+  var pod = null;
+  function podMesh(T, kind) {
+    var g = new T.Group();
+    var body = new T.Mesh(new T.CapsuleGeometry ? new T.CapsuleGeometry(1.3, 4.2, 6, 16) : new T.CylinderGeometry(1.3, 1.3, 6, 16), new T.MeshStandardMaterial({ color: kind === 'bus' ? 0x1b2a4a : 0xf2efe8, metalness: .35, roughness: .3 }));
+    body.rotation.x = Math.PI / 2; g.add(body);
+    var win = new T.Mesh(new T.BoxGeometry(2.7, .7, 4.2), new T.MeshStandardMaterial({ color: 0x0a0f1a, emissive: 0xffd49a, emissiveIntensity: .9 })); win.position.y = .45; g.add(win);
+    var band = new T.Mesh(new T.TorusGeometry(1.32, .08, 6, 24), new T.MeshStandardMaterial({ color: 0xc9a96e, metalness: 1, roughness: .3 })); g.add(band);
+    var glow = new T.Mesh(new T.CircleGeometry(1.1, 20), new T.MeshBasicMaterial({ color: 0xffd9a0, transparent: true, opacity: .8 })); glow.rotation.x = Math.PI / 2; glow.position.y = -1.4; g.add(glow);
+    return g;
+  }
+  /* camera fly-through along a spline (uses the city's own trip system, so controls and HUD behave) */
+  function flyThrough(dest, how, onEnd) {
+    var W = window.__fyrusW, T = window.THREE;
+    if (!W || !T || !W.beginTrip || W.trip || W.vehicle || !W.player) return false;
+    var a = W.player.root.position.clone(), b = new T.Vector3(dest.x, 0, dest.z);
+    var dist = a.distanceTo(b), alt = how === 'flight' ? 170 : how === 'bus' ? 26 : 34;
+    var mid = a.clone().lerp(b, .5); mid.y = alt + Math.min(60, dist * .08);
+    var curve = new T.CatmullRomCurve3([a.clone().setY(2), a.clone().lerp(mid, .35).setY(alt * .8), mid, b.clone().lerp(mid, .3).setY(alt * .7), b.clone().setY(3)], false, 'centripetal');
+    var dur = how === 'flight' ? 4.2 : Math.max(3, Math.min(8, dist / 70));
+    var obj = podMesh(T, how);
+    try {
+      W.beginTrip('transit', (how === 'bus' ? 'City bus' : how === 'flight' ? 'Fyrus Airlines' : 'Metro') + ' · ' + dest.name, dur, function (t) {
+        var u = Math.max(0, Math.min(.999, t / dur)); u = u < .5 ? 4 * u * u * u : 1 - Math.pow(-2 * u + 2, 3) / 2;
+        var p = curve.getPointAt(u), q = curve.getPointAt(Math.min(.999, u + .02));
+        obj.position.copy(p); obj.lookAt(q);
+        var back = p.clone().sub(q).setY(0).normalize().multiplyScalar(18);
+        return { pos: p.clone().add(back).add(new T.Vector3(0, 6, 0)), look: q.clone().add(new T.Vector3(0, 1, 0)), body: p.clone().setY(Math.max(0, p.y - 1.5)) };
+      }, function () { try { if (onEnd) onEnd(); } catch (e) {} }, obj);
+      return true;
+    } catch (e) { return false; }
+  }
+  API.flyThrough = flyThrough;
   function teleportTo(st, how) {
     var W = window.__fyrusW;
     if (!W || !W.teleport) { toast('Enter the city first.'); return; }
+    if (how !== 'instant' && flyThrough(st, how === 'bus' ? 'bus' : 'metro', function () { try { W.teleport({ x: st.x, z: st.z }); } catch (e) {} })) { LS.set('trips', LS.get('trips', 0) + 1); return; }
     var ov = el('div', { 'class': 'fxc-fly', style: 'background:linear-gradient(180deg,#0a0f1a,#111a2b)' }, [
       el('div', { 'class': 'fxc-pass' }, [
         el('div', { 'class': 'lab' }, [how === 'bus' ? 'Fyrus City Bus' : 'Fyrus Metro']),
@@ -117,6 +151,8 @@
   API.teleportTo = teleportTo;
 
   function fly(f) {
+    if (!f.__lifted && flyThrough({ name: f.name, x: 120, z: -700 }, 'flight', function () { f.__lifted = true; fly(f); })) return;
+    f.__lifted = false;
     var s = S(), name = (s && s.session && (s.session.name || s.session.displayName)) || 'Citizen';
     var ov = el('div', { 'class': 'fxc-fly' });
     for (var i = 0; i < 9; i++) {
@@ -456,6 +492,18 @@
     });
   };
 
+  /* ---------------- search: register new places in "Where to?" ---------------- */
+  function registerPlaces() {
+    var list = [{ id: 'vector-bay', name: 'Vector Bay', sub: 'The Azure Coast · fly from the airport', kind: 'City', icon: '🌅', x: 378, z: 0, url: '/vector-bay.html', flight: FLIGHTS[0] },
+      { id: 'transit', name: 'Fyrus Transit', sub: 'Flights, metro and buses', kind: 'Place', icon: '🧭', x: 0, z: 30 }];
+    var names = { central: ['Grand Central & Bus Adda', 'Fyrus Transit station', '🚉'], parade: ['Fyrus Guard Parade Ground', 'The Country · army and Peace Office', '🎖'], amph: ['Sunset Amphitheater', 'Concerts and events every day', '🎶'], park: ['Family Park', 'Kids safe zone', '🎠'] };
+    Object.keys(SITES).forEach(function (k) { var p = siteXZ(k), n = names[k]; if (p && n) list.push({ id: 'site-' + k, name: n[0], sub: n[1], kind: 'Place', icon: n[2], x: p.x, z: p.z, face: { x: SITES[k].x, z: SITES[k].z } }); });
+    if (SITES.parade) { var pp = siteXZ('parade'); list.push({ id: 'site-peace', name: 'Peace Office', sub: 'Police · Real crime: 0', kind: 'Place', icon: '🕊', x: pp.x, z: pp.z, face: { x: SITES.parade.x, z: SITES.parade.z } }); list.push({ id: 'the-country', name: 'The Country', sub: 'Guard, concerts, family park', kind: 'Place', icon: '🏛', x: pp.x, z: pp.z, face: { x: SITES.parade.x, z: SITES.parade.z } }); }
+    var A = window.__fyrusArena; if (A && A.gateAt) list.push({ id: 'arena', name: 'Arcadia Battle Arena', sub: 'Battle royale vs AI (game only)', kind: 'Place', icon: '⚔️', x: A.gateAt.x, z: A.gateAt.z + 8 });
+    window.__fyrusPlaces = list;
+  }
+  API.registerPlaces = registerPlaces;
+
   /* ---------------- dock buttons ---------------- */
   function addDock() {
     var dock = document.querySelector('.fxp-dock'); if (!dock) return;
@@ -670,6 +718,7 @@
       }
       syncBeacons(T, W);
       applyKids();
+      registerPlaces();
     }
     /* concert music only when the citizen turned sound on and stands near the stage */
     try {

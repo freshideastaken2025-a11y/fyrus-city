@@ -334,6 +334,7 @@ function ux({ p1: t, onEnd: e, online: a }) {
             window.removeEventListener("keyup", Lt),
             zr?.leave(),
             c.dispose(),
+            c.forceContextLoss?.(),
             c.domElement.remove(),
             d.traverse((it) => {
               it.geometry?.dispose?.();
