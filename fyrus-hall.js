@@ -6,7 +6,7 @@
 (function () {
   'use strict';
   if (window.__fyrusHall) return;
-  var API = window.__fyrusHall = { version: '3.0.1' };
+  var API = window.__fyrusHall = { version: '3.0.2' };
   var GOLD = '#c9a96e', GOLD_HI = '#e8d5a8', IVORY = '#f4efe6', MUTED = '#9aa3b2';
   var FALLBACK = [
     { id: 'hockey', name: 'Neon Air Hockey', tag: 'First to 5 goals', players: '1P vs AI · 2P same keyboard', ready: true, color: '#4da3ff' },
@@ -264,7 +264,7 @@
     }
 
     /* ---------- your avatar (a copy of your own citizen) ---------- */
-    var me = { x: 0, z: Z0 - 2.5, yaw: Math.PI, face: Math.PI, moving: false, ph: 0 }, avatar, legs = [], arms = [];
+    var me = { x: 0, z: Z0 - 4.5, yaw: Math.PI, face: Math.PI, moving: false, ph: 0 }, avatar, legs = [], arms = [];
     (function makeAvatar() {
       var Wd = window.__fyrusW, P = Wd && Wd.player;
       if (P && P.root) {

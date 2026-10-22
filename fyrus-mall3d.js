@@ -6,7 +6,7 @@
 (function () {
   'use strict';
   if (window.__fyrusMall3D) return;
-  var API = window.__fyrusMall3D = { version: '1.0.1' };
+  var API = window.__fyrusMall3D = { version: '1.0.2' };
   var GOLD = '#c9a96e', GOLD_HI = '#e8d5a8', IVORY = '#f4efe6', MUTED = '#9aa3b2';
   var S = function () { try { return window.__fyrus.getState(); } catch (e) { return null; } };
   var css = '' +
@@ -59,8 +59,8 @@
     renderer.toneMapping = T.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.15;
     var camera = new T.PerspectiveCamera(56, 1, .1, 120);
     var scene, room, peds = [], boxes = [], sel = 0, explode = 0, autoExplode = true;
-    var W = 9, Z0 = 12, Z1 = -14, H = 6.5;
-    var me = { x: 0, z: Z0 - 2, yaw: Math.PI, face: Math.PI, ph: 0, moving: false }, avatar, legs = [], arms = [], auto = null, keys = {}, stickV = { x: 0, y: 0 }, camYaw = 0, camPitch = .34, camDist = 4.8;
+    var W = 9, Z0 = 16, Z1 = -14, H = 6.5;
+    var me = { x: 0, z: Z0 - 4, yaw: Math.PI, face: Math.PI, ph: 0, moving: false }, avatar, legs = [], arms = [], auto = null, keys = {}, stickV = { x: 0, y: 0 }, camYaw = 0, camPitch = .34, camDist = 4.8;
     var camPos = new T.Vector3(0, 3, Z0), camLook = new T.Vector3(0, 1.4, 0), t0 = performance.now(), last = t0, raf = 0, ray = new T.Raycaster(), ndc = new T.Vector2();
 
     function makeAvatar() {
@@ -99,7 +99,7 @@
       /* product pedestals: alternating left and right of the central inlay */
       var model = window.__fyrusProductModel;
       b.products.slice(0, 10).forEach(function (pr, i) {
-        var side = i % 2 ? 1 : -1, row = Math.floor(i / 2), x = side * 4.6, z = Z0 - 5 - row * 4;
+        var side = i % 2 ? 1 : -1, row = Math.floor(i / 2), x = side * 4.6, z = 7 - row * 4;
         var g = new T.Group(); g.position.set(x, 0, z); scene.add(g);
         var pedU = { t: { value: 0 }, c: { value: col.clone() } };
         var ped = new T.Mesh(new T.CylinderGeometry(1.0, 1.15, .9, 48), new T.MeshStandardMaterial({ color: 0x141c2e, metalness: .7, roughness: .25 })); ped.position.y = .45; g.add(ped);
@@ -122,7 +122,7 @@
       var ctop = new T.Mesh(new T.BoxGeometry(4.1, .06, 1.05), new T.MeshBasicMaterial({ color: col })); ctop.position.set(0, 1.13, Z1 + 1.5); scene.add(ctop);
       if (!avatar) avatar = makeAvatar(); scene.add(avatar);
       var you = new T.Mesh(new T.RingGeometry(.42, .5, 40), new T.MeshBasicMaterial({ color: 0xe8d5a8, transparent: true, opacity: .9, side: T.DoubleSide, depthWrite: false })); you.rotation.x = -Math.PI / 2; you.position.y = .03; scene.add(you); scene.userData.you = you;
-      me.x = 0; me.z = Z0 - 2; me.yaw = Math.PI; me.face = Math.PI; camYaw = 0; auto = null; sel = 0;
+      me.x = 0; me.z = Z0 - 4; me.yaw = Math.PI; me.face = Math.PI; camYaw = 0; auto = null; sel = 0;
       select(0, true);
     }
     function blocked(x, z, r) { if (x < -W + .5 || x > W - .5 || z > Z0 - .5 || z < Z1 + .5) return true; for (var i = 0; i < boxes.length; i++) { var b = boxes[i]; if (x > b.x0 - r && x < b.x1 + r && z > b.z0 - r && z < b.z1 + r) return true; } return false; }
