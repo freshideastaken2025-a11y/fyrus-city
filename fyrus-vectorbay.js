@@ -14,7 +14,7 @@
 (function () {
   'use strict';
   if (window.__fyrusVB) return;
-  var API = window.__fyrusVB = { version: '1.0.1' };
+  var API = window.__fyrusVB = { version: '1.0.2' };
   var OX = 400, OZ = -810;                         /* local (0,0) of the bay in world coordinates */
   var LAND = { lx: -70, lz: -150 };                /* arrival point on the promenade */
   API.landing = { x: OX + LAND.lx, z: OZ + LAND.lz, face: { x: OX + 60, z: OZ + LAND.lz + 10 } };
@@ -102,7 +102,8 @@
   var greeted = false;
   window.__fyrusRegion = function (X, Z) {
     var x = X - OX, z = Z - OZ;
-    if (inBox(x, z) && groundL(x, z) > .05) {
+    if (inBox(x, z)) {
+      if (groundL(x, z) <= .05) return { key: 'city:vector-bay', name: 'Vector Bay · the bay' };
       if (!greeted) { greeted = true; setTimeout(function () { toast('Welcome to Vector Bay · the people strolling here are AI residents. Citizens you meet are real.'); }, 600); }
       return { key: 'city:vector-bay', name: 'Vector Bay · The Azure Coast' };
     }
@@ -293,7 +294,8 @@
       p.setXYZ(i, x, y, z);
       var L = landSD(x, z), n = fbm(x * .02, z * .02, 3), r, gg, b;
       if (y < .6) { r = .62; gg = .56; b = .46; }
-      else if (isQuay(x, z) || (L.d < 150 && y < 6)) { r = .60 + n * .08; gg = .56 + n * .07; b = .50 + n * .05; if (!isQuay(x, z) && L.d < 34 && L.dP <= 0) { r = .86; gg = .76; b = .6; } }
+      else if (isQuay(x, z)) { r = .60 + n * .08; gg = .56 + n * .07; b = .50 + n * .05; }
+      else if (L.d < 30 && y < 4) { r = .84 + n * .06; gg = .75 + n * .05; b = .58 + n * .04; }
       else { var dry = fbm(x * .004 + 9, z * .004, 3); r = .16 + dry * .26; gg = .24 + dry * .16; b = .10 + dry * .10;
         var rock = sstep(120, 320, y); r = r * (1 - rock) + (.46 + n * .1) * rock; gg = gg * (1 - rock) + (.43 + n * .08) * rock; b = b * (1 - rock) + (.42 + n * .08) * rock;
         var snow = sstep(300, 420, y + n * 50); r = r * (1 - snow) + .92 * snow; gg = gg * (1 - snow) + .92 * snow; b = b * (1 - snow) + .95 * snow; }
@@ -667,6 +669,22 @@
   };
   function arrived() { greeted = false; try { window.__fyrus.setState({ backTo: null }); } catch (e) {} }
   API.state = function () { return { built: built, building: building, inside: API.inside(), rects: RECTS.length, people: people.length }; };
+
+  /* ---------- camera: never inside a building or a hill ---------- */
+  var prevCam = window.__fyrusCamera;
+  window.__fyrusCamera = function (d, h) {
+    var hx = h.x - OX, hz = h.z - OZ;
+    if (inBox(hx, hz) || inBox(d.x - OX, d.z - OZ)) {
+      var dx = d.x - h.x, dy = d.y - h.y, dz = d.z - h.z, L = Math.hypot(dx, dy, dz), n = Math.max(2, Math.ceil(L / .7));
+      for (var i = 1; i <= n; i++) {
+        var t = i / n, x = hx + dx * t, y = h.y + dy * t, z = hz + dz * t;
+        if ((rectsAt(x, z) && pushOut(null, x, z, .4)) || groundL(x, z) + .4 > y) {
+          var k = Math.max(.12, (i - 1.5) / n); d.set(h.x + dx * k, h.y + dy * k, h.z + dz * k); break;
+        }
+      }
+    }
+    if (prevCam) prevCam(d, h);
+  };
 
   /* ---------- minimap: the sea is sea, and the bay has its own streets ---------- */
   var prevM = window.__fyrusMinimap;

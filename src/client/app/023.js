@@ -1903,6 +1903,7 @@ var qg = (t, e) =>
             n.z + Math.cos(this.yaw) * Math.cos(this.pitch) * p,
           )),
             (h = new W.Vector3(n.x, n.y + 1.5, n.z)),
+            this.active === this.world && window.__fyrusCamera && window.__fyrusCamera(d, h),
             this.active === this.home &&
               this.interior &&
               ((d.x = W.MathUtils.clamp(d.x, -this.interior.bounds.hx, this.interior.bounds.hx)),
