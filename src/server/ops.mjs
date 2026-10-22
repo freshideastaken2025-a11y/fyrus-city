@@ -47,12 +47,52 @@ function createOps(d) {
       return [];
     }
   };
-  setTimeout(() => {
+  /* hourly snapshots (last 48 hours) so a bad hour never costs more than one hour of the city */
+  const hdir = path.join(bdir, "hourly");
+  const hour = () => (/* @__PURE__ */ new Date()).toISOString().slice(0, 13);
+  function snapshotNow() {
+    try {
+      fs.mkdirSync(hdir, { recursive: true });
+      const f = path.join(hdir, `fyrus-${hour()}.json.gz`);
+      if (fs.existsSync(f)) return f;
+      fs.writeFileSync(f, zlib.gzipSync(fs.readFileSync(d.dbFile())));
+      const all = fs.readdirSync(hdir).filter((x) => x.startsWith("fyrus-")).sort();
+      all.slice(0, Math.max(0, all.length - 48)).forEach((x) => fs.unlinkSync(path.join(hdir, x)));
+      return f;
+    } catch (e) {
+      console.error("snapshot failed", e);
+      return null;
+    }
+  }
+  /* off-site copy: once a day the newest backup is e-mailed to BACKUP_EMAIL (uses the same Resend account as password reset) */
+  const OFF = { to: String(process.env.BACKUP_EMAIL || "").trim(), key: process.env.RESEND_API_KEY || "", from: process.env.MAIL_FROM || "" };
+  async function offsiteNow(force) {
+    if (!OFF.to || !OFF.key || !OFF.from) return { ok: false, why: "BACKUP_EMAIL, RESEND_API_KEY or MAIL_FROM not set" };
+    O.offsite ||= {};
+    if (!force && O.offsite.day === day2()) return { ok: true, skipped: true };
+    const b = backups()[0];
+    if (!b) return { ok: false, why: "no backup yet" };
+    const f = path.join(bdir, b.file), size = fs.statSync(f).size;
+    if (size > 30 * 1024 * 1024) return { ok: false, why: "backup too large for e-mail (" + Math.round(size / 1048576) + " MB)" };
+    try {
+      const r = await fetch("https://api.resend.com/emails", { method: "POST", headers: { authorization: `Bearer ${OFF.key}`, "content-type": "application/json" }, body: JSON.stringify({ from: OFF.from, to: [OFF.to], subject: `Fyrus backup ${day2()}`, text: `Daily Fyrus city backup (${Math.round(size / 1024)} KB, gzip JSON). Keep this e-mail; to restore, put the unzipped file at /data/fyrus.json and restart the app.`, attachments: [{ filename: b.file, content: fs.readFileSync(f).toString("base64") }] }) });
+      if (!r.ok) throw new Error("resend " + r.status);
+      O.offsite = { day: day2(), at: Date.now(), file: b.file, size };
+      d.save();
+      return { ok: true };
+    } catch (e) {
+      O.offsite.lastError = String(e && e.message || e).slice(0, 200);
+      console.error("offsite backup failed", e);
+      return { ok: false, why: O.offsite.lastError };
+    }
+  }
+  const tick = () => {
     if (!backups().some((b) => b.file.includes(day2()))) backupNow();
-  }, 2e4);
-  setInterval(() => {
-    if (!backups().some((b) => b.file.includes(day2()))) backupNow();
-  }, 60 * 6e4);
+    snapshotNow();
+    offsiteNow(false).catch(() => {});
+  };
+  setTimeout(tick, 2e4);
+  setInterval(tick, 10 * 6e4);
   if (O.stats) {
     const keys = Object.keys(O.stats).sort();
     keys.slice(0, Math.max(0, keys.length - 90)).forEach((k) => delete O.stats[k]);
@@ -151,16 +191,24 @@ function createOps(d) {
       return true;
     }
     if (!m.t.startsWith("admin_")) return false;
-    if (!d.isAdmin(u.id)) {
-      reply({ t: "err", text: "Admins only." });
+    const judge = d.isAdmin(u.id), mod = judge || (d.isMod && d.isMod(u.id));
+    const MOD_OK = /^admin_(stats|reports|report_done|find|mute|unmute|ban|modlog)$/;
+    if (!judge && !(mod && MOD_OK.test(m.t))) {
+      reply({ t: "err", text: mod ? "Judges only. Moderators can review reports, mute and give bans up to 72 hours." : "Admins only." });
       return true;
     }
     const target = m.id ? d.db.users[String(m.id)] : void 0;
+    if (/^admin_(report_done|mute|unmute|ban|unban)$/.test(m.t)) {
+      O.modlog ||= [];
+      O.modlog.push({ at: Date.now(), by: u.id, byName: d.shown(u.id), role: judge ? "judge" : "moderator", act: m.t.slice(6), target: target ? target.number : m.i != null ? "report #" + m.i : "", hours: +m.hours || 0, note: d.clean(m.reason || m.note || "", 80) });
+      if (O.modlog.length > 500) O.modlog.splice(0, O.modlog.length - 500);
+      d.save();
+    }
     switch (m.t) {
       case "admin_stats": {
         const days = Object.entries(O.stats).sort(([a], [b]) => b.localeCompare(a)).slice(0, 14).map(([k, v]) => ({ day: k, ...v }));
         const users = Object.values(d.db.users);
-        reply({ t: "admin_stats", users: users.length, withEmail: users.filter((x) => x.email || x.google).length, online: d.liveCount(), days, treasury: d.db.bank?.acct?.treasury?.bal ?? 0, adRevenue: d.db.ads?.revenue ?? 0, openReports: d.db.reports.filter((r) => !r.done).length, errors: O.errors.length, backups: backups(), banned: users.filter((x) => x.banned && x.banned.until > Date.now()).length });
+        reply({ t: "admin_stats", users: users.length, withEmail: users.filter((x) => x.email || x.google).length, online: d.liveCount(), days, treasury: judge ? d.db.bank?.acct?.treasury?.bal ?? 0 : 0, adRevenue: judge ? d.db.ads?.revenue ?? 0 : 0, role: judge ? "judge" : "moderator", modlog: judge ? (O.modlog || []).slice(-8).reverse() : [], openReports: d.db.reports.filter((r) => !r.done).length, errors: O.errors.length, backups: backups(), storage: !judge ? null : Object.assign({}, d.dbInfo ? d.dbInfo() : {}, { hourly: (() => { try { return fs.readdirSync(hdir).length; } catch { return 0; } })(), offsite: O.offsite || null, offsiteTo: OFF.to ? OFF.to.replace(/^(.).*(@.*)$/, "$1***$2") : "" }), banned: users.filter((x) => x.banned && x.banned.until > Date.now()).length });
         return true;
       }
       case "admin_reports":
@@ -185,7 +233,7 @@ function createOps(d) {
         return true;
       }
       case "admin_mute": {
-        if (!target) return true;
+        if (!target || (!judge && d.isMod && d.isMod(target.id))) return true;
         const h = Math.max(1, Math.min(24 * 30, +m.hours || 24));
         target.muteUntil = Date.now() + h * 36e5;
         d.save();
@@ -202,8 +250,12 @@ function createOps(d) {
         return true;
       }
       case "admin_ban": {
-        if (!target || d.isAdmin(target.id)) return true;
-        const h = +m.hours || 0;
+        if (!target || d.isAdmin(target.id) || (!judge && d.isMod && d.isMod(target.id))) return true;
+        let h = +m.hours || 0;
+        if (!judge && (h <= 0 || h > 72)) {
+          h = 72;
+          reply({ t: "ok", text: "Moderators can ban for up to 72 hours. A judge can make it longer." });
+        }
         target.banned = { until: h > 0 ? Date.now() + h * 36e5 : 9e15, reason: d.clean(m.reason, 200) || "Breaking the Fyrus rules" };
         d.save();
         kick(target, `This account is suspended: ${target.banned.reason}`);
@@ -217,11 +269,16 @@ function createOps(d) {
         reply({ t: "admin_users", list: [userInfo(target)] });
         return true;
       }
+      case "admin_modlog":
+        reply({ t: "admin_modlog", list: (O.modlog || []).slice(-100).reverse() });
+        return true;
       case "admin_errors":
         reply({ t: "admin_errors", list: O.errors.slice(-60).reverse() });
         return true;
       case "admin_backup": {
         const f = backupNow();
+        snapshotNow();
+        offsiteNow(true).then((r) => reply({ t: "ok", text: r.ok ? "Off-site copy e-mailed." : "Off-site copy not sent: " + r.why })).catch(() => {});
         reply({ t: "ok", text: f ? `Backup saved: ${path.basename(f)}` : "Backup failed \u2014 check the server log." });
         reply({ t: "admin_stats_backups", backups: backups() });
         return true;

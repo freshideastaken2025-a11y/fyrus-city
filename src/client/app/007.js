@@ -558,6 +558,10 @@ function Pl(t) {
   C({ shopView: t });
 }
 function h8() {
+  if (!ot().net.age18) {
+    (C({ age18Ask: !0 }), F("Skyline Club is an 18+ lounge. Confirm you are 18 or older to go in.", "info"));
+    return;
+  }
   (C({ scene: { mode: "club" }, nearby: null, vehicle: null }),
     F("Welcome to Skyline Club. Talk to DJ Lumen or Sam at the bar.", "info"),
     Ce(15, "Night out"));

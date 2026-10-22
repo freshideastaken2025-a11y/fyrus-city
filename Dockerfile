@@ -15,6 +15,8 @@ COPY fyrus-perf.js ./public/fyrus-perf.js
 COPY fyrus-atmos.js ./public/fyrus-atmos.js
 COPY fyrus-hud.js ./public/fyrus-hud.js
 COPY fyrus-vectorbay.js ./public/fyrus-vectorbay.js
+COPY fyrus-tw.css ./public/fyrus-tw.css
+COPY vendor ./public/vendor
 ENV PORT=80 DATA_DIR=/data PUBLIC_DIR=/app/public NODE_ENV=production
 EXPOSE 80
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s CMD wget -qO- http://127.0.0.1/health || exit 1

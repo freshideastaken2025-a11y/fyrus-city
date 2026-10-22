@@ -8,12 +8,66 @@ var NEAR = 40;
 var MAX_TEXT = 500;
 var db = { users: {}, threads: {}, groups: {}, plots: {}, reports: [] };
 var dbFile = path2.join(DATA_DIR, "fyrus.json");
-try {
+/* ---- safe storage (v42) ----
+   - every save: write a temp file, fsync it, rename it over fyrus.json, fsync the folder (no half-written file after a crash or power cut)
+   - start-up: if fyrus.json is missing or damaged, never start empty; recover from fyrus.json.tmp, then the newest hourly
+     snapshot, then the newest daily backup, and keep the damaged file aside as fyrus.json.damaged-<time>
+   - a save that would suddenly lose more than half of the citizens is written to a side file instead (protects against bugs) */
+var DB_INFO = { loadedFrom: "", users: 0, savedAt: 0, saveErrors: 0, guarded: 0 };
+function readDbFile(f) {
+  let raw = fs2.readFileSync(f);
+  if (f.endsWith(".gz")) raw = zlib.gunzipSync(raw);
+  const v = JSON.parse(raw.toString("utf8"));
+  if (!v || typeof v !== "object" || !v.users || typeof v.users !== "object") throw new Error("not a Fyrus database");
+  return v;
+}
+function listBackups(dir) {
+  try { return fs2.readdirSync(dir).filter((x) => x.startsWith("fyrus-") && x.endsWith(".json.gz")).sort().reverse().map((x) => path2.join(dir, x)); } catch { return []; }
+}
+{
   fs2.mkdirSync(DATA_DIR, { recursive: true });
-  db = { ...db, ...JSON.parse(fs2.readFileSync(dbFile, "utf8")) };
-  console.log("loaded", Object.keys(db.users).length, "users");
-} catch {
-  console.log("fresh database at", dbFile);
+  const exists = fs2.existsSync(dbFile);
+  const tries = [dbFile, dbFile + ".tmp", ...listBackups(path2.join(DATA_DIR, "backups", "hourly")), ...listBackups(path2.join(DATA_DIR, "backups"))];
+  let ok = false;
+  for (const f of tries) {
+    if (!fs2.existsSync(f)) continue;
+    try {
+      const v = readDbFile(f);
+      db = { ...db, ...v };
+      DB_INFO.loadedFrom = path2.basename(f);
+      ok = true;
+      if (f !== dbFile) {
+        console.error("DATABASE RECOVERED from", f);
+        if (exists) try { fs2.renameSync(dbFile, dbFile + ".damaged-" + Date.now()); } catch {}
+      }
+      break;
+    } catch (e) {
+      console.error("could not read", f, String(e && e.message || e));
+    }
+  }
+  if (ok) console.log("loaded", Object.keys(db.users).length, "users from", DB_INFO.loadedFrom);
+  else if (exists) {
+    console.error("DATABASE DAMAGED and no backup could be read; keeping the damaged file aside and starting fresh");
+    try { fs2.renameSync(dbFile, dbFile + ".damaged-" + Date.now()); } catch {}
+  } else console.log("fresh database at", dbFile);
+  DB_INFO.users = Object.keys(db.users).length;
+  if (ok && DB_INFO.loadedFrom !== path2.basename(dbFile)) try { writeDb(); } catch (e) { console.error("could not write the recovered database", e); }
+}
+function writeDb() {
+  const n = Object.keys(db.users || {}).length;
+  const body = JSON.stringify(db);
+  let target = dbFile;
+  if (DB_INFO.users > 20 && n < DB_INFO.users * 0.5) {
+    DB_INFO.guarded++;
+    target = path2.join(DATA_DIR, "fyrus.suspect.json");
+    console.error("SAVE GUARD: citizens dropped from", DB_INFO.users, "to", n, "- writing", target, "instead");
+  }
+  const tmp = target + ".tmp";
+  const fd = fs2.openSync(tmp, "w");
+  try { fs2.writeSync(fd, body); fs2.fsyncSync(fd); } finally { fs2.closeSync(fd); }
+  fs2.renameSync(tmp, target);
+  try { const dfd = fs2.openSync(DATA_DIR, "r"); try { fs2.fsyncSync(dfd); } finally { fs2.closeSync(dfd); } } catch {}
+  if (target === dbFile) { DB_INFO.users = n; DB_INFO.savedAt = Date.now(); }
 }
 var saveT = null;
 function save() {
@@ -21,9 +75,9 @@ function save() {
   saveT = setTimeout(() => {
     saveT = null;
     try {
-      fs2.writeFileSync(dbFile + ".tmp", JSON.stringify(db));
-      fs2.renameSync(dbFile + ".tmp", dbFile);
+      writeDb();
     } catch (e) {
+      DB_INFO.saveErrors++;
       console.error("save failed", e);
     }
   }, 1500);
@@ -34,9 +88,9 @@ function flush() {
     saveT = null;
   }
   try {
-    fs2.writeFileSync(dbFile + ".tmp", JSON.stringify(db));
-    fs2.renameSync(dbFile + ".tmp", dbFile);
+    writeDb();
   } catch (e) {
+    DB_INFO.saveErrors++;
     console.error("flush failed", e);
   }
 }
@@ -72,7 +126,7 @@ var findByNumber = (n) => {
   if (moved) {
     console.log("moved", moved, "numbers to +2040");
     try {
-      fs2.writeFileSync(dbFile, JSON.stringify(db));
+      writeDb();
     } catch {
     }
   }
@@ -412,6 +466,15 @@ var isAdmin = (id) => {
   const u = db.users[id];
   return !!u && ADMINS.some((a) => a === id || digits(a).length >= 7 && digits(a).slice(-7) === digits(u.number).slice(-7));
 };
+/* moderators (v42): FYRUS_MODS = comma-separated +2040 numbers. They review reports, mute and give temporary bans
+   (up to 72 hours); judges (FYRUS_ADMINS) can do everything, including permanent bans and backups. */
+var MODS = String(process.env.FYRUS_MODS || "").split(",").map((s) => s.trim()).filter(Boolean);
+if (MODS.length) console.log("moderators:", MODS.length);
+var isMod = (id) => {
+  if (isAdmin(id)) return true;
+  const u = db.users[id];
+  return !!u && MODS.some((a) => a === id || digits(a).length >= 7 && digits(a).slice(-7) === digits(u.number).slice(-7));
+};
 var nameOf = (id) => ({ mint: "Central Bank of Fyrus", treasury: "National Treasury", escrow: "Central Bank escrow", burn: "Central Bank" })[id] || (db.users[id] ? shown(db.users[id]) : "Citizen");
 var news = createNews({ db, save, send, broadcast, clean, filter, isAdmin, shown: (id) => db.users[id] ? shown(db.users[id]) : "Citizen" });
 var report = news.report;
@@ -455,8 +518,8 @@ var accounts = createAccounts({ db, save, sha, rid, clean, createUser: (n, l) =>
   ops.bump("signups");
   return c;
 } });
-var ops = createOps({ db, dataDir: DATA_DIR, dbFile: () => dbFile, save, send, liveOf: (id) => live.get(id), liveCount: () => live.size, isAdmin, findByNumber, clean, shown: (id) => db.users[id] ? shown(db.users[id]) : "Citizen" });
-var meOf = (u) => ({ ...pub(u), lang: u.lang, blocks: u.blocks, email: u.email || null, google: !!u.google, age18: !!u.age18, admin: isAdmin(u.id), guest: !u.email && !u.google });
+var ops = createOps({ db, dataDir: DATA_DIR, dbFile: () => dbFile, dbInfo: () => DB_INFO, save, send, liveOf: (id) => live.get(id), liveCount: () => live.size, isAdmin, isMod, findByNumber, clean, shown: (id) => db.users[id] ? shown(db.users[id]) : "Citizen" });
+var meOf = (u) => ({ ...pub(u), lang: u.lang, blocks: u.blocks, email: u.email || null, google: !!u.google, age18: !!u.age18, admin: isMod(u.id), role: isAdmin(u.id) ? "judge" : isMod(u.id) ? "moderator" : "", guest: !u.email && !u.google });
 var SEC = { "X-Content-Type-Options": "nosniff", "Referrer-Policy": "strict-origin-when-cross-origin", "X-Frame-Options": "SAMEORIGIN", "Strict-Transport-Security": "max-age=31536000; includeSubDomains", "Permissions-Policy": "camera=(self), microphone=(self), geolocation=()" };
 var TYPES3 = { ".html": "text/html; charset=utf-8", ".js": "application/javascript", ".css": "text/css", ".png": "image/png", ".jpg": "image/jpeg", ".svg": "image/svg+xml", ".ico": "image/x-icon", ".json": "application/json", ".txt": "text/plain", ".xml": "application/xml", ".webmanifest": "application/manifest+json" };
 var gzCache = /* @__PURE__ */ new Map();
@@ -482,13 +545,17 @@ var server = http.createServer((req, res) => {
     let c = gzCache.get(file);
     if (!c || c.mtime !== st.mtimeMs) {
       const raw = fs2.readFileSync(file);
-      c = { raw, gz: zlib2.gzipSync(raw, { level: 9 }), mtime: st.mtimeMs };
+      const ext0 = path2.extname(file), squeeze = /html|js|css|svg|json|xml|txt/.test(ext0);
+      c = { raw, gz: squeeze ? zlib2.gzipSync(raw, { level: 9 }) : null, br: squeeze ? zlib2.brotliCompressSync(raw, { params: { [zlib2.constants.BROTLI_PARAM_QUALITY]: 9, [zlib2.constants.BROTLI_PARAM_SIZE_HINT]: raw.length } }) : null, mtime: st.mtimeMs };
       gzCache.set(file, c);
     }
     const ext = path2.extname(file);
-    const gz = /\bgzip\b/.test(String(req.headers["accept-encoding"] || "")) && /html|js|css|svg|json|xml|txt/.test(ext);
-    res.writeHead(200, { ...SEC, "content-type": TYPES3[ext] || "application/octet-stream", "cache-control": ext === ".html" ? "no-cache" : "public, max-age=86400", ...gz ? { "content-encoding": "gzip", vary: "Accept-Encoding" } : {} });
-    res.end(gz ? c.gz : c.raw);
+    const ae = String(req.headers["accept-encoding"] || "");
+    const enc = c.br && /\bbr\b/.test(ae) ? "br" : c.gz && /\bgzip\b/.test(ae) ? "gzip" : "";
+    /* files asked for with ?v= never change under that name, so phones can keep them for a year */
+    const cache = ext === ".html" ? "no-cache" : url.searchParams.has("v") || p.startsWith("/vendor/") ? "public, max-age=31536000, immutable" : "public, max-age=86400";
+    res.writeHead(200, { ...SEC, "content-type": TYPES3[ext] || "application/octet-stream", "cache-control": cache, ...enc ? { "content-encoding": enc, vary: "Accept-Encoding" } : {} });
+    res.end(enc === "br" ? c.br : enc === "gzip" ? c.gz : c.raw);
   } catch {
     res.writeHead(404);
     res.end("not found");

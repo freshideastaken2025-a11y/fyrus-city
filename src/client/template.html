@@ -15,19 +15,7 @@
 <meta name="description" content="Fyrus — an infinite 4D AI city: build your home, explore, play, buy and sell AI">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Bebas+Neue&family=Playfair+Display:ital,wght@1,700&family=Pacifico&family=JetBrains+Mono:wght@400;600;700&display=swap">
-<script src="https://cdn.tailwindcss.com/3.4.17"></script>
-<script>try{tailwind.config={theme:{
-    extend: {
-      fontFamily: {
-        display: ['Sora', 'ui-sans-serif', 'system-ui', 'sans-serif'],
-        body: ['"Plus Jakarta Sans"', 'ui-sans-serif', 'system-ui', 'sans-serif'],
-        mono: ['"JetBrains Mono"', 'ui-monospace', 'monospace'],
-      },
-      colors: {
-        night: '#040a1c', deep: '#081633', brand: '#2f6fe0', glow: '#4da3ff', sky: '#a8d8ff', ember: '#ff9a3c', mint: '#45e0ae',
-      },
-    },
-  }}}catch(e){}</script>
+<!-- Tailwind is compiled ahead of time into /fyrus-tw.css (no 300 KB compiler running on phones) -->
 <style>/* Fyrus brand system — royal blue + signal orange, "blue hour" world.
    Layout: full-bleed 3D world, glass HUD floating above it. */
 :root {
@@ -154,8 +142,9 @@ select.field { appearance: none; }
 @keyframes teleFlash { 0% { opacity: 0; } 30% { opacity: 1; } 100% { opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { .tele-flash { animation-duration: .2s; } }
 </style>
-<script src="https://cdn.jsdelivr.net/npm/three@0.149.0/build/three.min.js"></script>
-<script>if(!window.THREE){document.write('<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"><\/script>')}</script>
+<link rel="stylesheet" href="/fyrus-tw.css?v=1.0.0">
+<script src="/vendor/three-r149.min.js"></script>
+<script>if(!window.THREE){document.write('<script src="https://cdn.jsdelivr.net/npm/three@0.149.0/build/three.min.js"><\/script>')}</script>
 <div id="root"></div>
 <script>/*__FYRUS_APP__*/</script>
 <script src="/fyrus-plus.js?v=1.4.0" defer></script>

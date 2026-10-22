@@ -705,8 +705,29 @@ function a5() {
                   children: [
                     (0, xt.jsxs)("div", {
                       className: "text-xs font-bold mb-1 flex items-center gap-1.5",
-                      children: [(0, xt.jsx)(ax, {}), " Backups (one per day, last 14 kept on the server)"],
+                      children: [(0, xt.jsx)(ax, {}), " Backups (hourly for 48 h, daily for 14 days)"],
                     }),
+                    r.storage &&
+                      (0, xt.jsxs)("div", {
+                        className: "text-[11px] mb-1.5",
+                        style: Fo,
+                        children: [
+                          "Loaded from ",
+                          r.storage.loadedFrom || "new database",
+                          " \xB7 last save ",
+                          r.storage.savedAt ? new Date(r.storage.savedAt).toLocaleTimeString() : "\u2014",
+                          " \xB7 hourly copies ",
+                          r.storage.hourly || 0,
+                          r.storage.saveErrors ? ` \xB7 save errors ${r.storage.saveErrors}` : "",
+                          r.storage.guarded ? ` \xB7 SAVE GUARD tripped ${r.storage.guarded}x (check fyrus.suspect.json)` : "",
+                          " \xB7 off-site: ",
+                          r.storage.offsiteTo
+                            ? r.storage.offsite && r.storage.offsite.day
+                              ? `e-mailed ${r.storage.offsite.day} to ${r.storage.offsiteTo}`
+                              : `to ${r.storage.offsiteTo}, not sent yet${r.storage.offsite && r.storage.offsite.lastError ? " (" + r.storage.offsite.lastError + ")" : ""}`
+                            : "not set (add BACKUP_EMAIL in Coolify)",
+                        ],
+                      }),
                     r.backups
                       .slice(0, 5)
                       .map((g) =>
@@ -744,8 +765,24 @@ function a5() {
                     (0, xt.jsx)("div", {
                       className: "text-[11px] mt-1.5",
                       style: Fo,
-                      children: "Keep a copy off the server too (download once a week).",
+                      children: "Set BACKUP_EMAIL in Coolify to get a copy by e-mail every day. You can also download one here.",
                     }),
+                    r.modlog &&
+                      r.modlog.length > 0 &&
+                      (0, xt.jsxs)("div", {
+                        className: "text-[11px] mt-2",
+                        style: Fo,
+                        children: [
+                          (0, xt.jsx)("b", { children: "Recent moderation" }),
+                          r.modlog.map((g, i) =>
+                            (0, xt.jsx)(
+                              "div",
+                              { children: `${new Date(g.at).toLocaleString()} \xB7 ${g.byName} (${g.role}) \xB7 ${g.act} ${g.target}${g.hours ? " \xB7 " + g.hours + " h" : ""}${g.note ? " \xB7 " + g.note : ""}` },
+                              i,
+                            ),
+                          ),
+                        ],
+                      }),
                   ],
                 }),
               ],
