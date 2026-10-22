@@ -3,7 +3,7 @@
 > **For any AI or developer picking this up (Claude, ChatGPT, Gemini, OpenClaw agents, humans):**
 > Read this whole file before changing anything. When you finish a task, **update the
 > "Done" and "Pending" sections and the changelog at the bottom** in the same commit.
-> Last updated: **22 Oct 2026, v42** (by Claude).
+> Last updated: **22 Oct 2026, v43** (by Claude).
 
 ---
 
@@ -52,6 +52,7 @@ Claude Pro, ChatGPT Pro, Gemini Pro, OpenClaw + Ollama (local models), Hostinger
 | `fyrus-atmos.js` | **4D atmosphere** v1.0.1 (`__fyrusAtmos`): time machine (hour slider, 24 h in 1 min), smooth weather/time fades, lightning + thunder, rain splashes, wind, rainbow after rain (clear weather only), spring petals / autumn leaves. Controls live inside the Weather & mood window. |
 | `fyrus-hud.js` | **Calm HUD** v1.0.1 (`__fyrusHud`): the right-hand column folds into one ✦ More button; phone top bar keeps search/wallet/settings/menu; More hides while a window or 3D scene is open. |
 | `fyrus-tw.css`, `tailwind.config.js`, `tailwind.in.css` | Pre-compiled Tailwind (v42). Rebuild when you add new Tailwind classes: Tailwind v3.4.17 standalone CLI (GitHub release asset `tailwindcss-linux-x64`, npm may be blocked) `-c tailwind.config.js -i tailwind.in.css -o fyrus-tw.css --minify`, then bump `?v=` on its link in `template.html`. |
+| `fyrus-growth.js` | **Growth analytics + invite links** v1.0 (`__fyrusGrowth`): once a minute posts the citizen's area (district / inside / menu tab / 3D room / game) to `/api/an`; reports invite-link opens to `/api/ref`; renders **Admin desk → Growth** (judges only) from `/api/admin/analytics`: new citizens, back next day, back within a week, time per area, where visits end, visit length, invite links (make/copy/WhatsApp/delete via `/api/admin/invites`). Server side in `ops.mjs` (`O.an`, `O.invites`, `u.days`, `u.ref`); the hello message carries `ref` (stored from `?ref=` on first visit). |
 | `vendor/three-r149.min.js` | three.js r149 build (from the mrdoob/three.js tag r149). |
 | `Dockerfile` | `node:22-alpine`, copies server + all public files (every `fyrus-*.js`, `fyrus-tw.css`, `vendor/`, `vector-bay.html`), port 80. **Add a COPY line for every new public file.** |
 
@@ -140,6 +141,7 @@ zero real crime, fair trade (escrow), one citizen one vote, protect children & e
 - v40: calm HUD (✦ More), **4D atmosphere** (time machine, lightning, rainbow, petals), **performance layer** (batching + adaptive resolution).
 - v41: **Vector Bay is a real city inside the world** (own avatar, HUD, multiplayer, walking/swimming, minimap, flights land in-world); old page redirects.
 - v42: **safe storage + backups** (see §2), **moderators** (`FYRUS_MODS`) with a moderation log, Skyline Club is 18+ (self-declared age, same as voice), **phone speed** (compiled Tailwind, self-hosted three.js, brotli, long cache).
+- v43: **growth analytics + invite links** for the beta (Admin desk → Growth).
 - Ops: GitHub → Coolify auto-deploy webhook working.
 
 ## 7. PENDING ⏳ (in priority order)
@@ -209,7 +211,7 @@ zero real crime, fair trade (escrow), one citizen one vote, protect children & e
 
 ### P2 — business
 19. Brand sales kit for the 13-person sales team (billboards, showrooms, sponsored quests).
-20. Analytics: weekly retention, where people spend time.
+20. ~~Analytics~~ **v43** (Admin desk → Growth). Next: run the 50–100 person beta with one invite link per group and decide the next feature from the numbers.
 
 ## 8. Coordination (more than one AI works on this repo)
 - On 22 Oct 2026 another agent (not Claude) was working **uncommitted** on branch `p1-cities-foundation`:
@@ -232,6 +234,7 @@ zero real crime, fair trade (escrow), one citizen one vote, protect children & e
   (this repo is public — **never commit secrets**).
 
 ## 10. Changelog
+- 2026-10-22 v43 — growth analytics (retention, time per area, exits, visit length) + invite links.
 - 2026-10-22 v42 — safe storage + hourly/daily/off-site backups; moderators + moderation log; Skyline Club 18+; compiled Tailwind, self-hosted three.js, brotli, long cache.
 - 2026-10-22 v41–v41.2 — Vector Bay inside the Fyrus world (engine hooks for ground/water/collisions/region/camera/minimap; south limit −1900); old page redirects.
 - 2026-10-22 v40–v40.1 — calm HUD, 4D atmosphere, performance layer.
