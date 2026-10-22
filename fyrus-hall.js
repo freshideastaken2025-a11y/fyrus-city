@@ -6,7 +6,7 @@
 (function () {
   'use strict';
   if (window.__fyrusHall) return;
-  var API = window.__fyrusHall = { version: '3.0.2' };
+  var API = window.__fyrusHall = { version: '3.0.3' };
   var GOLD = '#c9a96e', GOLD_HI = '#e8d5a8', IVORY = '#f4efe6', MUTED = '#9aa3b2';
   var FALLBACK = [
     { id: 'hockey', name: 'Neon Air Hockey', tag: 'First to 5 goals', players: '1P vs AI · 2P same keyboard', ready: true, color: '#4da3ff' },
@@ -38,7 +38,7 @@
     '.fxh-modes{display:flex;gap:6px;pointer-events:auto;margin-top:8px;justify-content:flex-end}' +
     '.fxh-modes button{border-radius:999px;border:1px solid rgba(201,169,110,.4);background:rgba(10,15,26,.7);color:' + IVORY + ';font:600 10.5px Sora,sans-serif;letter-spacing:.14em;text-transform:uppercase;padding:8px 12px;cursor:pointer}' +
     '.fxh-modes button[aria-pressed="true"]{background:' + GOLD + ';color:#1a1408;border-color:' + GOLD + '}' +
-    '.fxh-hint{position:absolute;left:50%;top:84px;transform:translateX(-50%);font:500 10px "JetBrains Mono",monospace;letter-spacing:.2em;text-transform:uppercase;color:' + MUTED + ';pointer-events:none;text-align:center}' +
+    '.fxh-hint{position:absolute;left:50%;top:84px;transform:translateX(-50%);font:500 10px "JetBrains Mono",monospace;letter-spacing:.2em;text-transform:uppercase;color:@media (max-width:560px){.fxh-hint{top:108px;font-size:9px;letter-spacing:.14em}}' + MUTED + ';pointer-events:none;text-align:center}' +
     '.fxh-stick{position:absolute;left:22px;bottom:150px;width:110px;height:110px;border-radius:50%;border:1px solid rgba(201,169,110,.4);background:rgba(10,15,26,.35);display:none;touch-action:none}' +
     '.fxh-stick i{position:absolute;left:32px;top:32px;width:46px;height:46px;border-radius:50%;background:rgba(232,213,168,.6)}' +
     '.fxh.walk.touch .fxh-stick{display:block}' +
@@ -342,7 +342,7 @@
     bTour.textContent = 'Auto-walk'; bWalk.textContent = 'Free walk';
     function setMode(m) { mode = m; bTour.setAttribute('aria-pressed', String(m === 'tour')); bWalk.setAttribute('aria-pressed', String(m === 'walk')); root.classList.add('walk'); if (m === 'tour') walkToSel(); else auto = null; }
     bTour.onclick = function () { setMode('tour'); }; bWalk.onclick = function () { setMode('walk'); };
-    function size() { var w = innerWidth, h = innerHeight; renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix(); }
+    var sized = false; function size() { var w = innerWidth, h = innerHeight, a = w / h; renderer.setSize(w, h, false); camera.aspect = a; camera.fov = a < 1 ? Math.min(78, 56 / Math.max(.6, a) * .82) : 56; if (!sized) { sized = true; if (a < 1) { camDist = 6.4; camPitch = .42; } } camera.updateProjectionMatrix(); }
     function nearCab() { var best = -1, bd = 1.4; cabs.forEach(function (c, i) { var p = standPoint(c), d = Math.hypot(p.x - me.x, p.z - me.z); if (d < bd) { bd = d; best = i; } }); return best; }
     function frame(now) {
       if (!running) return;

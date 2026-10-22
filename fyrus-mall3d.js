@@ -6,7 +6,7 @@
 (function () {
   'use strict';
   if (window.__fyrusMall3D) return;
-  var API = window.__fyrusMall3D = { version: '1.0.2' };
+  var API = window.__fyrusMall3D = { version: '1.0.3' };
   var GOLD = '#c9a96e', GOLD_HI = '#e8d5a8', IVORY = '#f4efe6', MUTED = '#9aa3b2';
   var S = function () { try { return window.__fyrus.getState(); } catch (e) { return null; } };
   var css = '' +
@@ -17,7 +17,7 @@
     '.fxm-t{font:400 clamp(28px,5vw,46px)/.95 "Bebas Neue",Sora,sans-serif;letter-spacing:.05em;margin-top:6px}' +
     '.fxm-r{display:flex;flex-direction:column;align-items:flex-end;gap:8px;pointer-events:auto}' +
     '.fxm-b{border-radius:999px;border:1px solid rgba(201,169,110,.5);background:rgba(10,15,26,.7);color:' + GOLD_HI + ';font:600 11px Sora,sans-serif;letter-spacing:.14em;text-transform:uppercase;padding:9px 14px;cursor:pointer}' +
-    '.fxm-hint{position:absolute;left:50%;top:84px;transform:translateX(-50%);font:500 10px "JetBrains Mono",monospace;letter-spacing:.2em;text-transform:uppercase;color:' + MUTED + ';pointer-events:none;text-align:center;width:90%}' +
+    '.fxm-hint{position:absolute;left:50%;top:84px;transform:translateX(-50%);font:500 10px "JetBrains Mono",monospace;letter-spacing:.2em;text-transform:uppercase;color:@media (max-width:560px){.fxm-hint{top:108px;font-size:9px;letter-spacing:.14em}}' + MUTED + ';pointer-events:none;text-align:center;width:90%}' +
     '.fxm-card{position:absolute;left:50%;bottom:max(18px,env(safe-area-inset-bottom,0px));transform:translateX(-50%);width:min(620px,calc(100% - 32px));background:rgba(10,15,26,.86);border:1px solid rgba(201,169,110,.35);border-radius:18px;padding:14px 16px;display:grid;grid-template-columns:auto 1fr auto;gap:12px;align-items:center;backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px)}' +
     '.fxm-card b{display:block;font:600 17px Sora,sans-serif}.fxm-card small{display:block;color:' + MUTED + ';font-size:12.5px;margin-top:2px}' +
     '.fxm-card .pr{font:500 11px "JetBrains Mono",monospace;letter-spacing:.18em;color:' + GOLD_HI + ';margin-top:5px}' +
@@ -84,7 +84,8 @@
       peds = []; boxes = [];
       kEl.textContent = 'Fyrus Market · ' + (b.category || 'Store') + (b.sample ? ' · Sample store' : '');
       tEl.textContent = b.name;
-      var floor = new T.Mesh(new T.PlaneGeometry(W * 2, Z0 - Z1), new T.MeshStandardMaterial({ color: 0xece6dc, roughness: .18, metalness: .1 })); floor.rotation.x = -Math.PI / 2; floor.position.z = (Z0 + Z1) / 2; scene.add(floor); room = floor;
+      var ftx = (function () { var c = document.createElement('canvas'); c.width = c.height = 256; var x = c.getContext('2d'); x.fillStyle = '#d9cebb'; x.fillRect(0, 0, 256, 256); for (var k = 0; k < 900; k++) { x.fillStyle = 'rgba(' + (k % 2 ? '255,250,240' : '120,100,80') + ',' + (Math.random() * .05) + ')'; x.fillRect(Math.random() * 256, Math.random() * 256, 2 + Math.random() * 30, 1 + Math.random() * 2); } x.strokeStyle = 'rgba(80,64,44,.35)'; x.lineWidth = 2; x.strokeRect(1, 1, 254, 254); var t = new T.CanvasTexture(c); t.wrapS = t.wrapT = T.RepeatWrapping; t.repeat.set(W, (Z0 - Z1) / 2); if (T.sRGBEncoding) t.encoding = T.sRGBEncoding; return t; })();
+      var floor = new T.Mesh(new T.PlaneGeometry(W * 2, Z0 - Z1), new T.MeshStandardMaterial({ map: ftx, roughness: .22, metalness: .08 })); floor.rotation.x = -Math.PI / 2; floor.position.z = (Z0 + Z1) / 2; scene.add(floor); room = floor;
       var inlay = new T.Mesh(new T.PlaneGeometry(2.4, Z0 - Z1 - 4), new T.MeshStandardMaterial({ color: col, roughness: .3, metalness: .3, emissive: col, emissiveIntensity: .12 })); inlay.rotation.x = -Math.PI / 2; inlay.position.set(0, .01, (Z0 + Z1) / 2); scene.add(inlay);
       var wallM = new T.MeshStandardMaterial({ color: facade, roughness: .8 });
       [[-W, Math.PI / 2], [W, -Math.PI / 2]].forEach(function (w) { var m = new T.Mesh(new T.PlaneGeometry(Z0 - Z1, H), wallM); m.position.set(w[0], H / 2, (Z0 + Z1) / 2); m.rotation.y = w[1]; scene.add(m); });
@@ -137,7 +138,7 @@
     function updateAct() { act.textContent = atPed() ? 'View & buy' : 'Walk there'; }
     function walkToSel() { var p = standPoint(peds[sel]); auto = { path: [{ x: me.x * .2, z: me.z }, { x: p.x * .5, z: p.z }, p], idx: 0, face: peds[sel].side > 0 ? Math.PI / 2 : -Math.PI / 2 }; }
     function pose(ph, amp) { var s = Math.sin(ph) * amp; if (legs[0]) legs[0].rotation.x = s; if (legs[1]) legs[1].rotation.x = -s; if (arms[0]) arms[0].rotation.x = -s * .8; if (arms[1]) arms[1].rotation.x = s * .8; }
-    function size() { var w = innerWidth, h = innerHeight; renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix(); }
+    var sized = false; function size() { var w = innerWidth, h = innerHeight, a = w / h; renderer.setSize(w, h, false); camera.aspect = a; camera.fov = a < 1 ? Math.min(78, 56 / Math.max(.6, a) * .82) : 56; if (!sized) { sized = true; if (a < 1) { camDist = 6.4; camPitch = .42; } } camera.updateProjectionMatrix(); }
     var drag = false, down = null;
     function frame(now) {
       if (!running) return;
