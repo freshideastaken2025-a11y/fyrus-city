@@ -27337,7 +27337,7 @@ var qg = (t, e) =>
         a.speed > 0.3 &&
           (a.root.rotation.y = wu(a.root.rotation.y, Math.atan2(a.vel.x, a.vel.z), Math.min(1, e * 12))));
       let c = this.groundAt(r.x, r.z);
-      ((a.root.userData.groundY = c), r.z < -900 && (r.z = -900));
+      ((a.root.userData.groundY = c), r.z < -1900 && (r.z = -1900));
       let wet = window.__fyrusWet ? window.__fyrusWet(r.x, r.z) : null,
         d = this.active === this.world && (wet != null ? wet : vd(r.x, r.z) || r.z < we.water) && !a.hovering;
       if ((this.setSwimming(d), d)) {
@@ -28380,6 +28380,7 @@ var qg = (t, e) =>
               ((r.fillStyle = u.id === e.session?.userId ? "#ff9a3c" : "#a39c90"),
                 r.fillRect((u.home.x - 5) * s, (u.home.z - 5) * s, 10 * s, 10 * s));
             }),
+          window.__fyrusMinimap && window.__fyrusMinimap(r, s, i),
           (r.fillStyle = "#ffd54a"),
           this.npcs.list.forEach((u) => {
             (r.beginPath(),
@@ -50228,6 +50229,6 @@ react/cjs/react-jsx-runtime.production.js:
 <script src="/fyrus-perf.js?v=1.0.0" defer></script>
 <script src="/fyrus-atmos.js?v=1.0.1" defer></script>
 <script src="/fyrus-hud.js?v=1.0.1" defer></script>
-<script src="/fyrus-vectorbay.js?v=1.0.0" defer></script>
+<script src="/fyrus-vectorbay.js?v=1.0.1" defer></script>
 
 </body></html>

@@ -14,7 +14,7 @@
 (function () {
   'use strict';
   if (window.__fyrusVB) return;
-  var API = window.__fyrusVB = { version: '1.0.0' };
+  var API = window.__fyrusVB = { version: '1.0.1' };
   var OX = 400, OZ = -810;                         /* local (0,0) of the bay in world coordinates */
   var LAND = { lx: -70, lz: -150 };                /* arrival point on the promenade */
   API.landing = { x: OX + LAND.lx, z: OZ + LAND.lz, face: { x: OX + 60, z: OZ + LAND.lz + 10 } };
@@ -565,6 +565,19 @@
       });
       FX.parts = parts; FX.A = new T.Matrix4(); FX.B = new T.Matrix4(); FX.C = new T.Matrix4(); FX.ry = new T.Matrix4(); FX.sc = new T.Matrix4(); FX.rx = new T.Matrix4(); FX.tr = new T.Matrix4(); FX.ZERO = new T.Matrix4().makeScale(0, 0, 0);
     },
+    function mapMask() {
+      var X0 = -830, Z0 = -1010, STEP = 8, NW = Math.ceil((1160 - X0) / STEP), NH = Math.ceil((262 - Z0) / STEP), a = cnv(NW, NH), c = a[0], g = a[1], img = g.createImageData(NW, NH), D = img.data;
+      for (var j = 0; j < NH; j++) for (var i = 0; i < NW; i++) {
+        var x = X0 + i * STEP + STEP / 2, z = Z0 + j * STEP + STEP / 2, h = groundL(x, z), k = (j * NW + i) * 4, col;
+        if (h < .05) col = [44, 111, 143, 255];
+        else if (h > 2.5 && h < 2.7) col = [216, 203, 181, 255];
+        else if (h > 120) col = [120, 118, 110, 255];
+        else col = [70 + Math.min(40, h * .3) | 0, 92, 62, 255];
+        if (h >= .05 && rectsAt(x, z) && pushOut(null, x, z, 0)) col = [155, 148, 136, 255];
+        D[k] = col[0]; D[k + 1] = col[1]; D[k + 2] = col[2]; D[k + 3] = col[3];
+      }
+      g.putImageData(img, 0, 0); FX.map = { c: c, x0: X0, z0: Z0, w: NW * STEP, h: NH * STEP };
+    },
     function finish() {
       W.world.add(root);
       addInteracts();
@@ -652,8 +665,18 @@
     var waited = 0;
     (function wait() { if (built) return flyTo(d, arrived); if ((waited += 200) > 15000) return flyTo(d, arrived); setTimeout(wait, 200); })();
   };
-  function arrived() { greeted = false; try { var s = S(); if (s && s.session) {} } catch (e) {} }
+  function arrived() { greeted = false; try { window.__fyrus.setState({ backTo: null }); } catch (e) {} }
   API.state = function () { return { built: built, building: building, inside: API.inside(), rects: RECTS.length, people: people.length }; };
+
+  /* ---------- minimap: the sea is sea, and the bay has its own streets ---------- */
+  var prevM = window.__fyrusMinimap;
+  window.__fyrusMinimap = function (r, s, p) {
+    try {
+      if (p.z < -300) { r.fillStyle = '#2c6f8f'; r.fillRect(-6000 * s, -6000 * s, 12000 * s, (6000 - 392) * s); }
+      if (FX && FX.map && p.z < -400) { r.imageSmoothingEnabled = true; r.drawImage(FX.map.c, (OX + FX.map.x0) * s, (OZ + FX.map.z0) * s, FX.map.w * s, FX.map.h * s); }
+    } catch (e) {}
+    if (prevM) prevM(r, s, p);
+  };
 
   /* ---------- per-frame life ---------- */
   var lastT = 0, t0 = performance.now();
