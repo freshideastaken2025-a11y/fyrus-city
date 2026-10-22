@@ -5,7 +5,7 @@
 (function () {
   'use strict';
   if (window.__fyrusCountry) return;
-  var API = window.__fyrusCountry = { version: '1.1.0' };
+  var API = window.__fyrusCountry = { version: '1.1.1' };
   var GOLD = '#c9a96e', GOLD_HI = '#e8d5a8', IVORY = '#f4efe6', MUTED = '#9aa3b2';
   var LS = {
     get: function (k, d) { try { var v = localStorage.getItem('fyrusCountry.' + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -487,7 +487,7 @@
     box(T, g, glass, 20, 8, 10, 0, 5, -6);
     var vault = new T.Mesh(new T.CylinderGeometry(7, 7, 20, 32, 1, false, 0, Math.PI), stone); vault.rotation.z = Math.PI / 2; vault.position.set(0, 9, -6); vault.scale.set(1, 1, .75); g.add(vault);
     [-10, -3.3, 3.3, 10].forEach(function (px) { box(T, g, gold, .8, 9, .8, px, 5, -.6); });
-    var lb = label(T, 'GRAND CENTRAL'); lb.position.set(0, 19, -6); g.add(lb);
+    var lb = label(T, 'GRAND CENTRAL', GOLD_HI, 30); lb.position.set(0, 21, -6); g.add(lb);
     /* Bus Adda: canopy and bays in front of the station */
     box(T, g, stone, 24, .4, 9, 0, .2, 9);
     var canopy = box(T, g, M(T, 0xf4efe6, { roughness: .4 }), 24, .3, 6, 0, 4.6, 9); canopy.castShadow = true;
@@ -503,21 +503,21 @@
   function buildParade(W, T, root) {
     var p = claim(W, 'parade', 34, 210, 380, 0.6); if (!p) return;
     var g = new T.Group(); g.position.set(p.x, 0, p.z); face(g, p);
-    var stone = M(T, 0xd9cfbe, { roughness: .7 }), dark = M(T, 0x1b2a4a, { roughness: .5 }), gold = M(T, 0xc9a96e, { metal: 1, roughness: .3 });
-    box(T, g, stone, 52, .3, 52, 0, .15, 0);
-    box(T, g, M(T, 0xc9a96e, { metal: .6, roughness: .5 }), 46, .32, .4, 0, .16, 0); box(T, g, M(T, 0xc9a96e, { metal: .6, roughness: .5 }), .4, .32, 46, 0, .16, 0);
+    var stone = M(T, 0xa89c88, { roughness: .8 }), dark = M(T, 0x1b2a4a, { roughness: .5 }), gold = M(T, 0xc9a96e, { metal: 1, roughness: .3 });
+    box(T, g, stone, 46, .3, 46, 0, .15, 0); box(T, g, M(T, 0x7d725f, { roughness: .9 }), 47, .26, 47, 0, .12, 0);
+    box(T, g, M(T, 0xc9a96e, { metal: .6, roughness: .5 }), 40, .32, .4, 0, .16, 0); box(T, g, M(T, 0xc9a96e, { metal: .6, roughness: .5 }), .4, .32, 40, 0, .16, 0);
     /* reviewing stand */
-    box(T, g, stone, 18, 2, 6, 0, 1, -24); box(T, g, dark, 18, .4, 6.4, 0, 5.4, -24);
-    [-8, -3, 3, 8].forEach(function (x) { box(T, g, gold, .4, 3.4, .4, x, 3.7, -21.4); });
+    box(T, g, M(T, 0xe9dfcf, { roughness: .6 }), 18, 2, 6, 0, 1, -20); box(T, g, dark, 18, .4, 6.4, 0, 5.4, -20);
+    [-8, -3, 3, 8].forEach(function (x) { box(T, g, gold, .4, 3.4, .4, x, 3.7, -17.4); });
     /* province flags */
     var WD = window.__fyrusWorld, P = (WD && WD.provinces) || [];
     P.forEach(function (pr, i) {
-      var a = Math.PI + (i + .5) / P.length * Math.PI, fx = Math.cos(a) * 30, fz = Math.sin(a) * 30 * -1;
+      var a = Math.PI + (i + .5) / P.length * Math.PI, fx = Math.cos(a) * 25, fz = Math.sin(a) * 25 * -1;
       cyl(T, g, M(T, 0xe8e2d6, { metal: .4, roughness: .3 }), .1, .14, 12, fx, 6, fz, 8);
       var cv = null; try { cv = WD.flagCanvas(pr, 256, 160); } catch (e) {}
       if (cv) { var fm = new T.Mesh(new T.PlaneGeometry(3.6, 2.25, 8, 2), new T.MeshStandardMaterial({ map: new T.CanvasTexture(cv), side: T.DoubleSide, roughness: .8 })); fm.position.set(fx + 1.85, 10.6, fz); g.add(fm); anim.lights.push({ flag: fm, base: fm.geometry.attributes.position.array.slice(0) }); }
     });
-    var lb = label(T, 'THE FYRUS GUARD', GOLD_HI, 16); lb.position.set(0, 9, -24); g.add(lb);
+    var lb = label(T, 'THE FYRUS GUARD', GOLD_HI, 22); lb.position.set(0, 9.5, -20); g.add(lb);
     /* honour guard: 16 AI figures */
     for (var r = 0; r < 4; r++) for (var c = 0; c < 4; c++) {
       var f = figure(T, { cloth: 0x15213d, legs: 0xf4efe6, hat: 'shako', skin: [0xe8c4a0, 0xb9805a, 0x8d5a3b, 0xd6a77e][(r + c) % 4] });
@@ -526,7 +526,7 @@
     var tag = label(T, 'HONOUR GUARD · AI', '#9aa3b2', 7); tag.position.set(0, 3.6, 0); g.add(tag);
     anim.paradeGroup = g;
     /* Peace Office beside the ground */
-    var po = new T.Group(); po.position.set(30, 0, 10);
+    var po = new T.Group(); po.position.set(28, 0, -6);
     box(T, po, M(T, 0xf4efe6, { roughness: .5 }), 10, 6, 8, 0, 3, 0); box(T, po, dark, 10.4, .6, 8.4, 0, 6.2, 0);
     box(T, po, M(T, 0x0d1626, { emissive: 0x9cc8ff, emissiveIntensity: .7 }), 6, 2.4, .1, 0, 3, 4.05);
     var scr = screen(T, 7, 3.2); scr.position.set(0, 9.6, 2); po.add(scr); scr.userData.draw(['PEACE OFFICE', 'REAL CRIME: 0', 'Battles exist only as games in Arcadia']); anim.screens.peace = scr;
@@ -539,9 +539,11 @@
   function buildAmph(W, T, root) {
     var p = claim(W, 'amph', 34, 210, 400, 3.4); if (!p) return;
     var g = new T.Group(); g.position.set(p.x, 0, p.z); face(g, p);
-    var stone = M(T, 0xe2d6c2, { roughness: .7 }), dark = M(T, 0x0a0f1a, { roughness: .6 }), gold = M(T, 0xc9a96e, { metal: 1, roughness: .3 });
+    var stone = M(T, 0xb7a990, { roughness: .8, flatShading: true }), dark = M(T, 0x0a0f1a, { roughness: .6 }), gold = M(T, 0xc9a96e, { metal: 1, roughness: .3 });
+    var plaza = new T.Mesh(new T.CircleGeometry(36, 48), M(T, 0x8f8574, { roughness: .9 })); plaza.rotation.x = -Math.PI / 2; plaza.position.y = .08; plaza.receiveShadow = true; g.add(plaza);
     var prof = [new T.Vector2(13.9, 0)]; for (var i = 0; i < 7; i++) { var rr = 14 + i * 2.6, hh = .6 + i * .6; prof.push(new T.Vector2(rr, hh), new T.Vector2(rr + 2.6, hh)); } prof.push(new T.Vector2(14 + 7 * 2.6, 0));
-    var tiers = new T.Mesh(new T.LatheGeometry(prof, 40, -Math.PI / 2, Math.PI), stone); tiers.position.set(0, 0, 6); tiers.material.side = T.DoubleSide; tiers.castShadow = true; tiers.receiveShadow = true; g.add(tiers);
+    var tiers = new T.Mesh(new T.LatheGeometry(prof, 20, -Math.PI / 2, Math.PI), stone); tiers.position.set(0, 0, 6); tiers.material.side = T.DoubleSide; tiers.castShadow = true; tiers.receiveShadow = true; g.add(tiers);
+    for (var e = 0; e < 7; e++) { var edge = new T.Mesh(new T.TorusGeometry(14 + e * 2.6, .06, 4, 40, Math.PI), M(T, 0xc9a96e, { metal: .8, roughness: .4 })); edge.rotation.x = -Math.PI / 2; edge.rotation.z = Math.PI; edge.position.set(0, .62 + e * .6, 6); g.add(edge); }
     box(T, g, dark, 22, 1.4, 10, 0, .7, -6);
     box(T, g, gold, 22.4, .2, .3, 0, 1.45, -1.1);
     var scr = screen(T, 18, 7.5); scr.position.set(0, 8, -10.8); g.add(scr); anim.screens.amph = scr;
@@ -563,28 +565,35 @@
   function buildPark(W, T, root) {
     var p = claim(W, 'park', 28, 140, 330, 4.6); if (!p) return;
     var g = new T.Group(); g.position.set(p.x, 0, p.z); face(g, p);
-    var lawn = new T.Mesh(new T.CircleGeometry(26, 48), M(T, 0x5f9b4a, { roughness: .95 })); lawn.rotation.x = -Math.PI / 2; lawn.position.y = .06; lawn.receiveShadow = true; g.add(lawn);
+    var lawn = new T.Mesh(new T.CircleGeometry(26, 48), M(T, 0x3f8a34, { roughness: .95 })); lawn.rotation.x = -Math.PI / 2; lawn.position.y = .12; lawn.receiveShadow = true; g.add(lawn);
+    var path = new T.Mesh(new T.RingGeometry(15, 17.5, 48), M(T, 0xe6dccb, { roughness: .8 })); path.rotation.x = -Math.PI / 2; path.position.y = .14; g.add(path);
+    var fnt = new T.Group(); cyl(T, fnt, M(T, 0xe9dfcf), 3.2, 3.4, .7, 0, .35, 0, 24); var wtr = cyl(T, fnt, M(T, 0x4da3ff, { roughness: .1, metal: .2, emissive: 0x0b3a66, emissiveIntensity: .4 }), 2.9, 2.9, .1, 0, .72, 0, 24); cyl(T, fnt, M(T, 0xc9a96e, { metal: 1, roughness: .3 }), .3, .4, 2.2, 0, 1.6, 0, 10); g.add(fnt);
+    var leafM = M(T, 0x4e8a3a, { roughness: .9, flatShading: true }), trunkM = M(T, 0x6b4b2e);
+    for (var tt = 0; tt < 10; tt++) { var ta = tt / 10 * Math.PI * 2 + .3; var tx = Math.cos(ta) * 21.5, tz = Math.sin(ta) * 21.5; cyl(T, g, trunkM, .25, .35, 2.4, tx, 1.2, tz, 6); var crown = new T.Mesh(new T.IcosahedronGeometry(2.2, 0), leafM); crown.position.set(tx, 3.6, tz); crown.castShadow = true; g.add(crown); }
+    var bloom = [0xff9a3c, 0xc792ea, 0xffc27a, 0xd9534f];
+    for (var fb = 0; fb < 8; fb++) { var fa = fb / 8 * Math.PI * 2; var bxp = Math.cos(fa) * 12.5, bzp = Math.sin(fa) * 12.5; if (Math.hypot(bxp + 8, bzp + 5) < 7.5 || Math.hypot(bxp - 8, bzp + 6) < 5 || Math.hypot(bxp - 7, bzp - 7) < 5.5) continue; var bed = new T.Mesh(new T.CylinderGeometry(1.4, 1.4, .3, 12), M(T, bloom[fb % 4], { roughness: .8 })); bed.position.set(Math.cos(fa) * 12.5, .25, Math.sin(fa) * 12.5); g.add(bed); }
+    for (var bn = 0; bn < 6; bn++) { var ba = bn / 6 * Math.PI * 2 + .5; var bench = box(T, g, M(T, 0x8a6440), 2.4, .2, .7, Math.cos(ba) * 18.8, .6, Math.sin(ba) * 18.8, -ba + Math.PI / 2); }
     var fenceM = M(T, 0xf4efe6, { roughness: .5 });
     for (var i = 0; i < 56; i++) { var a = i / 56 * Math.PI * 2; if (Math.abs(Math.sin(a / 2)) < .08) continue; box(T, g, fenceM, .2, 1.1, .2, Math.cos(a) * 26, .55, Math.sin(a) * 26); }
     var rail = new T.Mesh(new T.TorusGeometry(26, .07, 4, 96), fenceM); rail.rotation.x = Math.PI / 2; rail.position.y = 1.05; g.add(rail);
     /* carousel */
-    var car = new T.Group(); car.position.set(-8, 0, 2);
+    var car = new T.Group(); car.position.set(-8, .1, -5);
     cyl(T, car, M(T, 0xf4efe6), 5, 5, .4, 0, .2, 0, 32); cyl(T, car, M(T, 0xc9a96e, { metal: 1, roughness: .3 }), .25, .25, 5, 0, 2.7, 0, 12);
     var top = new T.Mesh(new T.ConeGeometry(5.6, 2.2, 32), M(T, 0xd9534f, { roughness: .6 })); top.position.y = 6.1; car.add(top);
     var cols = [0xffc27a, 0x9cc8ff, 0xc792ea, 0x45b38a, 0xff9a3c, 0xf4efe6];
     for (var h = 0; h < 6; h++) { var aa = h / 6 * Math.PI * 2; cyl(T, car, M(T, 0xc9a96e, { metal: 1 }), .06, .06, 4.2, Math.cos(aa) * 3.8, 2.6, Math.sin(aa) * 3.8, 6); box(T, car, M(T, cols[h], { roughness: .5 }), .5, .8, 1.4, Math.cos(aa) * 3.8, 1.6, Math.sin(aa) * 3.8, -aa); }
     g.add(car); anim.carousel = car;
     /* swings */
-    var sw = new T.Group(); sw.position.set(9, 0, -6);
+    var sw = new T.Group(); sw.position.set(8, 0, -6);
     [-3, 3].forEach(function (x) { var leg = cyl(T, sw, M(T, 0x1b2a4a), .12, .12, 4.4, x, 2.2, 0, 8); });
     var bar = cyl(T, sw, M(T, 0x1b2a4a), .1, .1, 6.4, 0, 4.4, 0, 8); bar.rotation.z = Math.PI / 2;
     [-1.4, 1.4].forEach(function (x, i) { var piv = new T.Group(); piv.position.set(x, 4.4, 0); cyl(T, piv, M(T, 0x9aa3b2), .02, .02, 3, -.3, -1.5, 0, 4); cyl(T, piv, M(T, 0x9aa3b2), .02, .02, 3, .3, -1.5, 0, 4); box(T, piv, M(T, 0xff9a3c), .8, .1, .4, 0, -3, 0); sw.add(piv); anim.swings.push({ p: piv, ph: i * 1.3 }); });
     g.add(sw);
     /* slide */
-    var sl = new T.Group(); sl.position.set(9, 0, 8);
+    var sl = new T.Group(); sl.position.set(7, 0, 7);
     box(T, sl, M(T, 0x1b2a4a), 2, 3, 2, 0, 1.5, -2); var chute = box(T, sl, M(T, 0x45b38a, { roughness: .4 }), 1.4, .2, 6, 0, 1.6, 1.4); chute.rotation.x = -.5;
     g.add(sl);
-    var lb = label(T, 'FAMILY PARK · KIDS SAFE ZONE', '#bff0d8', 18); lb.position.set(0, 9.5, -12); g.add(lb);
+    var lb = label(T, 'FAMILY PARK · KIDS SAFE ZONE', '#bff0d8', 26); lb.position.set(0, 11, 0); g.add(lb);
     root.add(g);
     W.staticInteracts.push({ pos: new T.Vector3(p.x, 0, p.z), radius: 26, label: 'Family Park · Kids mode and Storytime', action: 'park', use: function () { API.openHub('family'); } });
   }

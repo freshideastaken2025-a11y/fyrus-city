@@ -58,6 +58,20 @@ body.explore .bars{height:0}
 .track{width:min(320px,70vw);height:1px;background:rgba(201,169,110,.25);margin:26px auto 12px;position:relative;overflow:hidden}
 .track i{position:absolute;left:0;top:0;bottom:0;width:0;background:var(--gold);box-shadow:0 0 12px var(--gold);transition:width .3s ease}
 #lstep{color:var(--muted)}
+#prompt{position:fixed;left:50%;bottom:calc(9vh + 24px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);z-index:7;background:var(--glass);border:1px solid var(--line);border-radius:999px;padding:10px 18px;font:600 12px var(--head);letter-spacing:.12em;text-transform:uppercase;color:var(--gold-hi);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);cursor:pointer;pointer-events:auto;white-space:nowrap}
+#prompt kbd{font:600 11px var(--mono);border:1px solid var(--line);border-radius:6px;padding:2px 6px;margin-right:8px;color:var(--ivory)}
+#stick{position:fixed;left:max(22px,env(safe-area-inset-left,0px));bottom:calc(22px + env(safe-area-inset-bottom,0px));width:120px;height:120px;border-radius:50%;border:1px solid var(--line);background:rgba(10,15,26,.35);z-index:7;display:none;touch-action:none}
+#stick i{position:absolute;left:35px;top:35px;width:50px;height:50px;border-radius:50%;background:rgba(232,213,168,.6)}
+body.walk.touch #stick{display:block}
+.vbp{position:fixed;inset:0;z-index:9;display:grid;place-items:center;background:rgba(5,8,15,.6);padding-inline:max(16px,env(safe-area-inset-left,0px))}
+.vbp[hidden],#prompt[hidden]{display:none}
+.vbp-card{width:min(520px,100%);background:linear-gradient(180deg,var(--ink-2),var(--ink));border:1px solid var(--line);border-radius:20px;padding:24px}
+.vbp-card h2{font-family:var(--display);font-weight:400;font-size:46px;line-height:.95;margin:8px 0;letter-spacing:.03em}
+.vbp-card p{color:var(--muted);line-height:1.55;font-size:14px;margin:0 0 18px}
+.vbp-btns{display:flex;gap:10px;flex-wrap:wrap}
+.vbp-btns button,.vbp-btns a{font:600 11px var(--head);letter-spacing:.16em;text-transform:uppercase;border-radius:999px;padding:11px 18px;border:1px solid var(--line);background:transparent;color:var(--gold-hi);cursor:pointer;text-decoration:none}
+.vbp-btns .gold{background:var(--gold);color:var(--ink);border-color:var(--gold)}
+body.walk .bars{height:0}
 #err{display:none;max-width:52ch;margin:18px auto 0;font-size:13px;color:#ffcf9e;line-height:1.5}
 @media (max-width:640px){.sub{font-size:13.5px}.seg button{padding:7px 9px;font-size:9.5px}.bars{height:4vh}}
 @media (prefers-reduced-motion:reduce){.cap,.fade,#load{transition:none}}
@@ -78,6 +92,7 @@ body.explore .bars{height:0}
       <div class="seg" role="group" aria-label="Camera">
         <button id="bCine" aria-pressed="true">Cinematic</button>
         <button id="bFree" aria-pressed="false">Explore</button>
+        <button id="bWalk" aria-pressed="false">Walk</button>
       </div>
       <div class="seg" role="group" aria-label="Time of day">
         <button data-t="golden" aria-pressed="false">Golden</button>
@@ -94,10 +109,13 @@ body.explore .bars{height:0}
     <div class="eyebrow" id="capE">Fyrus · The Azure Coast</div>
     <h1 id="capT">Vector Bay</h1>
     <div class="sub" id="capS">Marble promenade, gilded towers and the old harbour of House Maren.</div>
-    <div class="hint" id="capH">Cinematic tour · press Explore to fly freely</div>
+    <div class="hint" id="capH">Cinematic tour · Explore to fly, Walk to stroll the promenade</div>
   </div>
 </div>
 
+<div id="prompt" role="status" aria-live="polite" hidden></div>
+<div id="stick" aria-hidden="true"><i></i></div>
+<div id="vbPanel" class="vbp" hidden role="dialog" aria-modal="true"><div class="vbp-card"><div class="eyebrow" id="vbpE"></div><h2 id="vbpT"></h2><p id="vbpS"></p><div class="vbp-btns" id="vbpB"></div></div></div>
 <div id="load">
   <div class="lbox">
     <div class="ring" style="margin:0 auto;width:44px;height:44px"><i style="width:12px;height:12px"></i></div>
@@ -456,13 +474,14 @@ function buildBlock(ox, oz, ry, len, depth, floors, opt = {}) {
   for (let k = 0; k < 4; k++) B('green', R(2, 4), R(1.5, 3), R(2, 4), -R(4, depth - 4), y + 1.5, R(-len / 2 + 3, len / 2 - 3));
   return y + 2.6;
 }
-const cafeSpots = [];
+const cafeSpots = []; const shopFronts = [];
 /* left quay blocks (front faces +x at x=-80) */
 for (let z = 132; z > -425;) {
   const len = R(26, 40); const cz = z - len / 2; if (cz - len / 2 < -428) break;
   const fl = Math.floor(R(5, 9));
   buildBlock(-80, cz, 0, len, R(26, 38), fl, { arcade: rnd() < 0.3 });
   for (let k = 0; k < 3; k++) cafeSpots.push([-77.2, cz - len / 2 + 5 + k * (len - 10) / 2]);
+  shopFronts.push({ x: -81, z: cz, len });
   /* second row, taller, behind */
   buildBlock(-130, cz + R(-4, 4), 0, len * R(0.7, 1), R(22, 30), Math.floor(R(7, 12)), {});
   z -= len + R(9, 13);
@@ -841,12 +860,12 @@ const SHOTS = [
   { d: 14, e: 'Fyrus · 2040', t: 'Population: You', s: 'Free entry. Free faith. Free learning. Build your life here.', f: (u) => [V(-40, 12, 200).lerp(V(260, 300, 520), ease(u)), V(-20, 20, -260).lerp(V(0, 30, -480), u)] },
 ];
 let mode = 'cine', shotI = 0, shotT = 0; let hold = false;
-try { const q = new URLSearchParams(location.search); if (q.has('shot')) { shotI = Math.min(SHOTS.length - 1, +q.get('shot') || 0); } if (q.has('hold')) { hold = true; shotT = +q.get('hold') || 0; } } catch (e) {}
+try { const q = new URLSearchParams(location.search); if (q.has('walk')) setTimeout(() => setMode('walk'), 0); if (q.has('shot')) { shotI = Math.min(SHOTS.length - 1, +q.get('shot') || 0); } if (q.has('hold')) { hold = true; shotT = +q.get('hold') || 0; } } catch (e) {}
 const curLook = new THREE.Vector3();
 function showCaption(s) { const c = $('cap'); c.classList.add('out'); setTimeout(() => { $('capE').textContent = s.e; $('capT').textContent = s.t; $('capS').textContent = s.s; c.classList.remove('out'); }, 700); }
 function dip() { const f = $('fade'); f.style.opacity = '1'; setTimeout(() => f.style.opacity = '0', 750); }
-$('bCine').onclick = () => { mode = 'cine'; controls.enabled = false; document.body.classList.remove('explore'); $('bCine').setAttribute('aria-pressed', 'true'); $('bFree').setAttribute('aria-pressed', 'false'); shotI = 0; shotT = 0; showCaption(SHOTS[0]); $('capH').textContent = 'Cinematic tour · press Explore to fly freely'; };
-$('bFree').onclick = () => { mode = 'free'; controls.enabled = true; controls.target.copy(curLook); document.body.classList.add('explore'); $('bFree').setAttribute('aria-pressed', 'true'); $('bCine').setAttribute('aria-pressed', 'false'); $('capH').textContent = 'Drag to look · scroll or pinch to zoom · right-drag to pan'; };
+$('bCine').onclick = () => { setMode('cine'); shotI = 0; shotT = 0; showCaption(SHOTS[0]); $('capH').textContent = 'Cinematic tour · Explore to fly, Walk to stroll the promenade'; };
+$('bFree').onclick = () => { setMode('free'); controls.target.copy(curLook); $('capH').textContent = 'Drag to look · scroll or pinch to zoom · right-drag to pan'; };
 document.querySelectorAll('[data-t]').forEach(b => b.onclick = () => setTime(b.dataset.t));
 $('bQ').onclick = () => { const lvl = renderer.getPixelRatio() > 1.05 ? 1 : Math.min(devicePixelRatio, 2); renderer.setPixelRatio(lvl); resize(); $('bQ').textContent = 'Quality: ' + (lvl > 1.05 ? 'Ultra' : 'Fast'); };
 $('bQ').textContent = 'Quality: ' + (renderer.getPixelRatio() > 1.05 ? 'High' : 'Fast');
@@ -862,6 +881,107 @@ $('bSound').onclick = () => {
   [146.83, 220, 277.18, 329.63, 440].forEach((f, i) => { const o = ctx.createOscillator(); o.type = 'sine'; o.frequency.value = f; const g = ctx.createGain(); g.gain.value = 0.018 / (1 + i * 0.3); const v = ctx.createOscillator(); v.frequency.value = 0.05 + i * 0.03; const vg = ctx.createGain(); vg.gain.value = 0.012; v.connect(vg); vg.connect(g.gain); o.connect(g); g.connect(master); o.start(); v.start(); });
   audio = { ctx }; $('bSound').setAttribute('aria-pressed', 'true');
 };
+
+/* ---------- walk mode ---------- */
+const me = { x: -68, z: 96, yaw: 0, ph: 0, sit: false, y: 2.62 };
+const meG = new THREE.Group();
+{
+  const cloth = new THREE.MeshStandardMaterial({ color: 0x1b2a4a, roughness: .6 }), skin = new THREE.MeshStandardMaterial({ color: 0xd6a77e, roughness: .6 }), goldM = MAT.gold;
+  const t = new THREE.Mesh(P.torso, cloth); t.position.y = 1.2; meG.add(t);
+  const h = new THREE.Mesh(P.head, skin); h.position.y = 1.62; meG.add(h);
+  const hr = new THREE.Mesh(P.hair, new THREE.MeshStandardMaterial({ color: 0x1a1410 })); hr.position.y = 1.63; meG.add(hr);
+  me.legs = [-1, 1].map((sx) => { const g = new THREE.Group(); g.position.set(sx * .09, .95, 0); g.add(new THREE.Mesh(P.leg, new THREE.MeshStandardMaterial({ color: 0xf4efe6, roughness: .7 }))); meG.add(g); return g; });
+  me.arms = [-1, 1].map((sx) => { const g = new THREE.Group(); g.position.set(sx * .23, 1.44, 0); g.add(new THREE.Mesh(P.arm, cloth)); meG.add(g); return g; });
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(.42, .03, 6, 32), new THREE.MeshBasicMaterial({ color: new THREE.Color(1, .85, .55).multiplyScalar(2.5) })); ring.rotation.x = Math.PI / 2; ring.position.y = .06; meG.add(ring);
+  meG.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+  meG.visible = false; scene.add(meG);
+}
+const keys = {};
+addEventListener('keydown', (e) => { if (mode !== 'walk' && mode !== 'ride') return; keys[e.key.toLowerCase()] = true; if (e.key === 'e' || e.key === 'E' || e.key === 'Enter') { if (mode === 'ride') { endRide(); } else useSpot(); } if (e.key === 'Escape' && mode === 'ride') endRide(); });
+addEventListener('keyup', (e) => { keys[e.key.toLowerCase()] = false; });
+let drag = null;
+canvas.addEventListener('pointerdown', (e) => { if (mode !== 'walk') return; drag = { x: e.clientX, y: e.clientY, yaw: me.yaw, pitch: camPitch }; });
+addEventListener('pointerup', () => { drag = null; });
+addEventListener('pointermove', (e) => { if (!drag || mode !== 'walk') return; me.yaw = drag.yaw - (e.clientX - drag.x) * 0.006; camPitch = clamp(drag.pitch + (e.clientY - drag.y) * 0.004, -0.15, 0.9); });
+let camPitch = 0.28, stickV = { x: 0, y: 0 };
+if (matchMedia('(pointer:coarse)').matches) document.body.classList.add('touch');
+{ const st = $('stick'), knob = st.querySelector('i'); let id = null;
+  const mv = (e) => { const r = st.getBoundingClientRect(); let dx = e.clientX - (r.left + 60), dy = e.clientY - (r.top + 60); const L = Math.hypot(dx, dy); if (L > 45) { dx *= 45 / L; dy *= 45 / L; } knob.style.transform = `translate(${dx}px,${dy}px)`; stickV = { x: dx / 45, y: dy / 45 }; };
+  st.addEventListener('pointerdown', (e) => { id = e.pointerId; st.setPointerCapture(id); mv(e); e.stopPropagation(); });
+  st.addEventListener('pointermove', (e) => { if (e.pointerId === id) mv(e); });
+  st.addEventListener('pointerup', () => { id = null; stickV = { x: 0, y: 0 }; knob.style.transform = ''; });
+}
+const PONT = []; for (let z = -400; z < 140; z += 30) PONT.push(z);
+function groundAt(x, z) {
+  if (x >= -80.6 && x <= -60.4 && z >= -440.5 && z <= 148) return 2.62;
+  if (z >= -461 && z <= -440 && x >= -79 && x <= 70.5) return 2.62;
+  for (const pz of PONT) if (Math.abs(z - pz) < 1.25 && x > -60.6 && x < -26.2) return 0.82;
+  return null;
+}
+let spot = null;
+function nearestSpot() {
+  let best = null, bd = 1e9; const test = (d, s) => { if (d < bd) { bd = d; best = s; } };
+  for (const c of cafeSpots) test(Math.hypot(c[0] - me.x, c[1] - me.z), { kind: 'cafe', x: c[0], z: c[1] });
+  for (const f of shopFronts) if (Math.abs(me.x - f.x) < 4 && Math.abs(me.z - f.z) < f.len / 2) test(Math.abs(me.x - f.x) + 0.5, { kind: 'shop' });
+  const bz = PONT[9]; test(Math.hypot(-28 - me.x, bz - me.z), { kind: 'yacht' });
+  return bd < 3.2 ? best : null;
+}
+function showPrompt(t) { const p = $('prompt'); if (!t) { p.hidden = true; return; } p.hidden = false; p.innerHTML = ''; const k = document.createElement('kbd'); k.textContent = matchMedia('(pointer:coarse)').matches ? 'Tap' : 'E'; p.append(k, t); }
+$('prompt').onclick = () => { if (mode === 'ride') endRide(); else useSpot(); };
+function panel(e, t, s, btns) {
+  $('vbpE').textContent = e; $('vbpT').textContent = t; $('vbpS').textContent = s; const B = $('vbpB'); B.innerHTML = '';
+  btns.forEach(([label, fn, gold]) => { const b = document.createElement('button'); b.textContent = label; if (gold) b.className = 'gold'; b.onclick = () => { $('vbPanel').hidden = true; fn && fn(); }; B.append(b); });
+  $('vbPanel').hidden = false;
+}
+$('vbPanel').addEventListener('click', (e) => { if (e.target.id === 'vbPanel') $('vbPanel').hidden = true; });
+function useSpot() {
+  if (!spot) return;
+  if (spot.kind === 'cafe') { me.sit = !me.sit; if (me.sit) { me.x = spot.x - 0.75; me.z = spot.z; me.yaw = -Math.PI / 2; } return; }
+  if (spot.kind === 'shop') return panel('Vector Bay · Marble Promenade', 'Storefront available', 'Boutiques on the promenade open to citizen shops in the next update. Your listings in the Fyrus Market already sell worldwide through escrow.', [['Back to Fyrus Core', () => { location.href = '/'; }, true], ['Keep walking', null]]);
+  if (spot.kind === 'yacht') return panel('The Marina', 'Board the yacht', 'Take a seat on the evening cruise around Vector Bay. Press E or tap the button below to step off.', [['Board', startRide, true], ['Not now', null]]);
+}
+let rideT = 0;
+function startRide() { mode = 'ride'; rideT = 0; meG.visible = false; showPrompt('Step off the yacht'); $('capE').textContent = 'The Marina'; $('capT').textContent = 'Evening Cruise'; $('capS').textContent = 'Sit back. The bay is yours.'; }
+function endRide() { mode = 'walk'; meG.visible = true; me.x = -68; me.z = PONT[9] + 3; me.y = 2.62; showPrompt(null); setWalkCaption(); }
+function setWalkCaption() { $('capE').textContent = 'Walking · Marble Promenade'; $('capT').textContent = 'Vector Bay'; $('capS').textContent = 'The people you meet here are AI residents. Citizens will see each other when multiplayer opens in Vector Bay.'; $('capH').textContent = (matchMedia('(pointer:coarse)').matches ? 'Joystick to walk · drag to look' : 'WASD or arrows to walk · drag to look · E to use') ; }
+function setMode(m) {
+  mode = m; controls.enabled = m === 'free'; document.body.classList.toggle('explore', m === 'free'); document.body.classList.toggle('walk', m === 'walk');
+  ['bCine', 'bFree', 'bWalk'].forEach((id) => $(id).setAttribute('aria-pressed', String((id === 'bCine' && m === 'cine') || (id === 'bFree' && m === 'free') || (id === 'bWalk' && m === 'walk'))));
+  meG.visible = m === 'walk'; if (m !== 'walk') showPrompt(null);
+  if (m === 'walk') setWalkCaption();
+}
+$('bWalk').onclick = () => setMode('walk');
+function updateWalk(dt) {
+  if (mode === 'ride') {
+    rideT += dt; const y = heroPath(time); const back = heroPath(time - 1.2);
+    const dir = new THREE.Vector3().subVectors(y, back).setY(0).normalize();
+    camera.position.copy(y).addScaledVector(dir, -14).add(V(0, 7.5, 0)); const lk = y.clone().addScaledVector(dir, 40).add(V(0, 3, 0)); camera.lookAt(lk); curLook.copy(lk); return;
+  }
+  if (mode !== 'walk') return;
+  let fx = 0, fz = 0;
+  if (keys['w'] || keys['arrowup']) fz += 1; if (keys['s'] || keys['arrowdown']) fz -= 1; if (keys['a'] || keys['arrowleft']) fx -= 1; if (keys['d'] || keys['arrowright']) fx += 1;
+  fx += stickV.x; fz -= stickV.y;
+  const moving = Math.hypot(fx, fz) > 0.1;
+  if (moving) me.sit = false;
+  if (moving) {
+    const sp = (keys['shift'] ? 5.2 : 2.8) * dt, sn = Math.sin(me.yaw), cs = Math.cos(me.yaw);
+    const dx = (-fz * sn + fx * cs) * sp, dz = (-fz * cs - fx * sn) * sp;
+    const nx = me.x + dx, nz = me.z + dz;
+    if (groundAt(nx, nz) != null) { me.x = nx; me.z = nz; } else if (groundAt(nx, me.z) != null) me.x = nx; else if (groundAt(me.x, nz) != null) me.z = nz;
+    me.ph += dt * 9; meG.rotation.y = Math.atan2(dx, dz);
+  }
+  const gy = groundAt(me.x, me.z); if (gy != null) me.y += (gy - me.y) * Math.min(1, dt * 8);
+  const sw = moving ? Math.sin(me.ph) * .45 : 0;
+  me.legs[0].rotation.x = me.sit ? -1.45 : sw; me.legs[1].rotation.x = me.sit ? -1.35 : -sw; me.arms[0].rotation.x = -sw * .7; me.arms[1].rotation.x = sw * .7;
+  meG.position.set(me.x, me.y - (me.sit ? 0.42 : 0) + (moving ? Math.abs(Math.cos(me.ph)) * .03 : 0), me.z);
+  if (me.sit) meG.rotation.y = me.yaw + Math.PI;
+  const cd = 6.5, ch = 1.6 + camPitch * 6;
+  const target = V(me.x, me.y + 1.5, me.z);
+  const want = V(me.x + Math.sin(me.yaw) * cd * Math.cos(camPitch), me.y + ch, me.z + Math.cos(me.yaw) * cd * Math.cos(camPitch));
+  camera.position.lerp(want, Math.min(1, dt * 6)); camera.lookAt(target); curLook.copy(target);
+  spot = nearestSpot();
+  showPrompt(spot ? (spot.kind === 'cafe' ? (me.sit ? 'Stand up' : 'Sit at the café') : spot.kind === 'shop' ? 'Storefront' : 'Board the yacht') : null);
+}
 
 function resize() { const w = innerWidth, h = innerHeight; camera.aspect = w / h; camera.updateProjectionMatrix(); renderer.setSize(w, h); composer.setSize(w, h); bloom.resolution.set(w, h); }
 addEventListener('resize', resize);
@@ -887,7 +1007,7 @@ function frame() {
     const [pos, look] = S.f(ease(u) * 0.85 + u * 0.15, time); camera.position.copy(pos); curLook.copy(look); camera.lookAt(look);
     if (shotT > S.d - 0.75 && !S._dipped) { S._dipped = true; dip(); }
     if (shotT >= S.d) { S._dipped = false; shotI = (shotI + 1) % SHOTS.length; shotT = 0; showCaption(SHOTS[shotI]); }
-  } else { controls.update(); curLook.copy(controls.target); if (camera.position.y < 2) camera.position.y = 2; }
+  } else if (mode === 'walk' || mode === 'ride') { updateWalk(dt); } else { controls.update(); curLook.copy(controls.target); if (camera.position.y < 2) camera.position.y = 2; }
   /* shadow frustum follows what we're looking at */
   const focus = curLook.clone().lerp(camera.position, 0.5); focus.y = 0;
   shadowDir.copy(sunDir); shadowDir.y = Math.max(shadowDir.y, 0.17); shadowDir.normalize();
