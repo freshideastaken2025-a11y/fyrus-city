@@ -5,7 +5,7 @@
 (function () {
   'use strict';
   if (window.__fyrusCountry) return;
-  var API = window.__fyrusCountry = { version: '1.2.4' };
+  var API = window.__fyrusCountry = { version: '1.3.0' };
   var GOLD = '#c9a96e', GOLD_HI = '#e8d5a8', IVORY = '#f4efe6', MUTED = '#9aa3b2';
   var LS = {
     get: function (k, d) { try { var v = localStorage.getItem('fyrusCountry.' + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -86,7 +86,8 @@
   ];
   API.stations = STATIONS;
   var FLIGHTS = [
-    { id: 'vector-bay', name: 'Vector Bay', province: 'The Azure Coast', house: 'House Maren', url: '/vector-bay.html', open: true, note: 'Marble promenade, marina, gilded towers and the old citadel.' }
+    { id: 'vector-bay', name: 'Vector Bay', province: 'The Azure Coast', house: 'House Maren', open: true, note: 'Across the bay: marble promenade, marina, gilded towers and the old citadel. Same world, your own avatar.' },
+    { id: 'core', name: 'Fyrus Core', province: 'The Capital', house: 'Parliament of Fyrus', open: true, home: true, note: 'Fly home to the capital.' }
   ];
   API.flights = FLIGHTS;
   function moreCities() {
@@ -151,6 +152,8 @@
   API.teleportTo = teleportTo;
 
   function fly(f) {
+    if (f.id === 'vector-bay' && window.__fyrusVB) { window.__fyrusVB.go(); return; }
+    if (f.home) { var Wh = window.__fyrusW; if (!flyThrough({ name: f.name, x: 0, z: 36 }, 'flight', function () { try { Wh.teleport({ x: 0, z: 36 }); } catch (e) {} })) { try { Wh.teleport({ x: 0, z: 36 }); } catch (e) {} } return; }
     if (!f.__lifted && flyThrough({ name: f.name, x: 120, z: -700 }, 'flight', function () { f.__lifted = true; fly(f); })) return;
     f.__lifted = false;
     var s = S(), name = (s && s.session && (s.session.name || s.session.displayName)) || 'Citizen';
@@ -173,7 +176,7 @@
     ov.appendChild(pass); document.body.appendChild(ov);
     requestAnimationFrame(function () { pass.querySelector('.bar i').style.width = '100%'; [].forEach.call(ov.querySelectorAll('.cl'), function (c) { c.style.transform = 'translateX(-60vw)'; }); });
     LS.set('lastFlight', { to: f.id, at: Date.now() });
-    setTimeout(function () { location.href = f.url; }, 2800);
+    setTimeout(function () { location.href = f.url || ('/?go=' + f.id); }, 2800);
   }
   API.fly = fly;
 
@@ -189,7 +192,9 @@
         [].forEach.call(tabs.children, function (b) { b.setAttribute('aria-pressed', String(b.getAttribute('data-t') === tab)); });
         var list = el('div', { 'class': 'fxc-list' });
         if (tab === 'fly') {
+          var inVB = !!(window.__fyrusVB && window.__fyrusVB.inside());
           FLIGHTS.forEach(function (f) {
+            if (f.home ? !inVB : (f.id === 'vector-bay' && inVB)) return;
             list.appendChild(el('div', { 'class': 'fxc-row' }, [
               el('div', { 'class': 'ic' }, ['🌅']),
               el('div', null, [el('span', { 'class': 'tag' }, [f.province + ' · ' + f.house]), el('b', null, [f.name]), el('small', null, [f.note])]),
@@ -494,7 +499,8 @@
 
   /* ---------------- search: register new places in "Where to?" ---------------- */
   function registerPlaces() {
-    var list = [{ id: 'vector-bay', name: 'Vector Bay', sub: 'The Azure Coast · fly from the airport', kind: 'City', icon: '🌅', x: 378, z: 0, url: '/vector-bay.html', flight: FLIGHTS[0] },
+    var VBL = window.__fyrusVB ? window.__fyrusVB.landing : { x: 330, z: -960 };
+    var list = [{ id: 'vector-bay', name: 'Vector Bay', sub: 'The Azure Coast · a city across the bay', kind: 'City', icon: '🌅', x: VBL.x, z: VBL.z, run: function () { if (window.__fyrusVB) window.__fyrusVB.go(); } },
       { id: 'transit', name: 'Fyrus Transit', sub: 'Flights, metro and buses', kind: 'Place', icon: '🧭', x: 0, z: 30 }];
     var names = { central: ['Grand Central & Bus Adda', 'Fyrus Transit station', '🚉'], parade: ['Fyrus Guard Parade Ground', 'The Country · army and Peace Office', '🎖'], amph: ['Sunset Amphitheater', 'Concerts and events every day', '🎶'], park: ['Family Park', 'Kids safe zone', '🎠'] };
     Object.keys(SITES).forEach(function (k) { var p = siteXZ(k), n = names[k]; if (p && n) list.push({ id: 'site-' + k, name: n[0], sub: n[1], kind: 'Place', icon: n[2], x: p.x, z: p.z, face: { x: SITES[k].x, z: SITES[k].z } }); });

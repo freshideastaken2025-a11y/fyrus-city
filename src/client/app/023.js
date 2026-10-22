@@ -1359,7 +1359,9 @@ var qg = (t, e) =>
         if (
           this.colliders.every((c) => Math.hypot(c.x - l.x, c.z - l.z) > c.r + 1.5) &&
           Math.hypot(l.x, l.z) > ds + 1 &&
-          !vd(l.x, l.z)
+          !vd(l.x, l.z) &&
+          !(window.__fyrusWet && window.__fyrusWet(l.x, l.z)) &&
+          !(window.__fyrusSolid && window.__fyrusSolid(l.x, l.z))
         )
           return l;
       }
@@ -1741,6 +1743,10 @@ var qg = (t, e) =>
         this.camera.updateProjectionMatrix());
     }
     groundAt(e, a) {
+      if (this.active === this.world && window.__fyrusGround) {
+        let gh = window.__fyrusGround(e, a);
+        if (gh != null) return gh;
+      }
       return this.active !== this.world
         ? 0
         : Math.hypot(e, a) < ds
@@ -1787,7 +1793,8 @@ var qg = (t, e) =>
           (a.root.rotation.y = wu(a.root.rotation.y, Math.atan2(a.vel.x, a.vel.z), Math.min(1, e * 12))));
       let c = this.groundAt(r.x, r.z);
       ((a.root.userData.groundY = c), r.z < -900 && (r.z = -900));
-      let d = this.active === this.world && (vd(r.x, r.z) || r.z < we.water) && !a.hovering;
+      let wet = window.__fyrusWet ? window.__fyrusWet(r.x, r.z) : null,
+        d = this.active === this.world && (wet != null ? wet : vd(r.x, r.z) || r.z < we.water) && !a.hovering;
       if ((this.setSwimming(d), d)) {
         ((r.y += (c - r.y) * Math.min(1, e * 6)), (a.vy = 0), (a.grounded = !0));
         return;
@@ -1802,6 +1809,7 @@ var qg = (t, e) =>
             n = Math.hypot(r, o);
           n < a.r && n > 0.001 && ((e.x = a.x + (r / n) * a.r), (e.z = a.z + (o / n) * a.r));
         }
+      if (this.active === this.world) window.__fyrusCollide && window.__fyrusCollide(e);
       else if (this.interior) {
         let { hx: a, hz: r } = this.interior.bounds;
         ((e.x = W.MathUtils.clamp(e.x, -a, a)), (e.z = W.MathUtils.clamp(e.z, -r, r)));
@@ -1974,7 +1982,7 @@ var qg = (t, e) =>
                 Math.abs(n.x - p.x) < (p.cols * p.gap) / 2 + 14 &&
                 Math.abs(n.z - p.z) < (p.rows * p.gap) / 2 + 14,
             ),
-            h = d ? { key: `city:${d.id}`, name: d.name } : Uc(n.x, n.z);
+            h = (window.__fyrusRegion && window.__fyrusRegion(n.x, n.z)) || (d ? { key: `city:${d.id}`, name: d.name } : Uc(n.x, n.z));
           h.key !== this.lastDistrict && ((this.lastDistrict = h.key), hM(h.key, h.name));
           let u = { x: Math.round(n.x), z: Math.round(n.z) };
           ((Math.abs(u.x - r.coords.x) > 1 || Math.abs(u.z - r.coords.z) > 1) && C({ coords: u }),
@@ -2072,7 +2080,7 @@ var qg = (t, e) =>
         if (l > 90) {
           let d = Math.random() * Math.PI * 2,
             h = new W.Vector3(o.x + Math.cos(d) * 55, 0, o.z + Math.sin(d) * 55);
-          (vd(h.x, h.z) || s.copy(h), (i.target = null));
+          (vd(h.x, h.z) || (window.__fyrusWet && window.__fyrusWet(h.x, h.z)) || s.copy(h), (i.target = null));
         }
         if (n === i.def.id || l < 2.6)
           ((i.target = null),
@@ -2104,10 +2112,12 @@ var qg = (t, e) =>
             p = Math.hypot(h, u);
           p < d.r && p > 0.001 && ((s.x = d.x + (h / p) * d.r), (s.z = d.z + (u / p) * d.r));
         }
+        window.__fyrusCollide && window.__fyrusCollide(s);
+        let gO = window.__fyrusGround ? window.__fyrusGround(s.x, s.z) : null;
         ((i.speed = i.vel.length()),
           i.speed > 0.2 &&
             (i.root.rotation.y = wu(i.root.rotation.y, Math.atan2(i.vel.x, i.vel.z), Math.min(1, e * 8))),
-          (s.y = this.groundAt(s.x, s.z) > 0.5 ? 0.6 : 0),
+          (s.y = gO != null ? Math.max(0, gO) : this.groundAt(s.x, s.z) > 0.5 ? 0.6 : 0),
           (i.root.userData.groundY = s.y),
           (i.label.visible = r.settings.nameTags && l < 10),
           i.update(e, a));
