@@ -382,7 +382,16 @@ function createOps(d) {
       return { code: iv.code, label: iv.label, at: iv.at, opens, joined: j.length, nextDay: j.filter((u) => (u.days || []).includes(addDays(joinDay(u), 1))).length, active7: j.filter((u) => (u.days || []).some((x) => last7.includes(x))).length };
     });
     const noRef = users.filter((u) => !u.ref);
-    return { today, totalCitizens: users.length, daily, cohorts, areas: sum("time").slice(0, 20), exits: sum("exits").slice(0, 15), sess, invites, direct: { joined: noRef.length, active7: noRef.filter((u) => (u.days || []).some((x) => last7.includes(x))).length }, trackingSince: Object.keys(O.an.days).sort()[0] || today };
+    const who = {};
+    last7.forEach((dd) => {
+      const t = O.an.days[dd];
+      if (t && t.who) Object.entries(t.who).forEach(([k, m]) => {
+        const o = who[k] ||= {};
+        Object.entries(m).forEach(([v, n]) => o[v] = (o[v] || 0) + n);
+      });
+    });
+    Object.keys(who).forEach((k) => who[k] = Object.entries(who[k]).sort((a, b) => b[1] - a[1]).slice(0, 10));
+    return { who, today, totalCitizens: users.length, daily, cohorts, areas: sum("time").slice(0, 20), exits: sum("exits").slice(0, 15), sess, invites, direct: { joined: noRef.length, active7: noRef.filter((u) => (u.days || []).some((x) => last7.includes(x))).length }, trackingSince: Object.keys(O.an.days).sort()[0] || today };
   }
   const prevHttp = http2;
   http2 = function (req, res, p, ip, auth) {
@@ -398,6 +407,35 @@ function createOps(d) {
           seen(u);
           d.save();
         } else if (u) u.anArea = areaKey(b.a);
+        res.writeHead(204);
+        res.end();
+      });
+      return true;
+    }
+    if (p === "/api/an/visit" && req.method === "POST") {
+      readJson(req, 2048, (b) => {
+        const u = auth(String(b.tok || ""));
+        const today = day2();
+        if (u && u.anVisitDay !== today) {
+          u.anVisitDay = today;
+          const t = anDay();
+          t.who ||= {};
+          const bump2 = (k, v) => {
+            v = areaKey(v).slice(0, 40);
+            const m = t.who[k] ||= {};
+            if (Object.keys(m).length < 80 || m[v]) m[v] = (m[v] || 0) + 1;
+          };
+          bump2("device", b.dev);
+          bump2("os", b.os);
+          bump2("browser", b.br);
+          bump2("region", b.tz);
+          bump2("language", b.lang);
+          bump2("source", b.src);
+          bump2("quality", b.q);
+          const f = +b.fps || 0;
+          bump2("smoothness", !f ? "Unknown" : f < 20 ? "Slow (under 20 FPS)" : f < 30 ? "OK (20-30 FPS)" : f < 45 ? "Good (30-45 FPS)" : "Smooth (45+ FPS)");
+          d.save();
+        }
         res.writeHead(204);
         res.end();
       });

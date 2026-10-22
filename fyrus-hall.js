@@ -6,7 +6,7 @@
 (function () {
   'use strict';
   if (window.__fyrusHall) return;
-  var API = window.__fyrusHall = { version: '3.0.4' };
+  var API = window.__fyrusHall = { version: '3.1.0' };
   var GOLD = '#c9a96e', GOLD_HI = '#e8d5a8', IVORY = '#f4efe6', MUTED = '#9aa3b2';
   var FALLBACK = [
     { id: 'hockey', name: 'Neon Air Hockey', tag: 'First to 5 goals', players: '1P vs AI · 2P same keyboard', ready: true, color: '#4da3ff' },
@@ -297,8 +297,16 @@
       var g = new T.Group(), cl = new T.MeshStandardMaterial({ color: bc[0], roughness: .6 }), sk = new T.MeshStandardMaterial({ color: bc[1], roughness: .6 });
       var bd = new T.Mesh(new T.CylinderGeometry(.21, .25, .8, 10), cl); bd.position.y = 1.25; g.add(bd);
       var hd = new T.Mesh(new T.SphereGeometry(.145, 12, 10), sk); hd.position.y = 1.8; g.add(hd);
-      var bl = [], ba = [];
-      [-1, 1].forEach(function (sx) { var lg = new T.Group(); lg.position.set(sx * .1, .86, 0); var m = new T.Mesh(new T.CylinderGeometry(.065, .065, .84, 8), new T.MeshStandardMaterial({ color: 0x0a0f1a })); m.position.y = -.42; lg.add(m); g.add(lg); bl.push(lg); var ar = new T.Group(); ar.position.set(sx * .29, 1.56, 0); var a2 = new T.Mesh(new T.CylinderGeometry(.05, .05, .6, 8), cl); a2.position.y = -.3; ar.add(a2); g.add(ar); ba.push(ar); });
+      var bl = [], ba = [], AV = window.__fyrusAvatarClass, avb = null;
+      if (AV) try {
+        var hx = function (n) { return '#' + ('000000' + n.toString(16)).slice(-6); };
+        var of = { gender: k % 2 ? 'f' : 'm', hair: ['short', 'long', 'curly', 'ponytail'][k % 4], hairColor: ['#2a1a12', '#1a1410', '#3a2a1e', '#c9a46a'][k % 4], skin: hx(bc[1]), top: hx(bc[0]), bottom: '#20283a', shoes: '#efefef', topStyle: ['hoodie', 'tee', 'jacket', 'tee'][k % 4], bottomStyle: 'jeans' };
+        avb = new AV('', '#ffffff', '', false, { acc: 'none', trail: 'none', board: 'classic', outfit: of }, of);
+        avb.label.visible = false; avb.ring.visible = false;
+        g.remove(bd); g.remove(hd); g.add(avb.root);
+        bl = avb.legs; ba = avb.arms;
+      } catch (e) { avb = null; bl = []; ba = []; }
+      if (!avb) [-1, 1].forEach(function (sx) { var lg = new T.Group(); lg.position.set(sx * .1, .86, 0); var m = new T.Mesh(new T.CylinderGeometry(.065, .065, .84, 8), new T.MeshStandardMaterial({ color: 0x0a0f1a })); m.position.y = -.42; lg.add(m); g.add(lg); bl.push(lg); var ar = new T.Group(); ar.position.set(sx * .29, 1.56, 0); var a2 = new T.Mesh(new T.CylinderGeometry(.05, .05, .6, 8), cl); a2.position.y = -.3; ar.add(a2); g.add(ar); ba.push(ar); });
       g.add(aiLabel()); scene.add(g);
       var start = cabs[(k * 3 + 2) % cabs.length];
       bots.push({ g: g, legs: bl, arms: ba, x: (k % 2 ? 1 : -1) * 1.2, z: Z0 - 4 - k * 6, target: null, wait: 1 + k, ph: k, path: [], face: Math.PI });

@@ -358,6 +358,8 @@ var c7 = (t, e) => {
         }));
     }
   };
+/* add-ons (crowds, guards, arena) build their people with the same avatar class */
+window.__fyrusAvatarClass = Nn;
 var v7 = (t, e, a) => {
     let r = ((e - t + Math.PI) % (Math.PI * 2)) - Math.PI;
     return (r < -Math.PI && (r += Math.PI * 2), t + r * a);

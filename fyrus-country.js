@@ -5,7 +5,7 @@
 (function () {
   'use strict';
   if (window.__fyrusCountry) return;
-  var API = window.__fyrusCountry = { version: '1.3.0' };
+  var API = window.__fyrusCountry = { version: '1.4.0' };
   var GOLD = '#c9a96e', GOLD_HI = '#e8d5a8', IVORY = '#f4efe6', MUTED = '#9aa3b2';
   var LS = {
     get: function (k, d) { try { var v = localStorage.getItem('fyrusCountry.' + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -277,6 +277,20 @@
   function face(g, p) { g.rotation.y = Math.atan2(-p.x, -p.z); }
   /* a simple citizen-sized figure; parts: body, head, legL, legR, armL, armR */
   function figure(T, opt) {
+    var AV = window.__fyrusAvatarClass;
+    if (AV) try {
+      var hx = function (n, d) { return n == null ? d : typeof n === 'string' ? n : '#' + ('000000' + n.toString(16)).slice(-6); };
+      var of = { gender: opt.gender || 'm', hair: opt.hair || (opt.hat ? 'buzz' : 'short'), hairColor: opt.hairColor || '#1a1410', skin: hx(opt.skin, '#d6a77e'), top: hx(opt.cloth, '#1b2a4a'), bottom: hx(opt.legs, '#0a0f1a'), shoes: opt.hat === 'shako' ? '#0a0a0a' : '#1a1a1a', topStyle: opt.top || 'jacket', bottomStyle: 'trousers' };
+      var av = new AV('', '#ffffff', '', false, { acc: 'none', trail: 'none', board: 'classic', outfit: of }, of);
+      av.label.visible = false; av.ring.visible = false;
+      var g2 = av.root, trim2 = M(T, 0xc9a96e, { metal: 1, roughness: .3 });
+      if (opt.hat === 'shako') { cyl(T, av.head, M(T, 0x0a0f1a), .12, .115, .28, 0, .2, 0, 14); cyl(T, av.head, trim2, .125, .125, .04, 0, .08, 0, 14); cyl(T, av.head, trim2, .02, .02, .08, 0, .37, .0, 6); }
+      if (opt.hat === 'cap') { cyl(T, av.head, M(T, 0x1b2a4a), .14, .135, .08, 0, .12, 0, 14); }
+      if (opt.prop === 'guitar') { var gb = box(T, g2, M(T, 0x8a4b22, { roughness: .4 }), .34, .46, .1, .05, 1.1, .2); gb.rotation.z = .5; }
+      if (opt.prop === 'mic') { cyl(T, g2, M(T, 0x111111, { metal: .6 }), .02, .02, 1.4, 0, .7, .45, 6); }
+      g2.userData = { legs: av.legs, arms: av.arms, knees: av.knees, phase: Math.random() * 6, av: av };
+      return g2;
+    } catch (e) {}
     var g = new T.Group(), cloth = M(T, opt.cloth || 0x1b2a4a, { roughness: .6 }), skin = M(T, opt.skin || 0xd6a77e, { roughness: .6 }), trim = M(T, 0xc9a96e, { metal: 1, roughness: .3 });
     var body = cyl(T, g, cloth, .22, .26, .8, 0, 1.25, 0, 10); var head = new T.Mesh(new T.SphereGeometry(.15, 12, 10), skin); head.position.y = 1.82; g.add(head);
     var legs = [], arms = [];
@@ -292,7 +306,7 @@
     g.userData = { legs: legs, arms: arms, phase: Math.random() * 6 };
     return g;
   }
-  function walkPose(f, t, amp) { var u = f.userData, s = Math.sin(t) * amp; u.legs[0].rotation.x = s; u.legs[1].rotation.x = -s; u.arms[0].rotation.x = -s * .8; u.arms[1].rotation.x = s * .8; }
+  function walkPose(f, t, amp) { var u = f.userData, s = Math.sin(t) * amp; u.legs[0].rotation.x = s; u.legs[1].rotation.x = -s; u.arms[0].rotation.x = -s * .8; u.arms[1].rotation.x = s * .8; if (u.knees) { u.knees[0].rotation.x = .05 + Math.max(0, -s) * 1.2; u.knees[1].rotation.x = .05 + Math.max(0, s) * 1.2; } }
   function screen(T, w, h) {
     var c = document.createElement('canvas'); c.width = 1024; c.height = Math.round(1024 * h / w);
     var tex = new T.CanvasTexture(c); var mat = new T.MeshBasicMaterial({ map: tex });
@@ -611,7 +625,7 @@
       cone.position.set(-7.5 + k * 5, 7, -8); cone.rotation.x = .25; cone.visible = false; g.add(cone); anim.lights.push({ cone: cone, k: k });
     }
     var cast = [{ prop: 'mic', cloth: 0xc9a96e }, { prop: 'guitar', cloth: 0x2a2f3a }, { prop: 'guitar', cloth: 0x6b2f4a }];
-    cast.forEach(function (o, i) { var f = figure(T, { cloth: o.cloth, legs: 0x0a0f1a, prop: o.prop, skin: [0xd6a77e, 0x8d5a3b, 0xe8c4a0][i] }); f.position.set(-5 + i * 5, 1.4, -6); f.rotation.y = 0; f.visible = false; g.add(f); anim.performers.push(f); });
+    cast.forEach(function (o, i) { var f = figure(T, { cloth: o.cloth, legs: 0x0a0f1a, prop: o.prop, skin: [0xd6a77e, 0x8d5a3b, 0xe8c4a0][i], gender: i === 1 ? 'f' : 'm', hair: ['side', 'long', 'curly'][i], top: i === 1 ? 'dress' : 'shirt' }); f.position.set(-5 + i * 5, 1.4, -6); f.rotation.y = 0; f.visible = false; g.add(f); anim.performers.push(f); });
     var tag = label(T, 'FYRUS ENSEMBLE · AI', '#9aa3b2', 8); tag.position.set(0, 4.6, -6); tag.visible = false; g.add(tag); anim.ensembleTag = tag;
     var lb = label(T, 'SUNSET AMPHITHEATER', GOLD_HI, 18); lb.position.set(0, 17, -10.8); g.add(lb);
     anim.amphGroup = g;

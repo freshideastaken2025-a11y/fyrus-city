@@ -5,7 +5,7 @@
 (function () {
   'use strict';
   if (window.__fyrusArena) return;
-  var API = window.__fyrusArena = { version: '1.0.1' };
+  var API = window.__fyrusArena = { version: '1.1.0' };
   var GOLD = '#c9a96e', GOLD_HI = '#e8d5a8', IVORY = '#f4efe6';
   var LS = {
     get: function (k, d) { try { var v = localStorage.getItem('fyrusArena.' + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -108,11 +108,20 @@
       var grp = new T.Group();
       var body = new T.Mesh(T.CapsuleGeometry ? new T.CapsuleGeometry(.75, 1.2, 4, 10) : new T.CylinderGeometry(.75, .75, 2.2, 10), new T.MeshStandardMaterial({ color: color, metalness: .3, roughness: .45, emissive: isPlayer ? 0x3a2a08 : 0x000000 }));
       body.position.y = 1.4; body.castShadow = true; grp.add(body);
+      var AV = window.__fyrusAvatarClass, av = null;
+      if (AV) try {
+        var hx = '#' + ('000000' + color.toString(16)).slice(-6), k = (name || '').length;
+        var me = isPlayer && window.__fyrusW && window.__fyrusW.player && window.__fyrusW.player.outfit;
+        var of = me ? Object.assign({}, me, { top: hx, topStyle: 'hoodie' }) : { gender: k % 2 ? 'f' : 'm', hair: ['short', 'ponytail', 'curly', 'bun', 'mohawk', 'long'][k % 6], hairColor: ['#1a1410', '#3a2a1e', '#c9a46a', '#2a2420'][k % 4], skin: ['#e8c4a0', '#b9805a', '#8d5a3b', '#d6a77e', '#f0d2b4'][k % 5], top: hx, topStyle: 'hoodie', bottom: '#1a2232', bottomStyle: 'trousers', shoes: '#efefef' };
+        av = new AV('', '#ffffff', '', false, { acc: 'none', trail: 'none', board: 'classic', outfit: of }, of);
+        av.label.visible = false; av.ring.visible = false; av.root.scale.setScalar(1.55);
+        grp.remove(body); grp.add(av.root);
+      } catch (e) { av = null; }
       var gun = new T.Mesh(new T.BoxGeometry(.3, .3, 1.6), new T.MeshStandardMaterial({ color: 0x1a2232, metalness: .8, roughness: .3 })); gun.position.set(.55, 1.6, .9); grp.add(gun);
       var ring = new T.Mesh(new T.RingGeometry(1, 1.25, 32), new T.MeshBasicMaterial({ color: isPlayer ? 0xe8d5a8 : 0x4da3ff, transparent: true, opacity: .7 })); ring.rotation.x = -Math.PI / 2; ring.position.y = .06; grp.add(ring);
       scene.add(grp);
       var sp = spawnPoint(); grp.position.set(sp.x, 0, sp.z);
-      return { g: grp, body: body, name: name, hp: 100, alive: true, player: !!isPlayer, cd: 0, yaw: 0, kills: 0, target: null, think: 0, wander: null };
+      return { g: grp, body: body, av: av, lx: grp.position.x, lz: grp.position.z, name: name, hp: 100, alive: true, player: !!isPlayer, cd: 0, yaw: 0, kills: 0, target: null, think: 0, wander: null };
     }
     var player = makeFighter(0xd4b06a, 'You', true);
     var fighters = [player];
@@ -236,6 +245,12 @@
       if (!running) return;
       var dt = Math.max(0, Math.min(.05, (now - last) / 1000)); last = Math.max(last, now);
       if (started && !over) step(dt);
+      fighters.forEach(function (f) {
+        if (!f.av) return;
+        var mv = Math.hypot(f.g.position.x - f.lx, f.g.position.z - f.lz) / Math.max(dt, 1e-3); f.lx = f.g.position.x; f.lz = f.g.position.z;
+        f.av.speed += (Math.min(6, mv / 1.55) - f.av.speed) * Math.min(1, dt * 8);
+        try { f.av.update(dt, now / 1000); } catch (e) {}
+      });
       var p = player.alive ? player.g.position : (aliveList()[0] || player).g.position;
       cam.position.lerp(new T.Vector3(p.x, touch ? 46 : 40, p.z + (touch ? 26 : 24)), .12); cam.lookAt(p.x, 0, p.z - 2);
       renderer.render(scene, cam);

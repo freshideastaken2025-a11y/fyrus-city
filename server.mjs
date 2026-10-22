@@ -7497,7 +7497,16 @@ function createOps(d) {
       return { code: iv.code, label: iv.label, at: iv.at, opens, joined: j.length, nextDay: j.filter((u) => (u.days || []).includes(addDays(joinDay(u), 1))).length, active7: j.filter((u) => (u.days || []).some((x) => last7.includes(x))).length };
     });
     const noRef = users.filter((u) => !u.ref);
-    return { today, totalCitizens: users.length, daily, cohorts, areas: sum("time").slice(0, 20), exits: sum("exits").slice(0, 15), sess, invites, direct: { joined: noRef.length, active7: noRef.filter((u) => (u.days || []).some((x) => last7.includes(x))).length }, trackingSince: Object.keys(O.an.days).sort()[0] || today };
+    const who = {};
+    last7.forEach((dd) => {
+      const t = O.an.days[dd];
+      if (t && t.who) Object.entries(t.who).forEach(([k, m]) => {
+        const o = who[k] ||= {};
+        Object.entries(m).forEach(([v, n]) => o[v] = (o[v] || 0) + n);
+      });
+    });
+    Object.keys(who).forEach((k) => who[k] = Object.entries(who[k]).sort((a, b) => b[1] - a[1]).slice(0, 10));
+    return { who, today, totalCitizens: users.length, daily, cohorts, areas: sum("time").slice(0, 20), exits: sum("exits").slice(0, 15), sess, invites, direct: { joined: noRef.length, active7: noRef.filter((u) => (u.days || []).some((x) => last7.includes(x))).length }, trackingSince: Object.keys(O.an.days).sort()[0] || today };
   }
   const prevHttp = http2;
   http2 = function (req, res, p, ip, auth) {
@@ -7513,6 +7522,35 @@ function createOps(d) {
           seen(u);
           d.save();
         } else if (u) u.anArea = areaKey(b.a);
+        res.writeHead(204);
+        res.end();
+      });
+      return true;
+    }
+    if (p === "/api/an/visit" && req.method === "POST") {
+      readJson(req, 2048, (b) => {
+        const u = auth(String(b.tok || ""));
+        const today = day2();
+        if (u && u.anVisitDay !== today) {
+          u.anVisitDay = today;
+          const t = anDay();
+          t.who ||= {};
+          const bump2 = (k, v) => {
+            v = areaKey(v).slice(0, 40);
+            const m = t.who[k] ||= {};
+            if (Object.keys(m).length < 80 || m[v]) m[v] = (m[v] || 0) + 1;
+          };
+          bump2("device", b.dev);
+          bump2("os", b.os);
+          bump2("browser", b.br);
+          bump2("region", b.tz);
+          bump2("language", b.lang);
+          bump2("source", b.src);
+          bump2("quality", b.q);
+          const f = +b.fps || 0;
+          bump2("smoothness", !f ? "Unknown" : f < 20 ? "Slow (under 20 FPS)" : f < 30 ? "OK (20-30 FPS)" : f < 45 ? "Good (30-45 FPS)" : "Smooth (45+ FPS)");
+          d.save();
+        }
         res.writeHead(204);
         res.end();
       });
@@ -7578,7 +7616,7 @@ var TERMS = `
 <h2>10. Contact</h2><p>Questions or problems: use Report in the city or the Help page.</p>`;
 var PRIVACY = `
 <p class="note">This explains what Fyrus stores, why, and your choices. Fyrus servers are in Germany (EU).</p>
-<h2>What we store</h2><ul><li><b>Account:</b> your display name, Fyrus number, email (if you add one), a scrambled (hashed) password, or your Google account id if you sign in with Google.</li><li><b>City data:</b> your FYC statement, properties, listings and orders, courses and certificates, events, messages you send (city chat, groups and DMs), reports, and your avatar settings and optional face photo.</li><li><b>Technical:</b> error reports from your browser (to fix bugs), simple daily counts of visits, and your IP address in short-lived rate limits and server logs.</li><li><b>Usage statistics (our own, no outside trackers):</b> the days you visit (last 120), which invite link you came from, and once a minute the area of Fyrus you are in (for example a district or a menu) so we can see which places people like and where they leave. Admins only see totals, not a timeline of a person.</li></ul>
+<h2>What we store</h2><ul><li><b>Account:</b> your display name, Fyrus number, email (if you add one), a scrambled (hashed) password, or your Google account id if you sign in with Google.</li><li><b>City data:</b> your FYC statement, properties, listings and orders, courses and certificates, events, messages you send (city chat, groups and DMs), reports, and your avatar settings and optional face photo.</li><li><b>Technical:</b> error reports from your browser (to fix bugs), simple daily counts of visits, and your IP address in short-lived rate limits and server logs.</li><li><b>Usage statistics (our own, no outside trackers):</b> the days you visit (last 120), which invite link you came from, and once a minute the area of Fyrus you are in (for example a district or a menu) so we can see which places people like and where they leave; once a day also the kind of device (phone, tablet or computer), operating system, browser, time zone, language, which site sent you (for example WhatsApp or Google) and how smoothly Fyrus runs on your device. Admins only see totals, not a timeline of a person.</li></ul>
 <h2>What we do not do</h2><ul><li>We do not sell your data.</li><li>We do not show third-party ads based on your data.</li><li>We do not ask for ID cards, bank or card numbers in the beta.</li></ul>
 <h2>Who else processes data</h2><ul><li><b>Anthropic</b> translates chat messages when translation is on (the message text only).</li><li><b>Google</b> confirms your sign-in if you use "Sign in with Google".</li><li><b>Email provider</b> sends password reset codes.</li><li>Our hosting provider stores the server and its backups.</li></ul>
 <h2>Visibility</h2><p>Your name, colour, Fyrus number and avatar are visible to other people in the city. Stealth mode hides your name and photo behind an alias. Blocked people cannot message you.</p>

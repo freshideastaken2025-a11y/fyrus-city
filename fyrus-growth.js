@@ -9,7 +9,7 @@
 (function () {
   'use strict';
   if (window.__fyrusGrowth) return;
-  var API = window.__fyrusGrowth = { version: '1.0.0' };
+  var API = window.__fyrusGrowth = { version: '1.1.0' };
   var TOK = 'fyrus.net.token';
   var LS = { get: function (k) { try { return localStorage.getItem(k); } catch (e) { return null; } }, set: function (k, v) { try { localStorage.setItem(k, v); } catch (e) {} } };
   var S = function () { try { return window.__fyrus.getState(); } catch (e) { return null; } };
@@ -48,6 +48,45 @@
   setTimeout(tick, 15000);
   setInterval(tick, 60000);
   document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'hidden') { var tok = LS.get(TOK); if (tok) post('/api/an', { tok: tok, a: area() }); } });
+
+  /* ---------- once a day: what kind of device and where the visit came from (totals only) ---------- */
+  var SRC = (function () {
+    var saved = LS.get('fyrus.src'); if (saved) return saved;
+    var src = 'Direct';
+    try {
+      var q = new URLSearchParams(location.search);
+      if (q.get('ref')) src = 'Invite link';
+      else if (q.get('utm_source')) src = q.get('utm_source').slice(0, 30);
+      else if (document.referrer) {
+        var h = new URL(document.referrer).hostname.replace(/^www\./, '');
+        if (h !== location.hostname) {
+          src = /whatsapp|wa\.me/.test(h) ? 'WhatsApp' : /instagram/.test(h) ? 'Instagram' : /facebook|fb\.|messenger/.test(h) ? 'Facebook' : /google\./.test(h) ? 'Google' : /bing\./.test(h) ? 'Bing' : /(^|\.)t\.co$|twitter|x\.com/.test(h) ? 'X / Twitter' : /youtube|youtu\.be/.test(h) ? 'YouTube' : /tiktok/.test(h) ? 'TikTok' : /linkedin|lnkd/.test(h) ? 'LinkedIn' : /telegram|t\.me/.test(h) ? 'Telegram' : /reddit/.test(h) ? 'Reddit' : h.slice(0, 30);
+        }
+      }
+    } catch (e) {}
+    LS.set('fyrus.src', src);
+    return src;
+  })();
+  function deviceInfo() {
+    var ua = navigator.userAgent || '', touch = 'ontouchstart' in window || navigator.maxTouchPoints > 1, m = Math.min(screen.width, screen.height);
+    var dev = touch && m < 600 ? 'Phone' : touch && m < 1100 ? 'Tablet' : 'Computer';
+    var os = /Android/i.test(ua) ? 'Android' : /iPhone|iPod/i.test(ua) ? 'iPhone' : /iPad/i.test(ua) || (/Macintosh/.test(ua) && touch) ? 'iPad' : /Windows/i.test(ua) ? 'Windows' : /CrOS/.test(ua) ? 'ChromeOS' : /Mac OS X|Macintosh/.test(ua) ? 'Mac' : /Linux/i.test(ua) ? 'Linux' : 'Other';
+    var br = /SamsungBrowser/i.test(ua) ? 'Samsung Internet' : /Edg\//.test(ua) ? 'Edge' : /OPR\/|Opera/.test(ua) ? 'Opera' : /Firefox|FxiOS/.test(ua) ? 'Firefox' : /CriOS|Chrome\//.test(ua) ? 'Chrome' : /Safari/.test(ua) ? 'Safari' : 'Other';
+    var tz = ''; try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch (e) {}
+    var region = tz ? tz.split('/').slice(-1)[0].replace(/_/g, ' ') + (tz.indexOf('/') > 0 ? ' (' + tz.split('/')[0] + ')' : '') : 'Unknown';
+    var s = S() || {}, fps = 0; try { fps = (window.__fyrusPerf && window.__fyrusPerf.stats().fps) || 0; } catch (e) {}
+    return { dev: dev, os: os, br: br, tz: region, lang: (navigator.language || 'unknown').slice(0, 12), src: SRC, q: (s.settings && s.settings.quality) || 'unknown', fps: fps };
+  }
+  var visitSent = false;
+  function visit() {
+    if (visitSent || document.visibilityState !== 'visible') return;
+    var tok = LS.get(TOK), s = S();
+    if (!tok || !s || !s.net || s.net.status !== 'online') return;
+    visitSent = true;
+    post('/api/an/visit', Object.assign({ tok: tok }, deviceInfo()));
+  }
+  setTimeout(visit, 35000);
+  setInterval(visit, 60000);
 
   /* ---------- invite link opened ---------- */
   try {
@@ -163,6 +202,10 @@
     root.appendChild(el('h3', null, ['How long visits last · last 7 days']));
     var s = data.sess;
     root.appendChild(bars([['Under 1 minute', s.m1], ['1–5 minutes', s.m5], ['5–15 minutes', s.m15], ['15–60 minutes', s.m60], ['Over 1 hour', s.more]]));
+    var W = data.who || {}, names = [['device', 'Phone, tablet or computer'], ['source', 'Where visits come from'], ['region', 'Time zone (rough location)'], ['language', 'Browser language'], ['os', 'Operating system'], ['browser', 'Browser'], ['smoothness', 'How smoothly Fyrus runs'], ['quality', 'Graphics setting']];
+    root.appendChild(el('h3', null, ['Who visits · last 7 days (once per citizen per day)']));
+    if (!Object.keys(W).length) root.appendChild(el('div', { 'class': 'muted' }, ['Starts filling as citizens visit (each visit is counted after 35 seconds).']));
+    names.forEach(function (n) { if (!W[n[0]] || !W[n[0]].length) return; root.appendChild(el('div', { 'class': 'k', style: 'margin-top:10px' }, [n[1]])); root.appendChild(bars(W[n[0]])); });
     root.appendChild(el('h3', null, ['Daily · last 14 days']));
     var dt = el('table', null, [el('tr', null, [el('th', null, ['Day']), el('th', null, ['New']), el('th', null, ['Active']), el('th', null, ['Visits']), el('th', null, ['Peak online'])])]);
     data.daily.slice().reverse().forEach(function (d) { dt.appendChild(el('tr', null, [el('td', null, [d.day]), el('td', null, [d.newCitizens]), el('td', null, [d.active]), el('td', null, [d.visits]), el('td', null, [d.peak])])); });

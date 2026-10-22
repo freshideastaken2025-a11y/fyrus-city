@@ -14,7 +14,7 @@
 (function () {
   'use strict';
   if (window.__fyrusVB) return;
-  var API = window.__fyrusVB = { version: '1.0.2' };
+  var API = window.__fyrusVB = { version: '1.1.0' };
   var OX = 400, OZ = -810;                         /* local (0,0) of the bay in world coordinates */
   var LAND = { lx: -70, lz: -150 };                /* arrival point on the promenade */
   API.landing = { x: OX + LAND.lx, z: OZ + LAND.lz, face: { x: OX + 60, z: OZ + LAND.lz + 10 } };
@@ -551,18 +551,67 @@
       FX.flames = torches.map(function (p) { var s = new T.Sprite(flameMat); s.position.copy(p); s.scale.setScalar(3.2); root.add(s); return s; });
     },
     function folks() {
-      var P = { torso: new T.CylinderGeometry(.17, .15, .62, 10), head: new T.SphereGeometry(.11, 12, 10), hair: new T.SphereGeometry(.118, 12, 8, 0, Math.PI * 2, 0, Math.PI * .55), leg: new T.CylinderGeometry(.068, .06, .86, 8), arm: new T.CylinderGeometry(.048, .042, .6, 8), dress: new T.ConeGeometry(.34, 1.05, 14, 1, true) };
-      P.torso.scale(1.15, 1, .72); P.leg.translate(0, -.43, 0); P.arm.translate(0, -.3, 0); P.dress.translate(0, -.42, 0); P.hair.translate(0, .012, -.008);
-      var outfits = ['#f4efe6', '#efe6d4', '#e9dcc4', '#1b1d22', '#20283a', '#c8b48e', '#f7f3ec', '#2d2a28', '#d7c7ab', '#8a6b4a'], skins = ['#e8c4a0', '#d6a77e', '#b9805a', '#8d5a3b', '#f0d2b4', '#c58f68', '#6e4630'], hairs = ['#1a1410', '#3a2a1e', '#5a3d26', '#c9a46a', '#2a2420', '#0f0d0c'];
+      /* AI residents in the same stylised look as Fyrus avatars (v2), drawn as instanced parts so 260 people stay cheap */
+      var lathe = function (pts, seg, ps, pl) { if (pts[0][1] > pts[pts.length - 1][1]) pts = pts.slice().reverse(); return new T.LatheGeometry(pts.map(function (q) { return new T.Vector2(Math.max(.0005, q[0]), q[1]); }), seg, ps, pl); };
+      var limb = function (len, r0, r1) { return lathe([[.001, r0 * .6], [r0 * .7, r0 * .45], [r0, 0], [(r0 + r1) / 2 + .004, -len * .45], [r1, -len], [r1 * .7, -len - r1 * .45], [.001, -len - r1 * .6]], 10); };
+      var HS = 1.14;
+      var head = new T.SphereGeometry(.118 * HS, 20, 14), hp = head.attributes.position;
+      for (var q = 0; q < hp.count; q++) { var y = hp.getY(q); if (y < 0) { var k = 1 - .22 * Math.pow(-y / (.118 * HS), 1.4); hp.setX(q, hp.getX(q) * k); } }
+      head.scale(.95, 1.1, 1); head.computeVertexNormals();
+      var capA = new T.SphereGeometry(.128 * HS, 18, 6, 0, Math.PI * 2, 0, Math.PI * .36), capB = new T.SphereGeometry(.128 * HS, 18, 8, Math.PI / 2 + 1.2, Math.PI * 2 - 2.4, Math.PI * .36, Math.PI * .26);
+      capA.scale(.97, 1.08, 1.02); capB.scale(.97, 1.08, 1.02);
+      var longBack = lathe([[.1, .02], [.13, -.05], [.13, -.18], [.115, -.3], [.09, -.33]], 14, Math.PI / 2 + .25, Math.PI - .5); longBack.scale(HS, 1, HS * .85);
+      var P = {
+        pelvis: (function () { var g = new T.SphereGeometry(.16, 14, 8); g.scale(1.05, .62, .72); return g; })(),
+        torso: (function () { var g = lathe([[.001, -.02], [.152, -.01], [.15, .1], [.152, .2], [.17, .32], [.182, .42], [.175, .49], [.12, .545], [.055, .57], [.001, .575]], 16); g.scale(1, 1, .68); return g; })(),
+        neck: limb(.09, .05, .055),
+        head: head,
+        hair: mergeG([capA, capB]),
+        hairLong: mergeG([capA.clone(), capB.clone(), longBack]),
+        leg: limb(.86, .085, .046),
+        shoe: (function () { var g = new T.SphereGeometry(.06, 10, 8); g.scale(.95, .75, 2.05); g.translate(0, -.9, .045); return g; })(),
+        arm: limb(.5, .052, .036),
+        hand: (function () { var g = new T.SphereGeometry(.04, 8, 6); g.scale(.9, 1.2, .55); g.translate(0, -.56, 0); return g; })(),
+        dress: lathe([[.14, 0], [.2, -.2], [.29, -.5], [.285, -.52]], 16),
+        face: new T.PlaneGeometry(.21, .21)
+      };
+      function mergeG(list) {
+        var n = 0, arr = list.map(function (g) { return g.index ? g.toNonIndexed() : g; });
+        arr.forEach(function (g) { n += g.attributes.position.count; });
+        var Pp = new Float32Array(n * 3), Nn = new Float32Array(n * 3), o = 0;
+        arr.forEach(function (g) { if (!g.attributes.normal) g.computeVertexNormals(); Pp.set(g.attributes.position.array, o * 3); Nn.set(g.attributes.normal.array, o * 3); o += g.attributes.position.count; });
+        var out = new T.BufferGeometry(); out.setAttribute('position', new T.BufferAttribute(Pp, 3)); out.setAttribute('normal', new T.BufferAttribute(Nn, 3)); return out;
+      }
+      /* a painted face (eyes with sparkle, lashes, brows, nose shade, smile) on a transparent card in front of the head */
+      var fc = cnv(128, 128), fg = fc[1];
+      [-1, 1].forEach(function (s) {
+        var ex = 64 + s * 22, ey = 62;
+        fg.fillStyle = '#ffffff'; fg.beginPath(); fg.ellipse(ex, ey, 11, 12, 0, 0, Math.PI * 2); fg.fill();
+        fg.fillStyle = '#5a3a24'; fg.beginPath(); fg.arc(ex, ey + 1, 7.5, 0, Math.PI * 2); fg.fill();
+        fg.fillStyle = '#0c0a08'; fg.beginPath(); fg.arc(ex, ey + 1, 3.8, 0, Math.PI * 2); fg.fill();
+        fg.fillStyle = '#ffffff'; fg.beginPath(); fg.arc(ex + 2.5 * s, ey - 2.5, 1.8, 0, Math.PI * 2); fg.fill();
+        fg.strokeStyle = '#1a1210'; fg.lineWidth = 2.4; fg.beginPath(); fg.ellipse(ex, ey, 11.5, 12.5, 0, Math.PI * 1.1, Math.PI * 1.9); fg.stroke();
+        fg.strokeStyle = 'rgba(40,26,18,.9)'; fg.lineWidth = 3.2; fg.beginPath(); fg.ellipse(ex, ey - 6, 13, 9, 0, Math.PI * 1.2, Math.PI * 1.8); fg.stroke();
+      });
+      fg.fillStyle = 'rgba(120,70,50,.25)'; fg.beginPath(); fg.ellipse(64, 80, 5, 4, 0, 0, Math.PI * 2); fg.fill();
+      fg.strokeStyle = '#a24f50'; fg.lineWidth = 3; fg.lineCap = 'round'; fg.beginPath(); fg.arc(64, 86, 10, Math.PI * .2, Math.PI * .8); fg.stroke();
+      var faceTex = new T.CanvasTexture(fc[0]); if (T.sRGBEncoding) faceTex.encoding = T.sRGBEncoding;
+      var faceMat = new T.MeshBasicMaterial({ map: faceTex, transparent: true, depthWrite: false, alphaTest: .05 });
+      var outfits = ['#f4efe6', '#efe6d4', '#e9dcc4', '#1b1d22', '#20283a', '#c8b48e', '#f7f3ec', '#2d2a28', '#d7c7ab', '#8a6b4a', '#3b5b8a', '#b5525a', '#45e0ae'], skins = ['#e8c4a0', '#d6a77e', '#b9805a', '#8d5a3b', '#f0d2b4', '#c58f68', '#6e4630'], hairs = ['#1a1410', '#3a2a1e', '#5a3d26', '#c9a46a', '#2a2420', '#0f0d0c'], shoes = ['#1a1a1a', '#efefef', '#5b4632', '#c9a96e'];
       function pick(a) { return a[Math.floor(rnd() * a.length)]; }
-      function add(x, z, dir, lane, sy) { var woman = rnd() < .5, o = new T.Color(pick(outfits)), sk = new T.Color(pick(skins)); people.push({ x: x, z: z, dir: dir, lane: lane, speed: R(1, 1.5), ph: rnd() * 6.28, s: R(.94, 1.08) * (woman ? .96 : 1.02), woman: woman, o: o, sk: sk, hair: new T.Color(pick(hairs)), pants: woman ? sk : (rnd() < .5 ? new T.Color(pick(outfits)) : o), seated: sy != null, yaw: sy != null ? sy : (dir > 0 ? 0 : Math.PI), y: 2.62, pause: 0, axis: lane === 'back' ? 'x' : 'z' }); }
+      function add(x, z, dir, lane, sy) { var woman = rnd() < .5, o = new T.Color(pick(outfits)), sk = new T.Color(pick(skins)); people.push({ x: x, z: z, dir: dir, lane: lane, speed: R(1, 1.5), ph: rnd() * 6.28, s: R(.94, 1.06) * (woman ? .95 : 1), woman: woman, longHair: woman && rnd() < .75, o: o, sk: sk, hair: new T.Color(pick(hairs)), pants: woman && rnd() < .5 ? new T.Color(pick(outfits)) : new T.Color(pick(['#20283a', '#2b303a', '#1b1d22', '#3b5b8a', '#c8b48e'])), sleeve: rnd() < .45, shoe: new T.Color(pick(shoes)), seated: sy != null, yaw: sy != null ? sy : (dir > 0 ? 0 : Math.PI), y: 2.62, pause: 0, axis: lane === 'back' ? 'x' : 'z' }); }
       var n = low() ? 70 : 140;
       for (var i = 0; i < n; i++) { if (i % 6 === 0) add(R(-55, 65), R(-452, -444), rnd() < .5 ? 1 : -1, 'back'); else add(R(-74, -64), R(-430, 136), rnd() < .5 ? 1 : -1, 'left'); }
-      seated.slice(0, low() ? 40 : 120).forEach(function (s) { add(s[0], s[2], 0, 'seat', s[3]); });
+      seated.slice(0, low() ? 40 : 120).forEach(function (st) { add(st[0], st[2], 0, 'seat', st[3]); });
       var PN = people.length, parts = {}, cloth = new T.MeshStandardMaterial({ roughness: .75 }), skin = new T.MeshStandardMaterial({ roughness: .6 });
-      [['torso', P.torso, cloth], ['head', P.head, skin], ['hair', P.hair, skin], ['legL', P.leg, cloth], ['legR', P.leg, cloth], ['armL', P.arm, cloth], ['armR', P.arm, cloth], ['dress', P.dress, cloth]].forEach(function (d) {
-        var im = new T.InstancedMesh(d[1], d[2], PN); im.castShadow = !low(); im.frustumCulled = false; im.instanceMatrix.setUsage(T.DynamicDrawUsage);
-        people.forEach(function (p, i) { im.setColorAt(i, d[0] === 'head' ? p.sk : d[0] === 'hair' ? p.hair : d[0].indexOf('leg') === 0 ? p.pants : d[0].indexOf('arm') === 0 ? (rnd() < .3 ? p.sk : p.o) : p.o); });
+      var defs = [['pelvis', P.pelvis, cloth, function (p) { return p.pants; }], ['torso', P.torso, cloth, function (p) { return p.o; }], ['neck', P.neck, skin, function (p) { return p.sk; }], ['head', P.head, skin, function (p) { return p.sk; }],
+        ['face', P.face, faceMat, null], ['hair', P.hair, skin, function (p) { return p.hair; }], ['hairLong', P.hairLong, skin, function (p) { return p.hair; }],
+        ['legL', P.leg, cloth, function (p) { return p.woman && !p.seated && p.dressOn ? p.sk : p.pants; }], ['legR', P.leg, cloth, function (p) { return p.pants; }], ['shoeL', P.shoe, cloth, function (p) { return p.shoe; }], ['shoeR', P.shoe, cloth, function (p) { return p.shoe; }],
+        ['armL', P.arm, cloth, function (p) { return p.sleeve ? p.o : p.sk; }], ['armR', P.arm, cloth, function (p) { return p.sleeve ? p.o : p.sk; }], ['handL', P.hand, skin, function (p) { return p.sk; }], ['handR', P.hand, skin, function (p) { return p.sk; }], ['dress', P.dress, cloth, function (p) { return p.o; }]];
+      people.forEach(function (p) { p.dressOn = p.woman && rnd() < .45; if (p.dressOn) p.pants = p.sk.clone(); });
+      defs.forEach(function (d) {
+        var im = new T.InstancedMesh(d[1], d[2], PN); im.castShadow = !low() && d[0] !== 'face'; im.frustumCulled = false; im.instanceMatrix.setUsage(T.DynamicDrawUsage);
+        if (d[3]) people.forEach(function (p, k2) { im.setColorAt(k2, d[3](p)); });
         root.add(im); parts[d[0]] = im;
       });
       FX.parts = parts; FX.A = new T.Matrix4(); FX.B = new T.Matrix4(); FX.C = new T.Matrix4(); FX.ry = new T.Matrix4(); FX.sc = new T.Matrix4(); FX.rx = new T.Matrix4(); FX.tr = new T.Matrix4(); FX.ZERO = new T.Matrix4().makeScale(0, 0, 0);
@@ -593,17 +642,25 @@
       var p = people[i], swing = 0, bob = 0;
       if (!p.seated) {
         if (p.pause > 0) p.pause -= dt; else { p.ph += dt * p.speed * 4.4; if (p.axis === 'z') { p.z += p.dir * p.speed * dt; if (p.z > 138) p.z = -432; if (p.z < -432) p.z = 138; } else { p.x += p.dir * p.speed * dt; if (p.x > 66) p.x = -58; if (p.x < -58) p.x = 66; } if (Math.random() < .0008) p.pause = 2 + Math.random() * 4; }
-        swing = p.pause > 0 ? 0 : Math.sin(p.ph) * .42; bob = p.pause > 0 ? 0 : Math.abs(Math.cos(p.ph)) * .035;
+        swing = p.pause > 0 ? 0 : Math.sin(p.ph) * .42; bob = p.pause > 0 ? 0 : Math.abs(Math.cos(p.ph)) * .03;
         p.yaw = p.axis === 'z' ? (p.dir > 0 ? 0 : Math.PI) : (p.dir > 0 ? Math.PI / 2 : -Math.PI / 2);
       }
       FX.A.makeTranslation(p.x, p.y + bob, p.z); FX.ry.makeRotationY(p.yaw); FX.sc.makeScale(p.s, p.s, p.s); FX.B.multiplyMatrices(FX.A, FX.ry).multiply(FX.sc);
-      var sy = p.seated ? -.42 : 0;
-      setPart('torso', i, FX.B, 0, 1.2 + sy, 0, p.seated ? -.05 : 0);
-      setPart('head', i, FX.B, 0, 1.62 + sy, .01, 0); setPart('hair', i, FX.B, 0, 1.63 + sy, 0, 0);
-      if (p.seated) { setPart('legL', i, FX.B, -.09, .95 + sy, 0, -1.45); setPart('legR', i, FX.B, .09, .95 + sy, 0, -1.35); }
-      else { setPart('legL', i, FX.B, -.09, .95, 0, swing); setPart('legR', i, FX.B, .09, .95, 0, -swing); }
-      setPart('armL', i, FX.B, -.23, 1.44 + sy, 0, p.seated ? -.9 : -swing * .7); setPart('armR', i, FX.B, .23, 1.44 + sy, 0, p.seated ? -.8 : swing * .7);
-      setPart('dress', i, FX.B, 0, 1.3 + sy, 0, 0, !p.woman || p.seated);
+      var sy = p.seated ? -.42 : 0, lx = p.woman ? .088 : .092, ax = p.woman ? .18 : .205;
+      setPart('pelvis', i, FX.B, 0, .97 + sy, 0, 0);
+      setPart('torso', i, FX.B, 0, .99 + sy, 0, p.seated ? -.05 : 0);
+      setPart('neck', i, FX.B, 0, 1.64 + sy, -.005, 0);
+      setPart('head', i, FX.B, 0, 1.78 + sy, 0, 0);
+      setPart('face', i, FX.B, 0, 1.775 + sy, .142, 0);
+      setPart('hair', i, FX.B, 0, 1.795 + sy, -.004, 0, p.longHair);
+      setPart('hairLong', i, FX.B, 0, 1.795 + sy, -.004, 0, !p.longHair);
+      var la = p.seated ? -1.45 : swing, ra = p.seated ? -1.35 : -swing;
+      setPart('legL', i, FX.B, -lx, .93 + sy, 0, la); setPart('shoeL', i, FX.B, -lx, .93 + sy, 0, la);
+      setPart('legR', i, FX.B, lx, .93 + sy, 0, ra); setPart('shoeR', i, FX.B, lx, .93 + sy, 0, ra);
+      var al = p.seated ? -.9 : -swing * .7, ar = p.seated ? -.8 : swing * .7;
+      setPart('armL', i, FX.B, -ax, 1.45 + sy, 0, al); setPart('handL', i, FX.B, -ax, 1.45 + sy, 0, al);
+      setPart('armR', i, FX.B, ax, 1.45 + sy, 0, ar); setPart('handR', i, FX.B, ax, 1.45 + sy, 0, ar);
+      setPart('dress', i, FX.B, 0, 1.03 + sy, 0, 0, !p.dressOn || p.seated);
     }
     for (var k in FX.parts) FX.parts[k].instanceMatrix.needsUpdate = true;
   }
