@@ -7213,7 +7213,7 @@ function createOps(d) {
     keys.slice(0, Math.max(0, keys.length - 90)).forEach((k) => delete O.stats[k]);
   }
   const errHits = /* @__PURE__ */ new Map();
-  function http2(req, res, p, ip, auth) {
+  let http2 = function (req, res, p, ip, auth) {
     if (p === "/api/err" && req.method === "POST") {
       const now = Date.now();
       const a = (errHits.get(ip) || []).filter((t) => now - t < 6e4);
@@ -7401,7 +7401,162 @@ function createOps(d) {
     }
     return true;
   }
-  return { onMessage: onMessage2, http: http2, bump, track, backupNow, xpMsg };
+  /* ---------------- growth analytics + invite links (v43) ----------------
+     First-party only, no third-party trackers. Per citizen we keep the days they came (last 120) and the invite
+     code they arrived with; per day we keep minutes spent per area, where sessions ended, and session lengths. */
+  O.an ||= { days: {} };
+  O.invites ||= {};
+  const DAY_MS = 864e5;
+  const dayOf = (t) => new Date(t).toISOString().slice(0, 10);
+  const addDays = (d, n) => dayOf(Date.parse(d + "T00:00:00Z") + n * DAY_MS);
+  const anDay = (d) => {
+    const x = O.an.days[d || day2()] ||= { time: {}, exits: {}, sess: { m1: 0, m5: 0, m15: 0, m60: 0, more: 0 }, opens: {} };
+    return x;
+  };
+  function trimAn() {
+    const keys = Object.keys(O.an.days).sort();
+    keys.slice(0, Math.max(0, keys.length - 60)).forEach((k) => delete O.an.days[k]);
+  }
+  function seen(u) {
+    const today = day2();
+    u.days ||= [];
+    if (u.days[u.days.length - 1] !== today) {
+      u.days.push(today);
+      if (u.days.length > 120) u.days.splice(0, u.days.length - 120);
+      trimAn();
+    }
+  }
+  function joinedVia(u, code) {
+    const c = String(code || "").toLowerCase();
+    if (c && O.invites[c]) u.ref = c;
+  }
+  const areaKey = (a) => String(a || "").replace(/[\u0000-\u001f]/g, " ").trim().slice(0, 48) || "Unknown";
+  function left(u, ms) {
+    const t = anDay();
+    const a = u.anArea ? areaKey(u.anArea) : "Left in the first minute";
+    u.anArea = "";
+    if (Object.keys(t.exits).length < 200 || t.exits[a]) t.exits[a] = (t.exits[a] || 0) + 1;
+    const m = ms / 6e4;
+    t.sess[m < 1 ? "m1" : m < 5 ? "m5" : m < 15 ? "m15" : m < 60 ? "m60" : "more"]++;
+    d.save();
+  }
+  function readJson(req, max, cb) {
+    let raw = "";
+    req.on("data", (c) => {
+      raw += c;
+      if (raw.length > max) req.destroy();
+    });
+    req.on("end", () => {
+      let v = null;
+      try {
+        v = JSON.parse(raw || "{}");
+      } catch {
+      }
+      cb(v || {});
+    });
+  }
+  const json = (res, code, v) => {
+    res.writeHead(code, { "content-type": "application/json", "cache-control": "no-store" });
+    res.end(JSON.stringify(v));
+  };
+  function analytics() {
+    const users = Object.values(d.db.users);
+    const today = day2();
+    const days = [];
+    for (let i = 13; i >= 0; i--) days.push(addDays(today, -i));
+    const joinDay = (u) => dayOf(u.joined || 0);
+    const daily = days.map((dd) => {
+      const st = O.stats[dd] || {};
+      return { day: dd, newCitizens: users.filter((u) => joinDay(u) === dd).length, active: users.filter((u) => (u.days || []).includes(dd)).length, visits: st.visits || 0, peak: st.peak || 0 };
+    });
+    const cohorts = days.map((dd) => {
+      const c = users.filter((u) => joinDay(u) === dd);
+      const next = addDays(dd, 1);
+      const nextDay = next <= today ? c.filter((u) => (u.days || []).includes(next)).length : null;
+      const week = next <= today ? c.filter((u) => (u.days || []).some((x) => x > dd && x <= addDays(dd, 7))).length : null;
+      return { day: dd, joined: c.length, nextDay, week, partial: dd < (Object.keys(O.an.days).sort()[0] || today) };
+    }).filter((c) => c.joined > 0);
+    const last7 = days.slice(-7);
+    const sum = (k) => {
+      const out = {};
+      last7.forEach((dd) => {
+        const t = O.an.days[dd];
+        if (t) Object.entries(t[k] || {}).forEach(([a, n]) => out[a] = (out[a] || 0) + n);
+      });
+      return Object.entries(out).sort((a, b) => b[1] - a[1]);
+    };
+    const sess = { m1: 0, m5: 0, m15: 0, m60: 0, more: 0 };
+    last7.forEach((dd) => {
+      const t = O.an.days[dd];
+      if (t) Object.keys(sess).forEach((k) => sess[k] += t.sess[k] || 0);
+    });
+    const invites = Object.values(O.invites).sort((a, b) => b.at - a.at).map((iv) => {
+      const j = users.filter((u) => u.ref === iv.code);
+      let opens = 0;
+      Object.values(O.an.days).forEach((t) => opens += t.opens?.[iv.code] || 0);
+      return { code: iv.code, label: iv.label, at: iv.at, opens, joined: j.length, nextDay: j.filter((u) => (u.days || []).includes(addDays(joinDay(u), 1))).length, active7: j.filter((u) => (u.days || []).some((x) => last7.includes(x))).length };
+    });
+    const noRef = users.filter((u) => !u.ref);
+    return { today, totalCitizens: users.length, daily, cohorts, areas: sum("time").slice(0, 20), exits: sum("exits").slice(0, 15), sess, invites, direct: { joined: noRef.length, active7: noRef.filter((u) => (u.days || []).some((x) => last7.includes(x))).length }, trackingSince: Object.keys(O.an.days).sort()[0] || today };
+  }
+  const prevHttp = http2;
+  http2 = function (req, res, p, ip, auth) {
+    if (p === "/api/an" && req.method === "POST") {
+      readJson(req, 2048, (b) => {
+        const u = auth(String(b.tok || ""));
+        if (u && !(u.anLast > Date.now() - 5e4)) {
+          u.anLast = Date.now();
+          const a = areaKey(b.a);
+          const t = anDay();
+          if (Object.keys(t.time).length < 200 || t.time[a]) t.time[a] = (t.time[a] || 0) + 1;
+          u.anArea = a;
+          seen(u);
+          d.save();
+        } else if (u) u.anArea = areaKey(b.a);
+        res.writeHead(204);
+        res.end();
+      });
+      return true;
+    }
+    if (p === "/api/ref" && req.method === "POST") {
+      readJson(req, 512, (b) => {
+        const c = String(b.c || "").toLowerCase().slice(0, 24);
+        if (O.invites[c]) {
+          const t = anDay();
+          t.opens[c] = (t.opens[c] || 0) + 1;
+          d.save();
+        }
+        res.writeHead(204);
+        res.end();
+      });
+      return true;
+    }
+    if (p === "/api/admin/analytics" || p === "/api/admin/invites") {
+      const u = auth(String(req.headers.authorization || "").replace(/^Bearer\s+/i, ""));
+      if (!u || !d.isAdmin(u.id)) return json(res, 403, { error: "Judges only" }), true;
+      if (p === "/api/admin/analytics") return json(res, 200, analytics()), true;
+      if (req.method !== "POST") return json(res, 405, { error: "POST" }), true;
+      readJson(req, 2048, (b) => {
+        if (b.del) {
+          delete O.invites[String(b.del).toLowerCase()];
+          d.save();
+          return json(res, 200, { ok: true });
+        }
+        const label = d.clean(b.label, 40);
+        if (!label) return json(res, 400, { error: "Give the invite a name, for example: Ali's friends" });
+        if (Object.keys(O.invites).length >= 300) return json(res, 400, { error: "Too many invite links" });
+        const slug = label.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 14) || "invite";
+        let code;
+        do code = slug + "-" + Math.random().toString(36).slice(2, 6); while (O.invites[code]);
+        O.invites[code] = { code, label, at: Date.now(), by: u.id };
+        d.save();
+        json(res, 200, { ok: true, code });
+      });
+      return true;
+    }
+    return prevHttp(req, res, p, ip, auth);
+  };
+  return { onMessage: onMessage2, http: http2, bump, track, backupNow, xpMsg, seen, joinedVia, left };
 }
 
 // server/legal.ts
@@ -7423,7 +7578,7 @@ var TERMS = `
 <h2>10. Contact</h2><p>Questions or problems: use Report in the city or the Help page.</p>`;
 var PRIVACY = `
 <p class="note">This explains what Fyrus stores, why, and your choices. Fyrus servers are in Germany (EU).</p>
-<h2>What we store</h2><ul><li><b>Account:</b> your display name, Fyrus number, email (if you add one), a scrambled (hashed) password, or your Google account id if you sign in with Google.</li><li><b>City data:</b> your FYC statement, properties, listings and orders, courses and certificates, events, messages you send (city chat, groups and DMs), reports, and your avatar settings and optional face photo.</li><li><b>Technical:</b> error reports from your browser (to fix bugs), simple daily counts of visits, and your IP address in short-lived rate limits and server logs.</li></ul>
+<h2>What we store</h2><ul><li><b>Account:</b> your display name, Fyrus number, email (if you add one), a scrambled (hashed) password, or your Google account id if you sign in with Google.</li><li><b>City data:</b> your FYC statement, properties, listings and orders, courses and certificates, events, messages you send (city chat, groups and DMs), reports, and your avatar settings and optional face photo.</li><li><b>Technical:</b> error reports from your browser (to fix bugs), simple daily counts of visits, and your IP address in short-lived rate limits and server logs.</li><li><b>Usage statistics (our own, no outside trackers):</b> the days you visit (last 120), which invite link you came from, and once a minute the area of Fyrus you are in (for example a district or a menu) so we can see which places people like and where they leave. Admins only see totals, not a timeline of a person.</li></ul>
 <h2>What we do not do</h2><ul><li>We do not sell your data.</li><li>We do not show third-party ads based on your data.</li><li>We do not ask for ID cards, bank or card numbers in the beta.</li></ul>
 <h2>Who else processes data</h2><ul><li><b>Anthropic</b> translates chat messages when translation is on (the message text only).</li><li><b>Google</b> confirms your sign-in if you use "Sign in with Google".</li><li><b>Email provider</b> sends password reset codes.</li><li>Our hosting provider stores the server and its backups.</li></ul>
 <h2>Visibility</h2><p>Your name, colour, Fyrus number and avatar are visible to other people in the city. Stealth mode hides your name and photo behind an alias. Blocked people cannot message you.</p>
@@ -8104,6 +8259,7 @@ wss.on("connection", (ws, req) => {
         const c = createUser(clean(m.name, 24) || "Citizen", m.lang);
         u = c.u;
         token = c.token;
+        ops.joinedVia(u, clean(m.ref, 24));
         u.toks = [u.tok];
         u.color = clean(m.color, 9) || "#4da3ff";
         save();
@@ -8119,9 +8275,10 @@ wss.on("connection", (ws, req) => {
         send(old.ws, { t: "err", text: "You opened Fyrus in another tab." });
         old.ws.close();
       }
-      me = { ws, u, x: 0, z: 36, y: 0, ry: 0, scene: "plaza", voice: false, rate: [] };
+      me = { ws, u, x: 0, z: 36, y: 0, ry: 0, scene: "plaza", voice: false, rate: [], since: Date.now() };
       live.set(u.id, me);
       ops.bump("visits");
+      ops.seen(u);
       send(ws, { t: "welcome", token, me: meOf(u), plots: db.plots, groups: Object.values(db.groups).filter((g) => g.members.includes(u.id)), online: live.size, translate: !!AI_KEY });
       broadcast({ t: "online", n: live.size });
       return;
@@ -8136,6 +8293,7 @@ wss.on("connection", (ws, req) => {
     clearTimeout(hello);
     if (me && live.get(me.u.id) === me) {
       live.delete(me.u.id);
+      try { ops.left(me.u, Date.now() - (me.since || Date.now())); } catch {}
       me.u.seen = Date.now();
       save();
       broadcast({ t: "left", id: me.u.id });

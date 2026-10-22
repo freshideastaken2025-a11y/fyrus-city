@@ -752,6 +752,15 @@ var bh = "fyrus.net.token",
               name: o?.name,
               color: o?.color,
               lang: ot().settings.lang || "en",
+              ref: (() => {
+                try {
+                  let q = new URLSearchParams(location.search).get("ref");
+                  q && !localStorage.getItem("fyrus.ref") && localStorage.setItem("fyrus.ref", q.slice(0, 24));
+                  return localStorage.getItem("fyrus.ref") || void 0;
+                } catch {
+                  return void 0;
+                }
+              })(),
             }),
           );
         }),

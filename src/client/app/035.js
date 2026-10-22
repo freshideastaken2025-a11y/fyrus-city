@@ -602,6 +602,7 @@ function a5() {
           ["reports", `Reports${r ? ` (${r.openReports})` : ""}`, Fs],
           ["users", "Users", $e],
           ["errors", "Errors", uE],
+          ["growth", "Growth", ax],
         ].map(([g, m, f]) =>
           (0, xt.jsxs)(
             "button",
@@ -615,6 +616,13 @@ function a5() {
           ),
         ),
       }),
+      e === "growth" &&
+        (0, xt.jsx)("div", {
+          className: "card p-3",
+          ref: (g) => {
+            g && window.__fyrusGrowth && window.__fyrusGrowth.mount(g);
+          },
+        }),
       e === "stats" &&
         (r
           ? (0, xt.jsxs)(xt.Fragment, {

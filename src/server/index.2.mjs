@@ -589,6 +589,7 @@ wss.on("connection", (ws, req) => {
         const c = createUser(clean(m.name, 24) || "Citizen", m.lang);
         u = c.u;
         token = c.token;
+        ops.joinedVia(u, clean(m.ref, 24));
         u.toks = [u.tok];
         u.color = clean(m.color, 9) || "#4da3ff";
         save();
@@ -604,9 +605,10 @@ wss.on("connection", (ws, req) => {
         send(old.ws, { t: "err", text: "You opened Fyrus in another tab." });
         old.ws.close();
       }
-      me = { ws, u, x: 0, z: 36, y: 0, ry: 0, scene: "plaza", voice: false, rate: [] };
+      me = { ws, u, x: 0, z: 36, y: 0, ry: 0, scene: "plaza", voice: false, rate: [], since: Date.now() };
       live.set(u.id, me);
       ops.bump("visits");
+      ops.seen(u);
       send(ws, { t: "welcome", token, me: meOf(u), plots: db.plots, groups: Object.values(db.groups).filter((g) => g.members.includes(u.id)), online: live.size, translate: !!AI_KEY });
       broadcast({ t: "online", n: live.size });
       return;
@@ -621,6 +623,7 @@ wss.on("connection", (ws, req) => {
     clearTimeout(hello);
     if (me && live.get(me.u.id) === me) {
       live.delete(me.u.id);
+      try { ops.left(me.u, Date.now() - (me.since || Date.now())); } catch {}
       me.u.seen = Date.now();
       save();
       broadcast({ t: "left", id: me.u.id });

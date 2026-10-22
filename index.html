@@ -911,6 +911,15 @@ var bh = "fyrus.net.token",
               name: o?.name,
               color: o?.color,
               lang: ot().settings.lang || "en",
+              ref: (() => {
+                try {
+                  let q = new URLSearchParams(location.search).get("ref");
+                  q && !localStorage.getItem("fyrus.ref") && localStorage.setItem("fyrus.ref", q.slice(0, 24));
+                  return localStorage.getItem("fyrus.ref") || void 0;
+                } catch {
+                  return void 0;
+                }
+              })(),
             }),
           );
         }),
@@ -45394,6 +45403,7 @@ function a5() {
           ["reports", `Reports${r ? ` (${r.openReports})` : ""}`, Fs],
           ["users", "Users", $e],
           ["errors", "Errors", uE],
+          ["growth", "Growth", ax],
         ].map(([g, m, f]) =>
           (0, xt.jsxs)(
             "button",
@@ -45407,6 +45417,13 @@ function a5() {
           ),
         ),
       }),
+      e === "growth" &&
+        (0, xt.jsx)("div", {
+          className: "card p-3",
+          ref: (g) => {
+            g && window.__fyrusGrowth && window.__fyrusGrowth.mount(g);
+          },
+        }),
       e === "stats" &&
         (r
           ? (0, xt.jsxs)(xt.Fragment, {
@@ -50261,5 +50278,6 @@ react/cjs/react-jsx-runtime.production.js:
 <script src="/fyrus-atmos.js?v=1.0.1" defer></script>
 <script src="/fyrus-hud.js?v=1.0.1" defer></script>
 <script src="/fyrus-vectorbay.js?v=1.0.2" defer></script>
+<script src="/fyrus-growth.js?v=1.0.0" defer></script>
 
 </body></html>
