@@ -6,7 +6,7 @@
 (function () {
   'use strict';
   if (window.__fyrusMall3D) return;
-  var API = window.__fyrusMall3D = { version: '1.0.0' };
+  var API = window.__fyrusMall3D = { version: '1.0.1' };
   var GOLD = '#c9a96e', GOLD_HI = '#e8d5a8', IVORY = '#f4efe6', MUTED = '#9aa3b2';
   var S = function () { try { return window.__fyrus.getState(); } catch (e) { return null; } };
   var css = '' +
@@ -60,7 +60,7 @@
     var camera = new T.PerspectiveCamera(56, 1, .1, 120);
     var scene, room, peds = [], boxes = [], sel = 0, explode = 0, autoExplode = true;
     var W = 9, Z0 = 12, Z1 = -14, H = 6.5;
-    var me = { x: 0, z: Z0 - 2, yaw: Math.PI, ph: 0, moving: false }, avatar, legs = [], arms = [], auto = null, keys = {}, stickV = { x: 0, y: 0 }, camYaw = 0, camPitch = .34, camDist = 4.8;
+    var me = { x: 0, z: Z0 - 2, yaw: Math.PI, face: Math.PI, ph: 0, moving: false }, avatar, legs = [], arms = [], auto = null, keys = {}, stickV = { x: 0, y: 0 }, camYaw = 0, camPitch = .34, camDist = 4.8;
     var camPos = new T.Vector3(0, 3, Z0), camLook = new T.Vector3(0, 1.4, 0), t0 = performance.now(), last = t0, raf = 0, ray = new T.Raycaster(), ndc = new T.Vector2();
 
     function makeAvatar() {
@@ -122,7 +122,7 @@
       var ctop = new T.Mesh(new T.BoxGeometry(4.1, .06, 1.05), new T.MeshBasicMaterial({ color: col })); ctop.position.set(0, 1.13, Z1 + 1.5); scene.add(ctop);
       if (!avatar) avatar = makeAvatar(); scene.add(avatar);
       var you = new T.Mesh(new T.RingGeometry(.42, .5, 40), new T.MeshBasicMaterial({ color: 0xe8d5a8, transparent: true, opacity: .9, side: T.DoubleSide, depthWrite: false })); you.rotation.x = -Math.PI / 2; you.position.y = .03; scene.add(you); scene.userData.you = you;
-      me.x = 0; me.z = Z0 - 2; me.yaw = Math.PI; camYaw = 0; auto = null; sel = 0;
+      me.x = 0; me.z = Z0 - 2; me.yaw = Math.PI; me.face = Math.PI; camYaw = 0; auto = null; sel = 0;
       select(0, true);
     }
     function blocked(x, z, r) { if (x < -W + .5 || x > W - .5 || z > Z0 - .5 || z < Z1 + .5) return true; for (var i = 0; i < boxes.length; i++) { var b = boxes[i]; if (x > b.x0 - r && x < b.x1 + r && z > b.z0 - r && z < b.z1 + r) return true; } return false; }
@@ -154,6 +154,7 @@
       hint.textContent = standing ? (touch ? 'Tap View & buy · slide 4D to see how it is made' : 'Press E to view & buy · move the 4D slider to see how it is made') : (touch ? 'Joystick to walk · tap a product to walk to it' : 'WASD to walk · drag to turn · click a product to walk to it');
       if (me.moving && !drag) camYaw += ((me.yaw + Math.PI - camYaw + Math.PI * 3) % (Math.PI * 2) - Math.PI) * Math.min(1, dt * 1.6);
       if (standing && !me.moving && !drag) camYaw += ((me.yaw + Math.PI - .4 * peds[sel].side - camYaw + Math.PI * 3) % (Math.PI * 2) - Math.PI) * Math.min(1, dt * 2);
+      if (!isFinite(me.yaw)) me.yaw = Math.PI; if (!isFinite(camYaw)) camYaw = 0;
       var want = new T.Vector3(me.x + Math.sin(camYaw) * camDist * Math.cos(camPitch), 2 + Math.sin(camPitch) * camDist, me.z + Math.cos(camYaw) * camDist * Math.cos(camPitch));
       want.x = Math.max(-W + .4, Math.min(W - .4, want.x)); want.z = Math.max(Z1 + .4, Math.min(Z0 - .3, want.z)); want.y = Math.min(H - .4, want.y);
       camPos.lerp(want, Math.min(1, dt * 5)); camLook.lerp(new T.Vector3(me.x, 1.45, me.z), Math.min(1, dt * 8)); camera.position.copy(camPos); camera.lookAt(camLook);

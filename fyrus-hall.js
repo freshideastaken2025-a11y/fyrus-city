@@ -6,7 +6,7 @@
 (function () {
   'use strict';
   if (window.__fyrusHall) return;
-  var API = window.__fyrusHall = { version: '3.0.0' };
+  var API = window.__fyrusHall = { version: '3.0.1' };
   var GOLD = '#c9a96e', GOLD_HI = '#e8d5a8', IVORY = '#f4efe6', MUTED = '#9aa3b2';
   var FALLBACK = [
     { id: 'hockey', name: 'Neon Air Hockey', tag: 'First to 5 goals', players: '1P vs AI · 2P same keyboard', ready: true, color: '#4da3ff' },
@@ -264,7 +264,7 @@
     }
 
     /* ---------- your avatar (a copy of your own citizen) ---------- */
-    var me = { x: 0, z: Z0 - 2.5, yaw: Math.PI, moving: false, ph: 0 }, avatar, legs = [], arms = [];
+    var me = { x: 0, z: Z0 - 2.5, yaw: Math.PI, face: Math.PI, moving: false, ph: 0 }, avatar, legs = [], arms = [];
     (function makeAvatar() {
       var Wd = window.__fyrusW, P = Wd && Wd.player;
       if (P && P.root) {
@@ -301,7 +301,7 @@
       [-1, 1].forEach(function (sx) { var lg = new T.Group(); lg.position.set(sx * .1, .86, 0); var m = new T.Mesh(new T.CylinderGeometry(.065, .065, .84, 8), new T.MeshStandardMaterial({ color: 0x0a0f1a })); m.position.y = -.42; lg.add(m); g.add(lg); bl.push(lg); var ar = new T.Group(); ar.position.set(sx * .29, 1.56, 0); var a2 = new T.Mesh(new T.CylinderGeometry(.05, .05, .6, 8), cl); a2.position.y = -.3; ar.add(a2); g.add(ar); ba.push(ar); });
       g.add(aiLabel()); scene.add(g);
       var start = cabs[(k * 3 + 2) % cabs.length];
-      bots.push({ g: g, legs: bl, arms: ba, x: (k % 2 ? 1 : -1) * 1.2, z: Z0 - 4 - k * 6, target: null, wait: 1 + k, ph: k, path: [] });
+      bots.push({ g: g, legs: bl, arms: ba, x: (k % 2 ? 1 : -1) * 1.2, z: Z0 - 4 - k * 6, target: null, wait: 1 + k, ph: k, path: [], face: Math.PI });
     });
 
     /* ---------- walking + paths ---------- */
@@ -371,6 +371,7 @@
       /* third-person camera behind your avatar */
       if (me.moving && !drag) camYaw += ((me.yaw + Math.PI - camYaw + Math.PI * 3) % (Math.PI * 2) - Math.PI) * Math.min(1, dt * 1.6);
       if (standing && !me.moving && !drag) camYaw += ((me.yaw + Math.PI - .35 * cabs[sel].side - camYaw + Math.PI * 3) % (Math.PI * 2) - Math.PI) * Math.min(1, dt * 2);
+      if (!isFinite(me.yaw)) me.yaw = Math.PI; if (!isFinite(camYaw)) camYaw = 0;
       var want = new T.Vector3(me.x + Math.sin(camYaw) * camDist * Math.cos(camPitch), 1.4 + Math.sin(camPitch) * camDist + .6, me.z + Math.cos(camYaw) * camDist * Math.cos(camPitch));
       want.x = Math.max(-W + .4, Math.min(W - .4, want.x)); want.z = Math.max(Z1 + .4, Math.min(Z0 - .3, want.z)); want.y = Math.min(H - .5, want.y);
       camPos.lerp(want, Math.min(1, dt * 5)); camLook.lerp(new T.Vector3(me.x, 1.45, me.z), Math.min(1, dt * 8));
