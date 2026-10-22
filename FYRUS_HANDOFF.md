@@ -3,7 +3,7 @@
 > **For any AI or developer picking this up (Claude, ChatGPT, Gemini, OpenClaw agents, humans):**
 > Read this whole file before changing anything. When you finish a task, **update the
 > "Done" and "Pending" sections and the changelog at the bottom** in the same commit.
-> Last updated: **22 Oct 2026, v29** (by Claude, night shift).
+> Last updated: **22 Oct 2026, v33** (by Claude, night shift).
 
 ---
 
@@ -41,7 +41,10 @@ Claude Pro, ChatGPT Pro, Gemini Pro, OpenClaw + Ollama (local models), Hostinger
 | `fyrus-world.js` | Country layer v2.0: **lore** (9 provinces, Great Houses, history, Charter, calendar), **Book of Fyrus**, province **banners** in the city, **Frostspine mountains**, film colour grade. Exposes `window.__fyrusWorld`. |
 | `fyrus-arena.js` | **Arcadia Battle Arena** v1.0.1: PUBG-style last-one-standing vs 11 AI rivals, shrinking storm, cover, med kits, mobile joystick + auto-aim; rewards XP only (no FYC). Entry: ⚔️ dock button or the gate near Play City (E). Loaded on demand by `fyrus-plus.js`. |
 | `fyrus-intro.js` | **Opening film** v2.0 (~30 s): heartbeat → gold map reveal → FYRUS title → 9 provinces with unique architecture assembling → "Population: You" + Enter / Read the Book. Original synthesised score. Exposes `window.__fyrusIntro`. |
-| `Dockerfile` | `node:22-alpine`, copies server + all public files, port 80. |
+| `fyrus-country.js` | **Country layer** v1.1.1 (`window.__fyrusCountry`): 🧭 **Fyrus Transit** (flights to Vector Bay, Metro and Bus Adda rides = teleport with a short ride card), **Grand Central + Bus Adda** building and 4 buses on the ring road; 🏛 **Life in the country** hub: *Today in Fyrus* daily programme (Morning Parade 09:00, Storytime 11:00, Open Mic 13:00, Market Hour 16:00, Changing of the Guard 18:00, Sunset Concert 20:00, Night Set 22:00 — local time), *Friends* (real online citizens from `W.peers`, Go-to), *Guard & Peace* (ceremonial ranks Recruit→Marshal from duty points: daily check-in, patrol with gold beacons, ceremonies; stored on device), *Learn* (education ladder deep-links), *Publish & Rent* (links to existing citizen news, estate rent, event halls), *Family* (**Kids mode** with parent PIN: hides stranger chat + closes Battle Arena). World sites: **Fyrus Guard parade ground** (16 AI honour guards, province flags, Peace Office "Real crime: 0"), **Sunset Amphitheater** (screen shows live/next event; AI "Fyrus Ensemble" + lights + synth music during concerts if sound is on), **Family Park** (carousel, swings, slide, fountain). Sites are chosen at runtime from free lots (`pickSite`, avoids `W.blocked`), reserved via a `W.blocked` wrapper and cached per device in localStorage. |
+| `vector-bay.html` | **Vector Bay** (Azure Coast, House Maren) — standalone Three.js 0.160 scene (ES modules from jsDelivr): sunset sky + PMREM, Water shader, marble promenade, travertine residences with glass balconies, gilded twin towers, hillside villas, palms/cypress/olive groves, 150 walking AI residents + café guests, yachts, sailboats, galleons, old citadel with House Maren banners and torches, bloom + film grade. Modes: Cinematic tour (7 shots, `?shot=N&hold=T` for testing), Explore (orbit), **Walk** (`?walk=1`: WASD/joystick on the promenade + pontoons, sit at cafés, storefront panel, evening yacht cruise). Reached from Transit → Flights. |
+| `src/server/ladder.mjs` | v32 **education ladder** seed: Fyrus Public School → Fyrus College → University of Fyrus (3 free courses each, 3 lessons + quiz each, teacher = Fyrus Academy so certificates are auto-issued and HMAC-signed by `edu.mjs`). Idempotent; called after `createEdu` in `index.2.mjs`. |
+| `Dockerfile` | `node:22-alpine`, copies server + all public files (incl. `fyrus-country.js`, `vector-bay.html`), port 80. |
 
 **Add-on pattern (important):** because the original source is missing, new features are written as
 separate files that hook into the app through two globals the bundle exposes:
@@ -112,6 +115,10 @@ zero real crime, fair trade (escrow), one citizen one vote, protect children & e
   all configurable by env `OPENING_CAP`, `MAX_REWARD_PER_OP`, `DAILY_REWARD_CAP`);
   **removed fake activity** — fake "X bought through your link" affiliate income and fake chat on the
   user's *own* live stream are switched off.
+- v23–v29: editable source, server-side money/land, honest data, report safety, Battle Arena, Easy mode (see changelog).
+- v30–v33 (**P1 country phase**): Vector Bay city scene + walk mode; Fyrus Transit; Grand Central & Bus Adda;
+  Fyrus Guard & Peace Office; Sunset Amphitheater + daily programme; Family Park + Kids mode; friend finder;
+  education ladder with real certificates; publish/rent/events desk.
 - Ops: GitHub → Coolify auto-deploy webhook working.
 
 ## 7. PENDING ⏳ (in priority order)
@@ -155,19 +162,22 @@ zero real crime, fair trade (escrow), one citizen one vote, protect children & e
    on a mid-range Android phone.
 
 ### P1 — the country (vision)
-8. **20+ cities** (now 7 districts + capital). Each: name in the lore, purpose, signature building,
-   airport/station. Add them to `PROVINCES` + map + film.
+8. **20+ cities** (now 7 districts + capital + **Vector Bay** scene). Each: name in the lore, purpose, signature
+   building, airport/station. The other agent's `CITIES` register (branch p1-cities-foundation) should feed
+   `FLIGHTS` in fyrus-country.js. Pattern for a new city: copy `vector-bay.html`, change geography + palette,
+   add it to `FLIGHTS` (`open: true`). Next: Vector Bay multiplayer (connect `/ws` with the stored session),
+   real shops in the storefronts (market module), AI residents that talk.
 9. **Real 3D look:** replace box/cylinder buildings with glTF models (free CC0 packs: Kenney, Quaternius,
    Poly Haven), better night lighting, sound design. Needs P0-4 first.
-10. **Train network** between cities with stations + **bus adda**; ride inside.
-11. **Beach & coast** (sand, palms, promenade) on the Azure Coast; more realistic mountains.
+10. ~~Train/bus~~ **v31–v32:** Transit desk + Grand Central/Bus Adda + ring-road buses. Next: ride *inside* a train between city scenes.
+11. ~~Beach & coast~~ **v30:** Vector Bay (marina, promenade, palms, beach north of the quays). Next: swimmable beach.
 12. **Arcadia battle arena** — v28 ships a battle-royale vs AI. Next: real multiplayer rooms over `/ws`, heist mode, leaderboard.
-13. **Army & police** — parade ground, ranks, ceremonies; zero-crime HUD.
-14. **Concerts & events** — big venue, ticketed events, bars/lounges zone.
-15. **Education ladder** — school → college → University of Fyrus campus, certificates.
-16. **News & publishing** — any citizen can publish articles / open a channel in Lumen.
-17. **Homes for rent** (sale exists) and **worldwide sellers** in Meridian.
-18. **Belonging** — v29 adds Easy mode for elders/first-timers. Still to do: daily events, friend finder, kids' safe zone.
+13. ~~Army & police~~ **v32:** parade ground, ceremonial ranks, ceremonies, Peace Office. Next: server-side ranks.
+14. ~~Concerts~~ **v32:** Sunset Amphitheater + programme (lounges already existed). Next: citizens host stage slots (server).
+15. ~~Education ladder~~ **v32:** 9 free courses with signed certificates. Next: diplomas (all 3 courses of a step) and a campus building.
+16. **News & publishing** — citizen reports already exist (news_submit, 3/day, passport holders); hub links to it. Next: personal channels.
+17. **Homes for rent** — exists in estate (`est_rent`); hub links to it. Worldwide sellers in Meridian still to do.
+18. ~~Belonging~~ **v29 + v32:** Easy mode, daily programme, friend finder, Family Park + Kids mode.
 
 ### P2 — business
 19. Brand sales kit for the 13-person sales team (billboards, showrooms, sponsored quests).
@@ -177,7 +187,8 @@ zero real crime, fair trade (escrow), one citizen one vote, protect children & e
 - On 22 Oct 2026 another agent (not Claude) was working **uncommitted** on branch `p1-cities-foundation`:
   a 20-city register `CITIES` + "Cities" tab in `fyrus-world.js`, a champagne-gold theme in
   `src/client/template.html`, and a new `fyrus-visuals.js` (landmark silhouettes). Claude did not touch those.
-- Their uncommitted `template.html` still says `fyrus-plus.js?v=1.2.0` — when they commit, keep `v=1.4.0` (or newer) or the arena will not load for visitors.
+- Their uncommitted `template.html` still says `fyrus-plus.js?v=1.2.0` and has **no** `fyrus-country.js` tag — when they commit, keep `fyrus-plus.js?v=1.4.0` **and** `<script src="/fyrus-country.js?v=1.1.1" defer></script>` or Transit, the country hub, arena and easy mode disappear for visitors.
+- Claude's shipping routine while their work is uncommitted: `git checkout main` → `git apply --cached <template patch>` (index only) → copy built files → commit → push (GitHub Desktop) → `git branch -f p1-cities-foundation main && git checkout p1-cities-foundation` (keeps their uncommitted files).
 - Copying files to the Mac with Claude's device tools: always use a **new file name** for each version; re-sending the same path can leave the old content.
 - Rule: before committing, run `git branch --show-current` and `git status`. Commit only your own files.
   Work on your own branch; only fast-forward `main` when your work is tested. `main` = live in ~1 minute.
@@ -190,6 +201,10 @@ zero real crime, fair trade (escrow), one citizen one vote, protect children & e
   (this repo is public — **never commit secrets**).
 
 ## 10. Changelog
+- 2026-10-22 v33 — Vector Bay walk mode (promenade, cafés, storefronts, yacht cruise); country sites polish.
+- 2026-10-22 v32 — The Country: Guard parade ground, Peace Office, Sunset Amphitheater, Family Park + Kids mode, Today in Fyrus, friend finder, education ladder (server seed), publish/rent desk.
+- 2026-10-22 v31 — Fyrus Transit (flights/metro/bus), Grand Central; Vector Bay visual pass.
+- 2026-10-22 v30 — Vector Bay city scene (vector-bay.html).
 - 2026-10-22 v29 — Easy mode (bigger text and buttons, four-step guide).
 - 2026-10-22 v28.1 — Arcadia Battle Arena (fyrus-arena.js); index.html rebuilt from committed source only.
 - 2026-10-22 v27 — report limits + auto chat pause after 3 trusted reports.
