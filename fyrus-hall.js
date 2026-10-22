@@ -6,7 +6,7 @@
 (function () {
   'use strict';
   if (window.__fyrusHall) return;
-  var API = window.__fyrusHall = { version: '2.0.0' };
+  var API = window.__fyrusHall = { version: '2.0.1' };
   var GOLD = '#c9a96e', GOLD_HI = '#e8d5a8', IVORY = '#f4efe6', MUTED = '#9aa3b2';
   var FALLBACK = [
     { id: 'hockey', name: 'Neon Air Hockey', tag: 'First to 5 goals', players: '1P vs AI · 2P same keyboard', ready: true, color: '#4da3ff' },
@@ -198,12 +198,12 @@
       var side = i % 2 ? 1 : -1, row = Math.floor(i / 2), x = side * 6.2, z = Z0 - 6 - row * 4.2;
       var grp = new T.Group(); grp.position.set(x, 0, z); grp.rotation.y = side > 0 ? -Math.PI / 2 : Math.PI / 2; scene.add(grp);
       var col = new T.Color(gm.color || '#4da3ff'), dim = !gm.ready;
-      var body = new T.MeshStandardMaterial({ color: 0x0e1626, roughness: .45, metalness: .5 });
+      var body = new T.MeshStandardMaterial({ color: 0x18233c, roughness: .35, metalness: .55 });
       var trim = new T.MeshStandardMaterial({ color: col, emissive: col, emissiveIntensity: dim ? .2 : 1.1, roughness: .4 });
       function bx(w, h, d, X, Y, Z, m, rx) { var mm = new T.Mesh(new T.BoxGeometry(w, h, d), m); mm.position.set(X, Y, Z); if (rx) mm.rotation.x = rx; grp.add(mm); return mm; }
       bx(1.2, 1.0, .95, 0, .5, 0, body); bx(1.2, 1.25, .7, 0, 1.62, -.12, body); bx(1.2, .12, .5, 0, 1.05, .28, body, -.35); bx(1.24, .36, .82, 0, 2.42, -.18, body);
-      [-.62, .62].forEach(function (sx) { bx(.04, 2.3, .98, sx, 1.15, 0, trim); });
-      bx(1.24, .04, .04, 0, .02, .48, trim);
+      [-.61, .61].forEach(function (sx) { bx(.05, 2.3, .06, sx, 1.15, .46, trim); bx(.03, .06, .9, sx, 2.27, 0, trim); var art = new T.Mesh(new T.PlaneGeometry(.8, 1.6), new T.MeshBasicMaterial({ map: poster(T, gm.name, gm.color || '#4da3ff', dim ? 'SOON' : 'FYRUS ARCADE') })); art.position.set(sx * 1.01, 1.25, 0); art.rotation.y = sx > 0 ? Math.PI / 2 : -Math.PI / 2; grp.add(art); });
+      bx(1.24, .04, .04, 0, .02, .48, trim); bx(1.24, .04, .04, 0, 2.62, .24, trim);
       var p = painter(gm.ready ? gm.id : 'soon', gm.color || '#4da3ff'); var stex = new T.CanvasTexture(p.canvas);
       var screen = new T.Mesh(new T.PlaneGeometry(.98, .74), new T.MeshBasicMaterial({ map: stex })); screen.position.set(0, 1.64, .235); screen.rotation.x = -.12; grp.add(screen);
       var mq = new T.Mesh(new T.PlaneGeometry(1.16, .29), new T.MeshBasicMaterial({ map: marquee(T, dim ? 'Coming soon' : gm.name, gm.color || '#4da3ff', dim) })); mq.position.set(0, 2.42, .24); grp.add(mq);
