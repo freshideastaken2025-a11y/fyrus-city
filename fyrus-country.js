@@ -5,7 +5,7 @@
 (function () {
   'use strict';
   if (window.__fyrusCountry) return;
-  var API = window.__fyrusCountry = { version: '1.2.1' };
+  var API = window.__fyrusCountry = { version: '1.2.2' };
   var GOLD = '#c9a96e', GOLD_HI = '#e8d5a8', IVORY = '#f4efe6', MUTED = '#9aa3b2';
   var LS = {
     get: function (k, d) { try { var v = localStorage.getItem('fyrusCountry.' + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -499,6 +499,7 @@
     var names = { central: ['Grand Central & Bus Adda', 'Fyrus Transit station', '🚉'], parade: ['Fyrus Guard Parade Ground', 'The Country · army and Peace Office', '🎖'], amph: ['Sunset Amphitheater', 'Concerts and events every day', '🎶'], park: ['Family Park', 'Kids safe zone', '🎠'] };
     Object.keys(SITES).forEach(function (k) { var p = siteXZ(k), n = names[k]; if (p && n) list.push({ id: 'site-' + k, name: n[0], sub: n[1], kind: 'Place', icon: n[2], x: p.x, z: p.z, face: { x: SITES[k].x, z: SITES[k].z } }); });
     if (SITES.parade) { var pp = siteXZ('parade'); list.push({ id: 'site-peace', name: 'Peace Office', sub: 'Police · Real crime: 0', kind: 'Place', icon: '🕊', x: pp.x, z: pp.z, face: { x: SITES.parade.x, z: SITES.parade.z } }); list.push({ id: 'the-country', name: 'The Country', sub: 'Guard, concerts, family park', kind: 'Place', icon: '🏛', x: pp.x, z: pp.z, face: { x: SITES.parade.x, z: SITES.parade.z } }); }
+    if (window.__fyrusHall) list.push({ id: 'arcade-hall', name: 'Arcade Hall (3D)', sub: 'Fyrus Arcade · every game as a glowing 3D cabinet', kind: 'Place', icon: '🕹', x: 0, z: 30, run: function () { window.__fyrusHall.open(); } });
     var A = window.__fyrusArena; if (A && A.gateAt) list.push({ id: 'arena', name: 'Arcadia Battle Arena', sub: 'Battle royale vs AI (game only)', kind: 'Place', icon: '⚔️', x: A.gateAt.x, z: A.gateAt.z + 8 });
     window.__fyrusPlaces = list;
   }

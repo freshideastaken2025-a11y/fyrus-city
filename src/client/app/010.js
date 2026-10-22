@@ -834,6 +834,23 @@ function ix() {
           }),
         ],
       }),
+      window.__fyrusHall &&
+        (0, qe.jsxs)("button", {
+          id: "arcade-hall-3d",
+          className: "card holo-edge p-4 w-full text-left flex items-center gap-3",
+          style: { background: "linear-gradient(135deg, rgba(201,169,110,.18), rgba(77,163,255,.12))" },
+          onClick: () => window.__fyrusHall.open(),
+          children: [
+            (0, qe.jsx)("div", { className: "text-3xl", children: "\u{1F579}" }),
+            (0, qe.jsxs)("div", {
+              className: "flex-1",
+              children: [
+                (0, qe.jsx)("div", { className: "font-display font-bold", children: "Enter the 3D Arcade Hall" }),
+                (0, qe.jsx)("div", { className: "text-xs", style: { color: "var(--ink-dim)" }, children: "Walk up to a glowing cabinet, watch its live screen and press Play." }),
+              ],
+            }),
+          ],
+        }),
       (0, qe.jsxs)("div", {
         className: "card p-4",
         children: [

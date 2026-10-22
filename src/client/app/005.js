@@ -613,7 +613,7 @@ var Oa = [
     ],
   },
   gv = Object.keys(bp),
-  tn = [
+  tn = (window.__fyrusGames = [
     {
       id: "hockey",
       name: "Neon Air Hockey",
@@ -725,7 +725,7 @@ var Oa = [
       color: "#ff5d7a",
       votes: 540,
     },
-  ],
+  ]),
   $w = [
     {
       q: 'What does "LLM" stand for?',

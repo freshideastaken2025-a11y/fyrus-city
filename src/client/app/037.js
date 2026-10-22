@@ -751,6 +751,10 @@ function l5() {
         recentPlaces: [g.id, ...(ot().settings.recentPlaces || []).filter((m) => m !== g.id)].slice(0, 6),
       }),
     h = (g) => {
+      if (typeof g.run == "function") {
+        (d(g), c(), g.run());
+        return;
+      }
       if (g.url) {
         (d(g), c(), window.__fyrusCountry?.fly ? window.__fyrusCountry.fly(g.flight || { name: g.name, province: g.sub || "", url: g.url, id: g.id }) : (location.href = g.url));
         return;
@@ -762,7 +766,7 @@ function l5() {
       es(g, g.name);
     },
     u = (g) => {
-      if (g.url) return h(g);
+      if (g.url || typeof g.run == "function") return h(g);
       (d(g), c(), ts({ x: g.x, z: g.z, name: g.name }));
     },
     p = (g) => {

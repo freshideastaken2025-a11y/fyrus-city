@@ -3604,7 +3604,7 @@ var Oa = [
     ],
   },
   gv = Object.keys(bp),
-  tn = [
+  tn = (window.__fyrusGames = [
     {
       id: "hockey",
       name: "Neon Air Hockey",
@@ -3716,7 +3716,7 @@ var Oa = [
       color: "#ff5d7a",
       votes: 540,
     },
-  ],
+  ]),
   $w = [
     {
       q: 'What does "LLM" stand for?',
@@ -11418,6 +11418,23 @@ function ix() {
           }),
         ],
       }),
+      window.__fyrusHall &&
+        (0, qe.jsxs)("button", {
+          id: "arcade-hall-3d",
+          className: "card holo-edge p-4 w-full text-left flex items-center gap-3",
+          style: { background: "linear-gradient(135deg, rgba(201,169,110,.18), rgba(77,163,255,.12))" },
+          onClick: () => window.__fyrusHall.open(),
+          children: [
+            (0, qe.jsx)("div", { className: "text-3xl", children: "\u{1F579}" }),
+            (0, qe.jsxs)("div", {
+              className: "flex-1",
+              children: [
+                (0, qe.jsx)("div", { className: "font-display font-bold", children: "Enter the 3D Arcade Hall" }),
+                (0, qe.jsx)("div", { className: "text-xs", style: { color: "var(--ink-dim)" }, children: "Walk up to a glowing cabinet, watch its live screen and press Play." }),
+              ],
+            }),
+          ],
+        }),
       (0, qe.jsxs)("div", {
         className: "card p-4",
         children: [
@@ -48558,6 +48575,10 @@ function l5() {
         recentPlaces: [g.id, ...(ot().settings.recentPlaces || []).filter((m) => m !== g.id)].slice(0, 6),
       }),
     h = (g) => {
+      if (typeof g.run == "function") {
+        (d(g), c(), g.run());
+        return;
+      }
       if (g.url) {
         (d(g), c(), window.__fyrusCountry?.fly ? window.__fyrusCountry.fly(g.flight || { name: g.name, province: g.sub || "", url: g.url, id: g.id }) : (location.href = g.url));
         return;
@@ -48569,7 +48590,7 @@ function l5() {
       es(g, g.name);
     },
     u = (g) => {
-      if (g.url) return h(g);
+      if (g.url || typeof g.run == "function") return h(g);
       (d(g), c(), ts({ x: g.x, z: g.z, name: g.name }));
     },
     p = (g) => {
@@ -50156,6 +50177,7 @@ react/cjs/react-jsx-runtime.production.js:
 <script src="/fyrus-plus.js?v=1.4.0" defer></script>
 <script src="/fyrus-world.js?v=2.0.0" defer></script>
 <script src="/fyrus-intro.js?v=2.0.0" defer></script>
-<script src="/fyrus-country.js?v=1.2.1" defer></script>
+<script src="/fyrus-country.js?v=1.2.2" defer></script>
+<script src="/fyrus-hall.js?v=1.0.0" defer></script>
 
 </body></html>
