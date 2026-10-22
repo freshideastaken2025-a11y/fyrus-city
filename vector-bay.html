@@ -862,7 +862,7 @@ const SHOTS = [
 let mode = 'cine', shotI = 0, shotT = 0; let hold = false;
 try { const q = new URLSearchParams(location.search); if (q.has('walk')) setTimeout(() => setMode('walk'), 0); if (q.has('shot')) { shotI = Math.min(SHOTS.length - 1, +q.get('shot') || 0); } if (q.has('hold')) { hold = true; shotT = +q.get('hold') || 0; } } catch (e) {}
 const curLook = new THREE.Vector3();
-function showCaption(s) { const c = $('cap'); c.classList.add('out'); setTimeout(() => { $('capE').textContent = s.e; $('capT').textContent = s.t; $('capS').textContent = s.s; c.classList.remove('out'); }, 700); }
+function showCaption(s) { const c = $('cap'); c.classList.add('out'); setTimeout(() => { if (mode === 'walk' || mode === 'ride') { c.classList.remove('out'); return; } $('capE').textContent = s.e; $('capT').textContent = s.t; $('capS').textContent = s.s; c.classList.remove('out'); }, 700); }
 function dip() { const f = $('fade'); f.style.opacity = '1'; setTimeout(() => f.style.opacity = '0', 750); }
 $('bCine').onclick = () => { setMode('cine'); shotI = 0; shotT = 0; showCaption(SHOTS[0]); $('capH').textContent = 'Cinematic tour · Explore to fly, Walk to stroll the promenade'; };
 $('bFree').onclick = () => { setMode('free'); controls.target.copy(curLook); $('capH').textContent = 'Drag to look · scroll or pinch to zoom · right-drag to pan'; };
