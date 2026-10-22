@@ -762,6 +762,7 @@ function l5() {
       es(g, g.name);
     },
     u = (g) => {
+      if (g.url) return h(g);
       (d(g), c(), ts({ x: g.x, z: g.z, name: g.name }));
     },
     p = (g) => {

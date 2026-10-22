@@ -5,7 +5,7 @@
 (function () {
   'use strict';
   if (window.__fyrusCountry) return;
-  var API = window.__fyrusCountry = { version: '1.2.0' };
+  var API = window.__fyrusCountry = { version: '1.2.1' };
   var GOLD = '#c9a96e', GOLD_HI = '#e8d5a8', IVORY = '#f4efe6', MUTED = '#9aa3b2';
   var LS = {
     get: function (k, d) { try { var v = localStorage.getItem('fyrusCountry.' + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -728,5 +728,5 @@
     requestAnimationFrame(tick);
   }
   requestAnimationFrame(tick);
-  setInterval(function () { try { addDock(); buildWorld(); } catch (e) { if (window.console) console.warn('[fyrus-country]', e); } }, 1000);
+  setInterval(function () { try { addDock(); buildWorld(); if (built) registerPlaces(); } catch (e) { if (window.console) console.warn('[fyrus-country]', e); } }, 1000);
 })();
