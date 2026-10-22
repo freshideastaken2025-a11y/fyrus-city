@@ -5,7 +5,7 @@
 (function () {
   'use strict';
   if (window.__fyrusCountry) return;
-  var API = window.__fyrusCountry = { version: '1.2.3' };
+  var API = window.__fyrusCountry = { version: '1.2.4' };
   var GOLD = '#c9a96e', GOLD_HI = '#e8d5a8', IVORY = '#f4efe6', MUTED = '#9aa3b2';
   var LS = {
     get: function (k, d) { try { var v = localStorage.getItem('fyrusCountry.' + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -501,6 +501,7 @@
     if (SITES.parade) { var pp = siteXZ('parade'); list.push({ id: 'site-peace', name: 'Peace Office', sub: 'Police · Real crime: 0', kind: 'Place', icon: '🕊', x: pp.x, z: pp.z, face: { x: SITES.parade.x, z: SITES.parade.z } }); list.push({ id: 'the-country', name: 'The Country', sub: 'Guard, concerts, family park', kind: 'Place', icon: '🏛', x: pp.x, z: pp.z, face: { x: SITES.parade.x, z: SITES.parade.z } }); }
     if (window.__fyrusHall) list.push({ id: 'arcade-hall', name: 'Arcade Hall (3D)', sub: 'Fyrus Arcade · every game as a glowing 3D cabinet', kind: 'Place', icon: '🕹', x: 0, z: 30, run: function () { window.__fyrusHall.open(); } });
     if (window.__fyrusHome3D) list.push({ id: 'home-showroom', name: 'Home Showroom (3D)', sub: 'See every Dream Life home in 3D before you buy', kind: 'Place', icon: '🏡', x: 0, z: 30, run: function () { window.__fyrusHome3D.open({ mode: 'catalogue' }); } });
+    if (window.__fyrusMall3D) list.push({ id: 'mall-3d', name: '3D Stores (Fyrus Market)', sub: 'Walk into a brand store and see products in 4D', kind: 'Place', icon: '🛍', x: 170, z: -40, run: function () { window.__fyrusMall3D.open({}); } });
     var A = window.__fyrusArena; if (A && A.gateAt) list.push({ id: 'arena', name: 'Arcadia Battle Arena', sub: 'Battle royale vs AI (game only)', kind: 'Place', icon: '⚔️', x: A.gateAt.x, z: A.gateAt.z + 8 });
     window.__fyrusPlaces = list;
   }

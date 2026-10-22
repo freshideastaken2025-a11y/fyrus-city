@@ -1430,4 +1430,5 @@ function pd(t) {
   }
   return e;
 }
+window.__fyrusProductModel = pd;
 var Ka = P(ct(), 1);

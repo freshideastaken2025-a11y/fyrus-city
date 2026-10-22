@@ -14509,6 +14509,7 @@ function pd(t) {
   }
   return e;
 }
+window.__fyrusProductModel = pd;
 var Ka = P(ct(), 1);
 
 function kx() {
@@ -15321,6 +15322,14 @@ function Lx() {
                     v.tier,
                   ),
                 ),
+              }),
+            h &&
+              window.__fyrusMall3D &&
+              (0, Ct.jsx)("button", {
+                id: "store-3d",
+                className: "btn btn-primary btn-sm w-full",
+                onClick: () => (C({ shopView: null }), window.__fyrusMall3D.open({ brandId: h.id })),
+                children: "Walk into the 3D store",
               }),
             h &&
               (0, Ct.jsx)("div", {
@@ -50202,8 +50211,9 @@ react/cjs/react-jsx-runtime.production.js:
 <script src="/fyrus-plus.js?v=1.4.0" defer></script>
 <script src="/fyrus-world.js?v=2.0.0" defer></script>
 <script src="/fyrus-intro.js?v=2.0.0" defer></script>
-<script src="/fyrus-country.js?v=1.2.3" defer></script>
+<script src="/fyrus-country.js?v=1.2.4" defer></script>
 <script src="/fyrus-hall.js?v=3.0.0" defer></script>
-<script src="/fyrus-home3d.js?v=1.0.0" defer></script>
+<script src="/fyrus-home3d.js?v=1.1.0" defer></script>
+<script src="/fyrus-mall3d.js?v=1.0.0" defer></script>
 
 </body></html>

@@ -810,6 +810,14 @@ function Lx() {
                 ),
               }),
             h &&
+              window.__fyrusMall3D &&
+              (0, Ct.jsx)("button", {
+                id: "store-3d",
+                className: "btn btn-primary btn-sm w-full",
+                onClick: () => (C({ shopView: null }), window.__fyrusMall3D.open({ brandId: h.id })),
+                children: "Walk into the 3D store",
+              }),
+            h &&
               (0, Ct.jsx)("div", {
                 className: "grid grid-cols-2 sm:grid-cols-3 gap-2",
                 children: h.products.map((v) =>

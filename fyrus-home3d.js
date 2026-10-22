@@ -8,7 +8,7 @@
 (function () {
   'use strict';
   if (window.__fyrusHome3D) return;
-  var API = window.__fyrusHome3D = { version: '1.0.0' };
+  var API = window.__fyrusHome3D = { version: '1.1.0' };
   var GOLD = '#c9a96e', GOLD_HI = '#e8d5a8', IVORY = '#f4efe6', MUTED = '#9aa3b2';
   var D = function () { return window.__fyrusDream || {}; };
   var FALLBACK_HOMES = [
@@ -70,7 +70,7 @@
     var idx = Math.max(0, homes.findIndex(function (h) { return h.id === opts.start; }));
     var ext = Object.assign({ wall: '#ffffff', roof: '#5a3f35', trim: '#ffffff', fence: 'hedge', garden: 'lawn' }, opts.ext || {});
     if (!exterior && !opts.ext) ext.wall = homes[idx].theme || ext.wall;
-    var locked = true, hour = 18.5;
+    var locked = true, hour = 16.5;
 
     var root = el('div', { 'class': 'fx3h fxp-ov', role: 'dialog', 'aria-label': 'Home showroom' });
     var canvas = el('canvas'); root.appendChild(canvas);
@@ -90,7 +90,15 @@
     renderer.setPixelRatio(Math.min(devicePixelRatio, 1.75)); if (T.sRGBEncoding) renderer.outputEncoding = T.sRGBEncoding;
     renderer.toneMapping = T.ACESFilmicToneMapping; renderer.shadowMap.enabled = true; renderer.shadowMap.type = T.PCFSoftShadowMap;
     var scene = new T.Scene(); var camera = new T.PerspectiveCamera(40, 1, .1, 400);
-    var hemi = new T.HemisphereLight(0xdbe8ff, 0x3a3226, .7); scene.add(hemi);
+    var hemi = new T.HemisphereLight(0xdbe8ff, 0x3a3226, .9); scene.add(hemi);
+    var skyU = { top: { value: new T.Color(0x3a6fb0) }, bot: { value: new T.Color(0xf2c79a) } };
+    var skyDome = new T.Mesh(new T.SphereGeometry(300, 32, 16), new T.ShaderMaterial({ side: T.BackSide, depthWrite: false, uniforms: skyU,
+      vertexShader: 'varying float h; void main(){ h = normalize(position).y; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+      fragmentShader: 'uniform vec3 top; uniform vec3 bot; varying float h; void main(){ gl_FragColor = vec4(mix(bot, top, smoothstep(-0.05, 0.55, h)), 1.0); }' }));
+    scene.add(skyDome);
+    /* scenery around the plinth: trees and a street lamp */
+    (function () { var tm = new T.MeshStandardMaterial({ color: 0x6b4b2e }), lm = new T.MeshStandardMaterial({ color: 0x3f7a34, flatShading: true }), cm = new T.MeshStandardMaterial({ color: 0x2f5a2a, flatShading: true });
+      for (var i = 0; i < 26; i++) { var a = i / 26 * Math.PI * 2 + (i % 3) * .1, r = 30 + (i % 4) * 7; var tr = new T.Mesh(new T.CylinderGeometry(.3, .45, 3, 6), tm); tr.position.set(Math.cos(a) * r, 1.5, Math.sin(a) * r); scene.add(tr); var cr = i % 2 ? new T.Mesh(new T.ConeGeometry(2, 6, 7), cm) : new T.Mesh(new T.IcosahedronGeometry(2.4, 0), lm); cr.position.set(Math.cos(a) * r, i % 2 ? 5.5 : 4.4, Math.sin(a) * r); cr.castShadow = true; scene.add(cr); } })();
     var sun = new T.DirectionalLight(0xffffff, 1.6); sun.castShadow = true; sun.shadow.mapSize.set(2048, 2048); Object.assign(sun.shadow.camera, { left: -22, right: 22, top: 22, bottom: -22, near: 1, far: 120 }); scene.add(sun, sun.target);
     var ground = new T.Mesh(new T.CircleGeometry(90, 64), new T.MeshStandardMaterial({ color: 0x2c3a2a, roughness: 1 })); ground.rotation.x = -Math.PI / 2; ground.position.y = -.05; ground.receiveShadow = true; scene.add(ground);
     var plinth = new T.Mesh(new T.CylinderGeometry(19, 19.6, .5, 72), new T.MeshStandardMaterial({ color: 0x1b2333, roughness: .5, metalness: .4 })); plinth.position.y = -.25; plinth.receiveShadow = true; scene.add(plinth);
@@ -103,7 +111,7 @@
     function build() {
       homeG.clear(); winMats = [];
       var h = homes[idx], wall = M(ext.wall, { roughness: .6 }), roof = M(ext.roof, { roughness: .7 }), trim = M(ext.trim, { roughness: .5 });
-      var glass = new T.MeshStandardMaterial({ color: 0x1a2534, roughness: .08, metalness: .6, emissive: 0xffc98a, emissiveIntensity: 0 }); winMats.push(glass);
+      var glass = new T.MeshStandardMaterial({ color: 0x24405e, roughness: .1, metalness: .4, emissive: 0xffc98a, emissiveIntensity: 0 }); winMats.push(glass);
       var plot = 7 + (h.garden || 2) * 2.2;
       /* garden */
       var gcol = ext.garden === 'stone' ? 0xb9ae9c : 0x4f8f3a;
@@ -124,6 +132,8 @@
       var fl = Math.max(1, h.floors || 2), FH = 3;
       function windows(w, d, y, frontOnly) {
         add(homeG, new T.BoxGeometry(w * .8, 1.3, .06), glass, 0, y, d / 2 + .03);
+        for (var mx = -w * .4; mx <= w * .4 + .01; mx += w * .8 / Math.max(2, Math.round(w * .8 / 1.4))) add(homeG, new T.BoxGeometry(.08, 1.36, .1), trim, mx, y, d / 2 + .05);
+        add(homeG, new T.BoxGeometry(w * .8 + .16, .1, .14), trim, 0, y - .7, d / 2 + .06);
         if (!frontOnly) { add(homeG, new T.BoxGeometry(w * .8, 1.3, .06), glass, 0, y, -d / 2 - .03); add(homeG, new T.BoxGeometry(.06, 1.3, d * .7), glass, w / 2 + .03, y, 0); add(homeG, new T.BoxGeometry(.06, 1.3, d * .7), glass, -w / 2 - .03, y, 0); }
       }
       var top = 0, doorZ = 4;
@@ -156,6 +166,8 @@
         add(homeG, new T.ConeGeometry(.9, 1.4, 4, 1), M(0xc9a96e, { metalness: 1, roughness: .2 }), 0, top + .4, 0).rotation.y = Math.PI / 4;
         add(homeG, new T.BoxGeometry(3, 2.6, 1.2), trim, 0, 1.5, 5.4); doorZ = 6.05;
       }
+      /* stone path from the door to the gate */
+      for (var sp = doorZ + 1; sp < plot - .4; sp += 1.1) add(homeG, new T.BoxGeometry(1.4, .06, .8), M(0xd8cfbe, { roughness: .9 }), 0, .23, sp);
       /* front door + smart lock */
       door = add(homeG, new T.BoxGeometry(1.3, 2.4, .12), M(ext.trim === '#ffffff' ? 0x5a3f35 : ext.trim, { roughness: .5 }), 0, 1.4, doorZ);
       lockLamp = add(homeG, new T.SphereGeometry(.13, 12, 10), new T.MeshBasicMaterial({ color: locked ? 0xff4d4d : 0x45e0ae }), .5, 1.6, doorZ + .1);
@@ -163,7 +175,7 @@
       setHour(hour);
     }
     var dist = 34, yaw = .7, pitch = .32, targetY = 4;
-    function fitCam(top) { targetY = Math.min(14, top * .42 + 1); dist = Math.max(26, top * 1.6 + 16); }
+    function fitCam(top) { targetY = Math.min(14, top * .42 + 1); dist = Math.max(26, top * 1.6 + 16) * Math.max(1, 1.15 / Math.max(.4, camera.aspect)); }
 
     function setHour(hh) {
       hour = hh; var t = (hh - 6) / 12 * Math.PI, el2 = Math.sin(t);
@@ -171,9 +183,10 @@
       sun.position.set(Math.cos(t) * 40, Math.max(4, el2 * 50), 25); sun.intensity = .2 + day * 1.6;
       sun.color.setHSL(.09, .55 - day * .35, .55 + day * .2);
       hemi.intensity = .25 + day * .6;
-      var sky = new T.Color().setHSL(.6, .45, .06 + day * .5); if (day < .35 && el2 > -.2) sky.lerp(new T.Color(0xd98a5a), .5 - day);
-      scene.background = sky; scene.fog = new T.Fog(sky, 80, 220);
-      var glow = Math.max(0, 1 - day * 2.4) * 1.6; winMats.forEach(function (m) { m.emissiveIntensity = glow; });
+      var top = new T.Color().setHSL(.6, .55, .05 + day * .42), bot = new T.Color().setHSL(.08, .55, .12 + day * .5);
+      if (day < .4 && el2 > -.25) bot.lerp(new T.Color(0xf09a5a), .7 - day);
+      skyU.top.value.copy(top); skyU.bot.value.copy(bot); scene.fog = new T.Fog(bot, 90, 260);
+      var glow = Math.max(0, 1 - day * 2.6) * 1.3; winMats.forEach(function (m) { m.emissiveIntensity = glow; });
     }
 
     /* customisation panel */
