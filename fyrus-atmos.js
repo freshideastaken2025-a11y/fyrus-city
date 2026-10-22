@@ -9,7 +9,7 @@
 (function () {
   'use strict';
   if (window.__fyrusAtmos) return;
-  var API = window.__fyrusAtmos = { version: '1.0.0' };
+  var API = window.__fyrusAtmos = { version: '1.0.1' };
   var T = null, W = null, env = null, U = null, origUpdate = null;
   var S = function () { try { return window.__fyrus.getState(); } catch (e) { return null; } };
   var phone = (function () { try { return ('ontouchstart' in window) && Math.min(screen.width, screen.height) < 820; } catch (e) { return false; } })();
@@ -129,8 +129,9 @@
     }
     fx.pet.instanceMatrix.needsUpdate = true; fx.pet.instanceColor.needsUpdate = true;
   }
-  function updateRainbow(dt, p) {
-    if (wasRain > .5 && rainAmt < .05 && cur && cur.night < .3) rainbowT = 0;
+  function updateRainbow(dt, p, st) {
+    if (st.weather !== 'clear' && rainbowT >= 0 && rainAmt <= .3) { rainbowT = -1; fx.rb.visible = false; }
+    if (wasRain > .5 && rainAmt < .05 && cur && cur.night < .3 && st.weather === 'clear') rainbowT = 0;
     if (rainAmt > .3) wasRain = 1; else if (rainAmt < .05) wasRain = Math.max(0, wasRain - dt * .02);
     if (rainbowT < 0) { fx.rb.visible = false; return; }
     rainbowT += dt;
@@ -233,7 +234,7 @@
     write(cur, flash);
     updateSplashes(dt, p);
     updatePetals(dt, t, p, st);
-    updateRainbow(dt, p);
+    updateRainbow(dt, p, st);
     if (tm.mode !== 'off') updateChip();
   }
 

@@ -10,7 +10,7 @@
 (function () {
   'use strict';
   if (window.__fyrusHud) return;
-  var API = window.__fyrusHud = { version: '1.0.0' };
+  var API = window.__fyrusHud = { version: '1.0.1' };
   var GOLD = '#c9a96e', GOLD_HI = '#e8d5a8';
   var css = '' +
     /* folded column: only the toggle shows */
@@ -21,7 +21,7 @@
     /* opened: a labelled list */
     '.fxp-dock.fxu-open{top:auto!important;bottom:calc(env(safe-area-inset-bottom,0px) + 96px)!important;transform:none!important;right:12px!important;width:min(300px,calc(100vw - 24px));max-height:calc(100vh - 190px);overflow-y:auto;padding:12px;border-radius:18px;background:rgba(10,15,26,.92);border:1px solid rgba(201,169,110,.35);box-shadow:0 18px 50px rgba(0,0,0,.45);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);gap:6px!important}' +
     '.fxp-dock.fxu-open>button{width:100%!important;height:44px!important;display:flex!important;align-items:center;justify-content:flex-start;gap:12px;padding:0 12px!important;font-size:19px!important;border-radius:12px!important}' +
-    '.fxp-dock.fxu-open>button span{position:static!important;opacity:1!important;background:none!important;padding:0!important;font:600 13px Sora,sans-serif!important;color:#f4efe6;white-space:nowrap}' +
+    '.fxp-dock.fxu-open>button span{position:static!important;opacity:1!important;background:none!important;padding:0!important;font:600 13px Sora,sans-serif!important;color:#f4efe6;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}' +
     '.fxp-dock.fxu-open>button.fxu-t{justify-content:space-between}' +
     '.fxp-dock.fxu-open>.fxu-t b{display:none}' +
     '.fxp-dock .fxu-h{display:none}' +
@@ -33,6 +33,7 @@
     '.fxp-dock.fxu-open .fxu-p{display:flex!important}' +
     'button[aria-label="Open map"] canvas{width:112px!important;height:112px!important}' +
     'button[aria-label="Open map"]>div{width:112px!important}' +
+    'button[aria-label="Open map"]>div>span:last-child{display:none!important}' +
     '}' +
     /* hide the More button while something is open on top */
     'body.fxu-busy .fxp-dock{opacity:0!important;pointer-events:none!important}' +
