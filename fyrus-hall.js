@@ -1,4 +1,4 @@
-/* Fyrus — 3D Arcade Hall (v2.0): a full neon room
+/* Fyrus — 3D Arcade Hall (v3.0): walk your own avatar through a full neon room
    A walk-up neon hall on Game Street: every game is a glowing 3D cabinet with a live screen.
    Pick a cabinet (click / arrows / swipe) and press Play to start the real game.
    Additive: the games themselves are unchanged. Opened from Games ("Enter the 3D Arcade Hall"),
@@ -6,7 +6,7 @@
 (function () {
   'use strict';
   if (window.__fyrusHall) return;
-  var API = window.__fyrusHall = { version: '2.0.1' };
+  var API = window.__fyrusHall = { version: '3.0.0' };
   var GOLD = '#c9a96e', GOLD_HI = '#e8d5a8', IVORY = '#f4efe6', MUTED = '#9aa3b2';
   var FALLBACK = [
     { id: 'hockey', name: 'Neon Air Hockey', tag: 'First to 5 goals', players: '1P vs AI · 2P same keyboard', ready: true, color: '#4da3ff' },
@@ -251,56 +251,140 @@
     var ring = new T.Mesh(new T.RingGeometry(.85, 1.0, 64), new T.MeshBasicMaterial({ color: 0xe8d5a8, transparent: true, opacity: .8, side: T.DoubleSide, blending: T.AdditiveBlending, depthWrite: false }));
     ring.rotation.x = -Math.PI / 2; ring.position.y = .04; scene.add(ring);
 
+    /* ---------- colliders (cabinets, centre pieces, stage) ---------- */
+    var boxes = [];
+    cabs.forEach(function (c) { boxes.push({ x0: c.pos.x - .65, x1: c.pos.x + .65, z0: c.pos.z - .75, z1: c.pos.z + .75 }); });
+    boxes.push({ x0: -1.25, x1: 1.25, z0: 4 - 1.95, z1: 4 + 1.95 }, { x0: -3.4, x1: -1.8, z0: -8.8, z1: -7.2 }, { x0: 1.6, x1: 3.6, z0: -8.6, z1: -7.4 });
+    var stageC = { x: 0, z: Z1 + 5, r: 3.1 };
+    function blocked(x, z, r) {
+      if (x < -W + .6 || x > W - .6 || z > Z0 - .6 || z < Z1 + .6) return true;
+      if (Math.hypot(x - stageC.x, z - stageC.z) < stageC.r + r) return true;
+      for (var i = 0; i < boxes.length; i++) { var b = boxes[i]; if (x > b.x0 - r && x < b.x1 + r && z > b.z0 - r && z < b.z1 + r) return true; }
+      return false;
+    }
+
+    /* ---------- your avatar (a copy of your own citizen) ---------- */
+    var me = { x: 0, z: Z0 - 2.5, yaw: Math.PI, moving: false, ph: 0 }, avatar, legs = [], arms = [];
+    (function makeAvatar() {
+      var Wd = window.__fyrusW, P = Wd && Wd.player;
+      if (P && P.root) {
+        try {
+          var c = P.root.clone(true); c.position.set(0, 0, 0); c.rotation.set(0, 0, 0); c.scale.set(1, 1, 1); c.visible = true;
+          var path = function (o) { var p = []; while (o && o !== P.root) { p.unshift(o.parent.children.indexOf(o)); o = o.parent; } return o === P.root ? p : null; };
+          var get = function (p) { var o = c; for (var i = 0; i < p.length; i++) { o = o && o.children[p[i]]; } return o; };
+          (P.legs || []).forEach(function (l) { var p = path(l); if (p) { var o = get(p); if (o) legs.push(o); } });
+          (P.arms || []).forEach(function (l) { var p = path(l); if (p) { var o = get(p); if (o) arms.push(o); } });
+          c.traverse(function (o) { o.userData.__shared = true; o.visible = o.visible !== false; });
+          avatar = c;
+        } catch (e) { avatar = null; }
+      }
+      if (!avatar) {
+        avatar = new T.Group();
+        var cl = new T.MeshStandardMaterial({ color: 0x1b2a4a }), sk = new T.MeshStandardMaterial({ color: 0xd6a77e });
+        var bd = new T.Mesh(new T.CylinderGeometry(.22, .26, .8, 10), cl); bd.position.y = 1.25; avatar.add(bd);
+        var hd = new T.Mesh(new T.SphereGeometry(.15, 12, 10), sk); hd.position.y = 1.82; avatar.add(hd);
+        [-1, 1].forEach(function (sx) { var lg = new T.Group(); lg.position.set(sx * .11, .86, 0); var m = new T.Mesh(new T.CylinderGeometry(.07, .07, .84, 8), cl); m.position.y = -.42; lg.add(m); avatar.add(lg); legs.push(lg); var ar = new T.Group(); ar.position.set(sx * .3, 1.58, 0); var a2 = new T.Mesh(new T.CylinderGeometry(.055, .055, .62, 8), cl); a2.position.y = -.31; ar.add(a2); avatar.add(ar); arms.push(ar); });
+      }
+      scene.add(avatar);
+    })();
+    var you = new T.Mesh(new T.RingGeometry(.42, .5, 40), new T.MeshBasicMaterial({ color: 0xe8d5a8, transparent: true, opacity: .9, side: T.DoubleSide, depthWrite: false })); you.rotation.x = -Math.PI / 2; scene.add(you);
+
+    /* ---------- AI visitors (clearly labelled) ---------- */
+    function aiLabel() { var c = document.createElement('canvas'); c.width = 256; c.height = 64; var g = c.getContext('2d'); g.fillStyle = 'rgba(10,15,26,.75)'; g.fillRect(28, 12, 200, 40); g.fillStyle = '#9aa3b2'; g.font = '600 24px Sora, sans-serif'; g.textAlign = 'center'; g.fillText('AI visitor', 128, 41); var sp = new T.Sprite(new T.SpriteMaterial({ map: new T.CanvasTexture(c), transparent: true, depthWrite: false })); sp.scale.set(1, .25, 1); sp.position.y = 2.25; return sp; }
+    var bots = [];
+    var botCols = [[0x2a2f3a, 0xe8c4a0], [0x6b2f4a, 0x8d5a3b], [0x1f5f4a, 0xd6a77e], [0xc9a96e, 0xb9805a]];
+    botCols.forEach(function (bc, k) {
+      var g = new T.Group(), cl = new T.MeshStandardMaterial({ color: bc[0], roughness: .6 }), sk = new T.MeshStandardMaterial({ color: bc[1], roughness: .6 });
+      var bd = new T.Mesh(new T.CylinderGeometry(.21, .25, .8, 10), cl); bd.position.y = 1.25; g.add(bd);
+      var hd = new T.Mesh(new T.SphereGeometry(.145, 12, 10), sk); hd.position.y = 1.8; g.add(hd);
+      var bl = [], ba = [];
+      [-1, 1].forEach(function (sx) { var lg = new T.Group(); lg.position.set(sx * .1, .86, 0); var m = new T.Mesh(new T.CylinderGeometry(.065, .065, .84, 8), new T.MeshStandardMaterial({ color: 0x0a0f1a })); m.position.y = -.42; lg.add(m); g.add(lg); bl.push(lg); var ar = new T.Group(); ar.position.set(sx * .29, 1.56, 0); var a2 = new T.Mesh(new T.CylinderGeometry(.05, .05, .6, 8), cl); a2.position.y = -.3; ar.add(a2); g.add(ar); ba.push(ar); });
+      g.add(aiLabel()); scene.add(g);
+      var start = cabs[(k * 3 + 2) % cabs.length];
+      bots.push({ g: g, legs: bl, arms: ba, x: (k % 2 ? 1 : -1) * 1.2, z: Z0 - 4 - k * 6, target: null, wait: 1 + k, ph: k, path: [] });
+    });
+
+    /* ---------- walking + paths ---------- */
+    function standPoint(c) { return { x: c.pos.x + c.dir.x * 1.35, z: c.pos.z }; }
+    function routeTo(fromX, fromZ, p) { var aisleX = Math.max(-1.1, Math.min(1.1, fromX)); return [{ x: Math.abs(fromX) > 3.6 ? fromX + (fromX > 0 ? -1.4 : 1.4) : fromX, z: fromZ }, { x: aisleX * .3, z: fromZ }, { x: p.x > 0 ? 2.6 : -2.6, z: p.z }, p]; }
+    function stepTo(o, tx, tz, speed, dt, r) {
+      var dx = tx - o.x, dz = tz - o.z, d = Math.hypot(dx, dz); if (d < .05) return true;
+      var st = Math.min(d, speed * dt), nx = o.x + dx / d * st, nz = o.z + dz / d * st;
+      if (!blocked(nx, nz, r)) { o.x = nx; o.z = nz; } else if (!blocked(nx, o.z, r)) o.x = nx; else if (!blocked(o.x, nz, r)) o.z = nz; else return true;
+      o.face = Math.atan2(dx, dz); return d < .12;
+    }
+    function pose(L, A, ph, amp, playing) { var s = Math.sin(ph) * amp; if (L[0]) L[0].rotation.x = s; if (L[1]) L[1].rotation.x = -s; if (A[0]) A[0].rotation.x = playing ? -1.1 + Math.sin(ph * 2) * .15 : -s * .8; if (A[1]) A[1].rotation.x = playing ? -1.1 + Math.cos(ph * 2.3) * .15 : s * .8; }
+
     /* ---------- state, camera, input ---------- */
-    var mode = 'tour', intro = 0, me = { x: 0, z: Z0 - 2, yaw: 0 }, pitch = 0, keys = {}, stickV = { x: 0, y: 0 };
-    var camPos = new T.Vector3(0, 3.2, Z0 - .5), camLook = new T.Vector3(0, 2, 0), t0 = performance.now(), last = t0, raf = 0;
+    var mode = 'walk', auto = null, keys = {}, stickV = { x: 0, y: 0 }, camYaw = 0, camPitch = .32, camDist = 4.6;
+    var camPos = new T.Vector3(0, 3, Z0 - .2), camLook = new T.Vector3(0, 1.4, Z0 - 3), t0 = performance.now(), last = t0, raf = 0;
     function setHoloTitle(gm) { holoTitle.material.map && holoTitle.material.map.dispose(); holoTitle.material.map = marquee(T, gm.ready ? gm.name : 'Coming soon', gm.color || '#4da3ff', !gm.ready); holoTitle.material.needsUpdate = true; holoMat.color.set(gm.color || '#4da3ff'); beamUp.material.color.set(gm.color || '#4da3ff'); }
     function select(i, quiet) {
       sel = (i + cabs.length) % cabs.length; var gm = cabs[sel].game, s = S();
       nameEl.textContent = gm.name; subEl.textContent = (gm.tag || '') + (gm.players ? ' · ' + gm.players : '');
       var best = s && s.gameBest && s.gameBest[gm.id]; bestEl.textContent = gm.ready ? 'Your best: ' + (best == null ? '—' : best) : 'Coming soon' + (gm.votes ? ' · ' + gm.votes + ' votes' : '');
-      play.disabled = !gm.ready; play.textContent = gm.ready ? 'Play' : 'Soon';
-      setHoloTitle(gm);
+      play.disabled = !gm.ready; setHoloTitle(gm); updatePlay();
       if (!quiet) blip(520 + sel * 30);
     }
+    function atCab() { var c = cabs[sel], p = standPoint(c); return Math.hypot(me.x - p.x, me.z - p.z) < 1.1; }
+    function updatePlay() { var gm = cabs[sel].game; play.textContent = !gm.ready ? 'Soon' : (atCab() ? 'Play' : 'Walk there'); }
+    function walkToSel() { var c = cabs[sel], p = standPoint(c); auto = { path: routeTo(me.x, me.z, p), face: c.side > 0 ? Math.PI / 2 : -Math.PI / 2, idx: 0 }; }
     var actx = null, music = null;
     function blip(f) { try { var s = S(); if (!s || !s.audioOn) return; actx = actx || new (window.AudioContext || window.webkitAudioContext)(); var o = actx.createOscillator(), g = actx.createGain(); o.type = 'square'; o.frequency.value = f; g.gain.value = .04; g.gain.exponentialRampToValueAtTime(.0001, actx.currentTime + .15); o.connect(g); g.connect(actx.destination); o.start(); o.stop(actx.currentTime + .16); } catch (e) {} }
     function startMusic() {
       try { var s = S(); if (!s || !s.audioOn || music) return; actx = actx || new (window.AudioContext || window.webkitAudioContext)();
-        var master = actx.createGain(); master.gain.value = .035; master.connect(actx.destination);
+        var master = actx.createGain(); master.gain.value = .03; master.connect(actx.destination);
         var notes = [220, 277.18, 329.63, 440, 329.63, 277.18, 246.94, 329.63], n = 0;
         var iv = setInterval(function () { var o = actx.createOscillator(), g = actx.createGain(); o.type = 'square'; o.frequency.value = notes[n % notes.length] * (n % 16 < 8 ? 1 : 1.122); g.gain.value = 1; g.gain.exponentialRampToValueAtTime(.001, actx.currentTime + .22); o.connect(g); g.connect(master); o.start(); o.stop(actx.currentTime + .24); n++; }, 240);
         music = { iv: iv, master: master };
       } catch (e) {}
     }
-    function setMode(m) { mode = m; bTour.setAttribute('aria-pressed', String(m === 'tour')); bWalk.setAttribute('aria-pressed', String(m === 'walk')); root.classList.toggle('walk', m === 'walk');
-      hint.textContent = m === 'walk' ? (touch ? 'Joystick to walk · drag to look · tap a machine' : 'WASD to walk · drag to look · walk up to a machine and press E') : (touch ? 'Swipe or ‹ › to choose · tap Play' : '← → to choose · Enter to play · Walk to explore');
-      if (m === 'walk') { me.x = camera.position.x; me.z = camera.position.z; } }
+    bTour.textContent = 'Auto-walk'; bWalk.textContent = 'Free walk';
+    function setMode(m) { mode = m; bTour.setAttribute('aria-pressed', String(m === 'tour')); bWalk.setAttribute('aria-pressed', String(m === 'walk')); root.classList.add('walk'); if (m === 'tour') walkToSel(); else auto = null; }
     bTour.onclick = function () { setMode('tour'); }; bWalk.onclick = function () { setMode('walk'); };
     function size() { var w = innerWidth, h = innerHeight; renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix(); }
-    function nearCab() { var best = -1, bd = 2.6; cabs.forEach(function (c, i) { var d = Math.hypot(c.pos.x + c.dir.x * 1.3 - me.x, c.pos.z - me.z); if (d < bd) { bd = d; best = i; } }); return best; }
+    function nearCab() { var best = -1, bd = 1.4; cabs.forEach(function (c, i) { var p = standPoint(c), d = Math.hypot(p.x - me.x, p.z - me.z); if (d < bd) { bd = d; best = i; } }); return best; }
     function frame(now) {
       if (!running) return;
       var dt = Math.min(.05, Math.max(0, (now - last) / 1000)); last = Math.max(last, now); var t = (now - t0) / 1000;
-      var c = cabs[sel];
-      if (mode === 'tour') {
-        intro = Math.min(1, intro + dt * .45);
-        var want = c.pos.clone().addScaledVector(c.dir, 2.9); want.y = 1.75; var look = c.pos.clone().add(new T.Vector3(0, 1.55, 0));
-        if (intro < 1) { var e = intro * intro * (3 - 2 * intro); want = new T.Vector3(0, 3.2 - e * 1.4, Z0 - .5).lerp(want, e); look = new T.Vector3(0, 2.2, Z1 + 5).lerp(look, e); }
-        camPos.lerp(want, Math.min(1, dt * 3)); camLook.lerp(look, Math.min(1, dt * 4));
-        camera.position.copy(camPos).add(new T.Vector3(0, Math.sin(t * .6) * .04, 0)); camera.lookAt(camLook);
-      } else {
-        var fx = 0, fz = 0; if (keys.w || keys.arrowup) fz += 1; if (keys.s || keys.arrowdown) fz -= 1; if (keys.a || keys.arrowleft) fx -= 1; if (keys.d || keys.arrowright) fx += 1; fx += stickV.x; fz -= stickV.y;
-        var sp = 4 * dt, sn = Math.sin(me.yaw), cs = Math.cos(me.yaw);
-        me.x += (-fz * sn + fx * cs) * sp; me.z += (-fz * cs - fx * sn) * sp;
-        me.x = Math.max(-5, Math.min(5, me.x)); me.z = Math.max(Z1 + 8.5, Math.min(Z0 - 1, me.z));
-        if (Math.abs(me.x) < 1.6 && Math.abs(me.z - 4) < 2.2) me.x = me.x < 0 ? -1.6 : 1.6;
-        camera.position.set(me.x, 1.7, me.z); camera.rotation.set(pitch, me.yaw, 0, 'YXZ');
-        var nc = nearCab(); if (nc >= 0 && nc !== sel) select(nc, true);
-        hint.textContent = nc >= 0 ? (cabs[nc].game.ready ? (touch ? 'Tap Play to start ' : 'Press E to play ') + cabs[nc].game.name : cabs[nc].game.name + ' · coming soon') : (touch ? 'Joystick to walk · drag to look' : 'WASD to walk · drag to look · walk up to a machine');
+      /* your avatar */
+      var fx = 0, fz = 0; if (keys.w || keys.arrowup) fz += 1; if (keys.s || keys.arrowdown) fz -= 1; if (keys.a || keys.arrowleft) fx -= 1; if (keys.d || keys.arrowright) fx += 1; fx += stickV.x; fz -= stickV.y;
+      me.moving = false;
+      if (Math.hypot(fx, fz) > .1) {
+        auto = null; if (mode === 'tour') { mode = 'walk'; bTour.setAttribute('aria-pressed', 'false'); bWalk.setAttribute('aria-pressed', 'true'); }
+        var sn = Math.sin(camYaw), cs = Math.cos(camYaw), vx = (-fz * sn + fx * cs), vz = (-fz * cs - fx * sn), L = Math.hypot(vx, vz) || 1;
+        var tx = me.x + vx / L * 2, tz = me.z + vz / L * 2; stepTo(me, tx, tz, keys.shift ? 6 : 3.4, dt, .35); me.yaw = me.face; me.moving = true;
+      } else if (auto) {
+        var wp = auto.path[auto.idx];
+        if (wp) { if (stepTo(me, wp.x, wp.z, 3.4, dt, .35)) auto.idx++; me.yaw = me.face; me.moving = true; }
+        else { me.yaw += ((auto.face - me.yaw + Math.PI * 3) % (Math.PI * 2) - Math.PI) * Math.min(1, dt * 6); }
       }
+      if (me.moving) me.ph += dt * 9;
+      avatar.position.set(me.x, 0, me.z);
+      avatar.rotation.y += ((me.yaw - avatar.rotation.y + Math.PI * 3) % (Math.PI * 2) - Math.PI) * Math.min(1, dt * 10);
+      var standing = atCab();
+      pose(legs, arms, me.ph, me.moving ? .5 : 0, !me.moving && standing && cabs[sel].game.ready);
+      you.position.set(me.x, .03, me.z);
+      var nc = nearCab(); if (nc >= 0 && nc !== sel) select(nc, true);
+      updatePlay();
+      hint.textContent = standing && cabs[sel].game.ready ? (touch ? 'Tap Play to start ' : 'Press E or Play to start ') + cabs[sel].game.name : (touch ? 'Joystick to walk · drag to turn · tap a machine to walk to it' : 'WASD to walk · drag to turn the camera · click a machine to walk to it');
+      /* third-person camera behind your avatar */
+      if (me.moving && !drag) camYaw += ((me.yaw + Math.PI - camYaw + Math.PI * 3) % (Math.PI * 2) - Math.PI) * Math.min(1, dt * 1.6);
+      if (standing && !me.moving && !drag) camYaw += ((me.yaw + Math.PI - .35 * cabs[sel].side - camYaw + Math.PI * 3) % (Math.PI * 2) - Math.PI) * Math.min(1, dt * 2);
+      var want = new T.Vector3(me.x + Math.sin(camYaw) * camDist * Math.cos(camPitch), 1.4 + Math.sin(camPitch) * camDist + .6, me.z + Math.cos(camYaw) * camDist * Math.cos(camPitch));
+      want.x = Math.max(-W + .4, Math.min(W - .4, want.x)); want.z = Math.max(Z1 + .4, Math.min(Z0 - .3, want.z)); want.y = Math.min(H - .5, want.y);
+      camPos.lerp(want, Math.min(1, dt * 5)); camLook.lerp(new T.Vector3(me.x, 1.45, me.z), Math.min(1, dt * 8));
+      camera.position.copy(camPos); camera.lookAt(camLook);
+      /* AI visitors wander, stop at machines and play */
+      bots.forEach(function (b, k) {
+        if (b.wait > 0) { b.wait -= dt; pose(b.legs, b.arms, t * 3 + k, 0, b.playing); if (b.wait <= 0) { b.playing = false; var c = cabs[Math.floor(Math.random() * cabs.length)]; if (!c.game.ready) c = cabs[k % 6]; var p = standPoint(c); p.x += (Math.random() - .5) * .3; b.path = routeTo(b.x, b.z, p); b.pi = 0; b.faceEnd = c.side > 0 ? Math.PI / 2 : -Math.PI / 2; b.cab = c; } }
+        else { var w2 = b.path[b.pi]; if (w2) { if (stepTo(b, w2.x, w2.z, 1.6, dt, .3)) b.pi++; b.g.rotation.y = b.face; b.ph += dt * 7; pose(b.legs, b.arms, b.ph, .45, false); } else { b.g.rotation.y = b.faceEnd; b.playing = true; b.wait = 6 + Math.random() * 8; } }
+        if (Math.hypot(b.x - me.x, b.z - me.z) < .7) { b.x += (b.x - me.x) * .05; }
+        b.g.position.set(b.x, 0, b.z);
+      });
+      var c = cabs[sel];
       ring.position.set(c.pos.x + c.dir.x * 1.1, .04, c.pos.z); ring.rotation.z = t * .6; ring.material.opacity = .55 + Math.sin(t * 3) * .25;
-      cabs.forEach(function (cb, i) { var vis = Math.abs(cb.pos.z - camera.position.z) < 18; if (vis) { cb.p.draw(t + i * .7, i === sel); cb.tex.needsUpdate = true; } });
+      cabs.forEach(function (cb, i) { if (Math.abs(cb.pos.z - camera.position.z) < 16) { cb.p.draw(t + i * .7, i === sel || bots.some(function (b) { return b.playing && b.cab === cb; })); cb.tex.needsUpdate = true; } });
       var beat = (Math.sin(t * Math.PI * 2 * 2.08) + 1) / 2;
       tubes.forEach(function (tb, k) { tb.material.color.setHSL(((t * .05) + k * .07) % 1, .85, .45 + beat * .15); });
       lane.forEach(function (l) { l.material.color.setHSL(.11, .55, .45 + beat * .2); });
@@ -322,37 +406,40 @@
       if (!running) return; running = false; cancelAnimationFrame(raf);
       removeEventListener('resize', size); removeEventListener('keydown', onKey, true); removeEventListener('keyup', onKeyUp, true);
       try { if (music) { clearInterval(music.iv); music.master.disconnect(); } } catch (e) {}
-      try { scene.traverse(function (o) { if (o.geometry) o.geometry.dispose(); if (o.material) { if (o.material.map) o.material.map.dispose(); o.material.dispose(); } }); renderer.dispose(); renderer.forceContextLoss && renderer.forceContextLoss(); } catch (e) {}
+      try { scene.remove(avatar); scene.traverse(function (o) { if (o.userData && o.userData.__shared) return; if (o.geometry) o.geometry.dispose(); if (o.material) { if (o.material.map) o.material.map.dispose(); o.material.dispose(); } }); renderer.dispose(); renderer.forceContextLoss && renderer.forceContextLoss(); } catch (e) {}
       root.remove();
       if (thenPlay) { try { var s = S(); window.__fyrus.setState({ activeGame: thenPlay, hud: Object.assign({}, s && s.hud, { open: false }) }); } catch (e) {} }
     }
     API.close = function () { finish(null); };
+    function tryPlay() { var gm = cabs[sel].game; if (!gm.ready) return; if (atCab()) finish(gm.id); else setMode('tour'); }
     function onKey(e) {
       var k = e.key.toLowerCase(); e.stopPropagation();
       if (k === 'escape') { e.preventDefault(); finish(null); return; }
-      if (mode === 'walk') { keys[k] = true; if (k === 'e' || k === 'enter') { var nc = nearCab(); if (nc >= 0 && cabs[nc].game.ready) finish(cabs[nc].game.id); } if (k.indexOf('arrow') === 0 || k === ' ') e.preventDefault(); return; }
-      if (k === 'arrowleft' || k === 'a') { e.preventDefault(); select(sel - 1); } else if (k === 'arrowright' || k === 'd') { e.preventDefault(); select(sel + 1); } else if ((k === 'enter' || k === ' ') && cabs[sel].game.ready) { e.preventDefault(); finish(cabs[sel].game.id); }
+      if (k === 'e' || k === 'enter') { e.preventDefault(); tryPlay(); return; }
+      if (k === 'q' || k === 'pageup') { select(sel - 1); setMode('tour'); return; }
+      if (k === 'pagedown') { select(sel + 1); setMode('tour'); return; }
+      keys[k] = true; if (k.indexOf('arrow') === 0 || k === ' ') e.preventDefault();
     }
     function onKeyUp(e) { keys[e.key.toLowerCase()] = false; e.stopPropagation(); }
-    prev.onclick = function () { select(sel - 1); }; next.onclick = function () { select(sel + 1); };
-    play.onclick = function () { if (cabs[sel].game.ready) finish(cabs[sel].game.id); };
+    prev.onclick = function () { select(sel - 1); setMode('tour'); }; next.onclick = function () { select(sel + 1); setMode('tour'); };
+    play.onclick = tryPlay;
     closeBtn.onclick = function () { finish(null); };
-    var ray = new T.Raycaster(), ndc = new T.Vector2(), down = null;
-    canvas.addEventListener('pointerdown', function (e) { down = { x: e.clientX, y: e.clientY, yaw: me.yaw, pitch: pitch }; startMusic(); });
-    canvas.addEventListener('pointermove', function (e) { if (!down || mode !== 'walk') return; me.yaw = down.yaw - (e.clientX - down.x) * .005; pitch = Math.max(-.6, Math.min(.6, down.pitch - (e.clientY - down.y) * .004)); });
+    var ray = new T.Raycaster(), ndc = new T.Vector2(), down = null, drag = false;
+    canvas.addEventListener('pointerdown', function (e) { down = { x: e.clientX, y: e.clientY, yaw: camYaw, pitch: camPitch }; startMusic(); });
+    canvas.addEventListener('pointermove', function (e) { if (!down) return; var mx = e.clientX - down.x, my = e.clientY - down.y; if (Math.abs(mx) + Math.abs(my) > 6) drag = true; if (drag) { camYaw = down.yaw - mx * .006; camPitch = Math.max(.08, Math.min(1.1, down.pitch + my * .004)); } });
     canvas.addEventListener('pointerup', function (e) {
-      if (!down) return; var dx = e.clientX - down.x, moved = Math.abs(dx) + Math.abs(e.clientY - down.y); down = null;
-      if (mode === 'tour' && Math.abs(dx) > 40) { select(sel + (dx < 0 ? 1 : -1)); return; }
-      if (moved > 8) return;
+      var wasDrag = drag; drag = false; if (!down) return; down = null; if (wasDrag) return;
       var r = canvas.getBoundingClientRect(); ndc.set((e.clientX - r.left) / r.width * 2 - 1, -(e.clientY - r.top) / r.height * 2 + 1); ray.setFromCamera(ndc, camera);
       var hits = ray.intersectObjects(cabs.map(function (c) { return c.g; }), true);
-      if (hits.length) { var o = hits[0].object; while (o && o.userData.idx == null) o = o.parent; if (o) { if (o.userData.idx === sel && cabs[sel].game.ready) finish(cabs[sel].game.id); else { select(o.userData.idx); if (mode === 'walk') setMode('tour'); } } }
+      if (hits.length) { var o = hits[0].object; while (o && o.userData.idx == null) o = o.parent; if (o) { if (o.userData.idx === sel && atCab()) tryPlay(); else { select(o.userData.idx); setMode('tour'); } } return; }
+      var fh = ray.intersectObject(floor); if (fh.length) { var p = fh[0].point; auto = { path: [{ x: p.x, z: p.z }], face: me.yaw, idx: 0 }; }
     });
+    canvas.addEventListener('wheel', function (e) { e.preventDefault(); camDist = Math.max(2.5, Math.min(9, camDist * (1 + Math.sign(e.deltaY) * .1))); }, { passive: false });
     var sid = null, knob = stick.querySelector('i');
     stick.addEventListener('pointerdown', function (e) { sid = e.pointerId; stick.setPointerCapture(sid); e.stopPropagation(); });
     stick.addEventListener('pointermove', function (e) { if (e.pointerId !== sid) return; var r = stick.getBoundingClientRect(), dx = e.clientX - (r.left + 55), dy = e.clientY - (r.top + 55), L = Math.hypot(dx, dy); if (L > 42) { dx *= 42 / L; dy *= 42 / L; } knob.style.transform = 'translate(' + dx + 'px,' + dy + 'px)'; stickV = { x: dx / 42, y: dy / 42 }; });
     stick.addEventListener('pointerup', function () { sid = null; stickV = { x: 0, y: 0 }; knob.style.transform = ''; });
     addEventListener('resize', size); addEventListener('keydown', onKey, true); addEventListener('keyup', onKeyUp, true);
-    size(); select(sel, true); setMode('tour'); raf = requestAnimationFrame(frame);
+    size(); select(sel, true); setMode(startId ? 'tour' : 'walk'); raf = requestAnimationFrame(frame);
   };
 })();
