@@ -6,7 +6,7 @@
 (function () {
   'use strict';
   if (window.__fyrusMall3D) return;
-  var API = window.__fyrusMall3D = { version: '1.0.3' };
+  var API = window.__fyrusMall3D = { version: '1.0.4' };
   var GOLD = '#c9a96e', GOLD_HI = '#e8d5a8', IVORY = '#f4efe6', MUTED = '#9aa3b2';
   var S = function () { try { return window.__fyrus.getState(); } catch (e) { return null; } };
   var css = '' +
@@ -17,7 +17,7 @@
     '.fxm-t{font:400 clamp(28px,5vw,46px)/.95 "Bebas Neue",Sora,sans-serif;letter-spacing:.05em;margin-top:6px}' +
     '.fxm-r{display:flex;flex-direction:column;align-items:flex-end;gap:8px;pointer-events:auto}' +
     '.fxm-b{border-radius:999px;border:1px solid rgba(201,169,110,.5);background:rgba(10,15,26,.7);color:' + GOLD_HI + ';font:600 11px Sora,sans-serif;letter-spacing:.14em;text-transform:uppercase;padding:9px 14px;cursor:pointer}' +
-    '.fxm-hint{position:absolute;left:50%;top:84px;transform:translateX(-50%);font:500 10px "JetBrains Mono",monospace;letter-spacing:.2em;text-transform:uppercase;color:@media (max-width:560px){.fxm-hint{top:108px;font-size:9px;letter-spacing:.14em}}' + MUTED + ';pointer-events:none;text-align:center;width:90%}' +
+    '.fxm-hint{position:absolute;left:50%;top:84px;transform:translateX(-50%);font:500 10px "JetBrains Mono",monospace;letter-spacing:.2em;text-transform:uppercase;color:' + MUTED + ';pointer-events:none;text-align:center;width:90%}@media (max-width:560px){.fxm-hint{top:108px;font-size:9px;letter-spacing:.14em}.fxm-top button{white-space:nowrap;padding-left:12px;padding-right:12px}}' +
     '.fxm-card{position:absolute;left:50%;bottom:max(18px,env(safe-area-inset-bottom,0px));transform:translateX(-50%);width:min(620px,calc(100% - 32px));background:rgba(10,15,26,.86);border:1px solid rgba(201,169,110,.35);border-radius:18px;padding:14px 16px;display:grid;grid-template-columns:auto 1fr auto;gap:12px;align-items:center;backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px)}' +
     '.fxm-card b{display:block;font:600 17px Sora,sans-serif}.fxm-card small{display:block;color:' + MUTED + ';font-size:12.5px;margin-top:2px}' +
     '.fxm-card .pr{font:500 11px "JetBrains Mono",monospace;letter-spacing:.18em;color:' + GOLD_HI + ';margin-top:5px}' +
