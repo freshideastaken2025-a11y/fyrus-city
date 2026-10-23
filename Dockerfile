@@ -19,6 +19,8 @@ COPY fyrus-growth.js ./public/fyrus-growth.js
 COPY fyrus-help.js ./public/fyrus-help.js
 COPY fyrus-pay.js ./public/fyrus-pay.js
 COPY pay.html ./public/pay.html
+COPY fyrus-brain.js ./public/fyrus-brain.js
+COPY brain ./public/brain
 COPY fyrus-tw.css ./public/fyrus-tw.css
 COPY vendor ./public/vendor
 COPY fonts ./public/fonts

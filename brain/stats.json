@@ -1,0 +1,15 @@
+{
+ "intents": 174,
+ "baseQuestions": 15717,
+ "perLanguage": {
+  "en": 3704,
+  "rur": 3305,
+  "ur": 3050,
+  "hi": 2614,
+  "ar": 3044
+ },
+ "withVariants": 446588,
+ "dataset_10k": 10000,
+ "dataset_20k": 20000,
+ "dataset_50k": 50000
+}

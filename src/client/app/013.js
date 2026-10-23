@@ -343,6 +343,14 @@ function aL(t, e) {
               ? rd("sales", e)
               : `${t.greeting} Ask me about the market, the club, the pool or the games.`;
 }
+/* v47: offline answers come from the Fyrus Brain (fyrus-brain.js) in the visitor's language; the old lines stay as a fallback */
+async function fyBrainReply(t, e) {
+  try {
+    let a = window.__fyrusBrain && (await window.__fyrusBrain.reply(t, e));
+    if (a) return a;
+  } catch {}
+  return aL(t, e);
+}
 function Ex() {
   let e = Y().talk,
     [a, r] = (0, di.useState)([{ role: "assistant", content: e.greeting }]),
@@ -402,9 +410,9 @@ The visitor walks up to you.`,
         });
         g(k.text || "\u2026");
       } catch (k) {
-        (k?.code === "not_granted" && ((eL = !0), c(!1)), k?.name !== "AbortError" && g(aL(e, p)));
+        (k?.code === "not_granted" && ((eL = !0), c(!1)), k?.name !== "AbortError" && g(await fyBrainReply(e, p)));
       }
-    } else (await new Promise((f) => setTimeout(f, 450)), g(aL(e, p)));
+    } else (await new Promise((f) => setTimeout(f, 450)), g(await fyBrainReply(e, p)));
     s(!1);
   };
   return (0, Br.jsxs)("div", {

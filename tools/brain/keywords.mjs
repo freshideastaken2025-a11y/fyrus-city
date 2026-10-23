@@ -1,0 +1,32 @@
+// Strong words that point to one topic, in every language (matched after normalisation, whole words or phrases).
+export const KW = {
+  homes: ['house', 'houses', 'home', 'villa', 'mansion', 'penthouse', 'apartment', 'flat', 'ghar', 'makan', 'kothi', 'villa', 'گھر', 'مکان', 'کوٹھی', 'ولا', 'घर', 'मकान', 'कोठी', 'विला', 'منزل', 'بيت', 'فيلا', 'شقة'],
+  land: ['land', 'plot', 'plots', 'zameen', 'zamin', 'plot', 'زمین', 'پلاٹ', 'ज़मीन', 'जमीन', 'प्लॉट', 'أرض', 'قطعة'],
+  events_programme: ['concert', 'concerts', 'event', 'events', 'programme', 'program', 'schedule', 'parade', 'show', 'kanssert', 'کنسرٹ', 'پروگرام', 'پریڈ', 'कॉन्सर्ट', 'कार्यक्रम', 'परेड', 'حفل', 'حفلة', 'فعالية', 'برنامج'],
+  slow_phone: ['slow', 'lag', 'lags', 'laggy', 'freeze', 'freezing', 'frozen', 'stuck', 'hang', 'hangs', 'fps', 'heat', 'hot', 'atak', 'atakta', 'slow', 'dheema', 'garam', 'سلو', 'اٹک', 'گرم', 'धीमा', 'धीरे', 'अटक', 'गर्म', 'بطيء', 'بطيئة', 'تقطيع', 'ساخن'],
+  report_block: ['harass', 'harassing', 'harassment', 'nasty', 'abuse', 'abusive', 'bully', 'bullying', 'creep', 'stalker', 'threat', 'threatening', 'block', 'report', 'tang', 'pareshan kar', 'gali', 'galiyan', 'badtameezi', 'تنگ', 'گالی', 'بدتمیزی', 'بلاک', 'रिपोर्ट', 'परेशान', 'गाली', 'ब्लॉक', 'يزعجني', 'تحرش', 'إساءة', 'حظر', 'بلاغ'],
+  kids_mode: ['kid', 'kids', 'child', 'children', 'son', 'daughter', 'year old', 'parent', 'parental', 'bacha', 'bachay', 'bachon', 'beta', 'beti', 'bachi', 'بچہ', 'بچے', 'بچوں', 'بیٹا', 'بیٹی', 'बच्चा', 'बच्चे', 'बेटा', 'बेटी', 'طفل', 'أطفال', 'ابني', 'ابنتي'],
+  education: ['course', 'courses', 'study', 'studies', 'learn', 'learning', 'certificate', 'degree', 'school', 'class', 'parhai', 'parhna', 'taleem', 'seekhna', 'پڑھائی', 'تعلیم', 'سیکھنا', 'کورس', 'سرٹیفکیٹ', 'पढ़ाई', 'शिक्षा', 'सीखना', 'कोर्स', 'प्रमाणपत्र', 'دراسة', 'تعلم', 'دورة', 'شهادة'],
+  open_shop: ['open a shop', 'open shop', 'my shop', 'sell', 'seller', 'business', 'dukan khol', 'dukan kholni', 'dukaan khol', 'bechna', 'bechni', 'kaarobar', 'دکان کھول', 'بیچنا', 'کاروبار', 'दुकान खोल', 'बेचना', 'व्यापार', 'أبيع', 'بيع', 'افتح متجر', 'عمل تجاري'],
+  fyc: ['fyc', 'coin', 'coins', 'real money', 'cash out', 'withdraw', 'asli paise', 'asli paisa', 'nikal', 'کوائن', 'اصلی پیسہ', 'نکال', 'कॉइन', 'असली पैसा', 'निकाल', 'عملة', 'سحب', 'مال حقيقي'],
+  passport: ['passport', 'visa', 'citizenship', 'پاسپورٹ', 'ویزا', 'शहरियत', 'पासपोर्ट', 'वीज़ा', 'جواز', 'تأشيرة', 'جنسية'],
+  games: ['game', 'games', 'chess', 'ludo', 'carrom', 'bowling', 'golf', 'darts', 'hockey', 'khel', 'شطرنج', 'لوڈو', 'کیرم', 'کھیل', 'शतरंज', 'लूडो', 'कैरम', 'खेल', 'شطرنج', 'لعبة', 'ألعاب'],
+  account: ['password', 'login', 'log in', 'sign in', 'account', 'google', 'progress', 'save', 'پاس ورڈ', 'لاگ ان', 'اکاؤنٹ', 'पासवर्ड', 'लॉगिन', 'अकाउंट', 'كلمة المرور', 'حساب', 'تسجيل الدخول'],
+  avatar: ['avatar', 'clothes', 'outfit', 'hair', 'hijab', 'look', 'kapre', 'baal', 'اوتار', 'کپڑے', 'بال', 'حجاب', 'अवतार', 'कपड़े', 'बाल', 'हिजाब', 'ملابس', 'شعر', 'حجاب'],
+  weather: ['rain', 'snow', 'night', 'storm', 'barish', 'barf', 'raat', 'بارش', 'برف', 'رات', 'बारिश', 'बर्फ़', 'रात', 'مطر', 'ثلج', 'ليل'],
+  help_desk: ['bug', 'broken', 'not working', 'error', 'crash', 'support', 'kharab', 'chal nahi', 'nahi chal', 'خراب', 'نہیں چل', 'ख़राब', 'खराब', 'नहीं चल', 'عطل', 'لا يعمل', 'دعم'],
+  sad: ['sad', 'lonely', 'depressed', 'udaas', 'akela', 'اداس', 'اکیلا', 'उदास', 'अकेला', 'حزين', 'وحيد'],
+  vehicles: ['car', 'drive', 'driving', 'taxi', 'gari', 'gaari', 'گاڑی', 'ٹیکسی', 'गाड़ी', 'टैक्सी', 'سيارة', 'تاكسي'],
+  jobs: ['job', 'jobs', 'naukri', 'work shift', 'نوکری', 'नौकरी', 'وظيفة'],
+  politics: ['vote', 'election', 'party', 'parliament', 'minister', 'ووٹ', 'الیکشن', 'वोट', 'चुनाव', 'تصويت', 'انتخابات'],
+  guard: ['army', 'soldier', 'guard rank', 'marshal', 'fauj', 'فوج', 'सेना', 'جيش'],
+  refund_policy: ['refund', 'money back', 'charged twice', 'wapas', 'ریفنڈ', 'रिफ़ंड', 'استرداد'],
+  buy_fyc: ['buy fyc', 'buy coins', 'top up', 'recharge', 'credit card', 'debit card', 'جاز کیش', 'ری چارج', 'रिचार्ज', 'شحن'],
+  id_card: ['id card', 'identity card', 'citizen card', 'شناختی کارڈ', 'آئی ڈی کارڈ', 'आईडी कार्ड', 'पहचान पत्र', 'بطاقة الهوية', 'هوية'],
+  news: ['news', 'khabar', 'khabrein', 'journalist', 'خبر', 'خبریں', 'समाचार', 'ख़बर', 'خبر', 'أخبار'],
+  translation: ['language', 'urdu', 'hindi', 'arabic', 'english', 'zaban', 'زبان', 'भाषा', 'لغة'],
+  joke: ['joke', 'funny', 'latifa', 'لطیفہ', 'चुटकुला', 'نكتة'],
+  are_you_ai: ['bot', 'robot', 'ai', 'chatgpt', 'human', 'insan', 'روبوٹ', 'انسان', 'रोबोट', 'इंसान', 'روبوت', 'إنسان']
+};
+// Words that mean "take me there" — without one, a "take:" answer becomes a "where:" answer.
+export const TAKE = ['take me', 'teleport', 'bring me', 'go to', 'lets go', 'let us go', 'want to go', 'le chalo', 'le jao', 'le chalein', 'chalo', 'jana hai', 'pohnchao', 'لے چلو', 'لے جاؤ', 'جانا ہے', 'ले चलो', 'ले जाओ', 'जाना है', 'خذني', 'انقلني', 'أريد الذهاب'];
