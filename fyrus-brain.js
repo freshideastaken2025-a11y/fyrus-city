@@ -6,7 +6,7 @@
   'use strict';
   var W = root;
   if (W.__fyrusBrain) return;
-  var API = W.__fyrusBrain = { version: '1.2.0', ready: false };
+  var API = W.__fyrusBrain = { version: '1.2.1', ready: false };
   var KB = null, IDX = {}, loading = null;
   var LS = { get: function (k) { try { return localStorage.getItem(k); } catch (e) { return null; } }, set: function (k, v) { try { localStorage.setItem(k, v); } catch (e) {} } };
 
@@ -24,7 +24,7 @@
     acha: 'acha', achha: 'acha', accha: 'acha', thik: 'theek', theak: 'theek', thek: 'theek', kesa: 'kaisa', kaesa: 'kaisa', kitny: 'kitne', kitnay: 'kitne', kitna: 'kitne',
     chalo: 'chalo', chlo: 'chalo', le: 'le', ly: 'le', lay: 'le', jana: 'jana', jna: 'jana', hy_: 'hai', plz: 'please', pls: 'please', u: 'you', ur: 'your', r: 'are', wat: 'what', wht: 'what', whr: 'where', hw: 'how', thnx: 'thanks', thx: 'thanks', ty: 'thanks'
   };
-  var RUR_HINT = /\b(kya|kia|hai|hy|kaise|kese|kesy|kasy|kahan|kidhar|mein|mujhe|mujhay|mera|meri|aap|ap|tum|hoon|hun|nahi|nai|nhi|karo|kro|batao|btao|chahiye|chalo|yaar|bhai|kyun|kyon|kab|kitne|kitna|acha|theek|thik|salam|shukriya|jana|jaun|khareed|ghar|paise|raha|rha|gaya|gya|le chalo|kar|kr|wala|wali|sakta|sakti|sakte)\b/;
+  var RUR_HINT = /\b(kya|kia|hai|hy|kaise|kese|kesy|kasy|kahan|kidhar|mein|mujhe|mujhay|mera|meri|aap|ap|tum|hoon|hun|nahi|nai|nhi|karo|kro|batao|btao|chahiye|chalo|yaar|bhai|kyun|kyon|kab|kitne|kitna|acha|theek|thik|salam|shukriya|jana|jaun|khareed|ghar|paise|raha|rha|gaya|gya|le chalo|kar|kr|wala|wali|sakta|sakti|sakte|koi|kuch|kaun|kon|sikhao|mashwara|karna|karni|bolo|dikhao|milega|milegi|chahte|hota|hoti|bata|btao|pata|abhi|aaj|kal)\b/;
   var UR_ONLY = /[ٹڈڑںےگکپچژھہۓ]/;
   function scriptOf(s) {
     if (/[؀-ۿ]/.test(s)) return UR_ONLY.test(s) ? 'ur' : 'ar';
