@@ -45637,6 +45637,7 @@ function a5() {
           ["support", "Help desk", Fs],
           ["pay", "Payments", ax],
           ["ai", "AI", ax],
+          ["brain", "Brain", ax],
         ].map(([g, m, f]) =>
           (0, xt.jsxs)(
             "button",
@@ -45650,6 +45651,13 @@ function a5() {
           ),
         ),
       }),
+      e === "brain" &&
+        (0, xt.jsx)("div", {
+          className: "card p-3",
+          ref: (g) => {
+            g && window.__fyrusBrain && window.__fyrusBrain.mountSheet && window.__fyrusBrain.mountSheet(g);
+          },
+        }),
       e === "ai" &&
         (0, xt.jsx)("div", {
           className: "card p-3",
@@ -50535,6 +50543,6 @@ react/cjs/react-jsx-runtime.production.js:
 <script src="/fyrus-growth.js?v=1.1.0" defer></script>
 <script src="/fyrus-help.js?v=1.0.0" defer></script>
 <script src="/fyrus-pay.js?v=1.0.0" defer></script>
-<script src="/fyrus-brain.js?v=1.4.0" defer></script>
+<script src="/fyrus-brain.js?v=1.5.1" defer></script>
 
 </body></html>

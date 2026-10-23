@@ -6,7 +6,7 @@
   'use strict';
   var W = root;
   if (W.__fyrusBrain) return;
-  var API = W.__fyrusBrain = { version: '1.4.0', ready: false };
+  var API = W.__fyrusBrain = { version: '1.5.1', ready: false };
   var KB = null, IDX = {}, loading = null;
   var LS = { get: function (k) { try { return localStorage.getItem(k); } catch (e) { return null; } }, set: function (k, v) { try { localStorage.setItem(k, v); } catch (e) {} } };
 
@@ -192,6 +192,7 @@
     if (!KB) return null;
     var pref = opt.pref || '', lang = opt.lang || detect(text, pref);
     if (lang === 'other') lang = 'en';
+    var fixed = KB.fix && KB.fix[qKey(text)];
     var lc = liveCalc(text, lang === 'ar' ? 'en' : lang);
     if (lc) return { text: lc, lang: lang, intent: 'calc', score: 1, hints: [] };
     var res = search(text, lang), top = res[0];
@@ -208,13 +209,15 @@
     var hits = {};
     API._kw.forEach(function (k) { if (nq.indexOf(k[1]) >= 0 || nq.indexOf(k[2]) >= 0) hits[k[0]] = (hits[k[0]] || 0) + 1; });
     Object.keys(hits).forEach(function (i) { scores[i] = Math.max(scores[i] || 0, 0.35) + 0.25 * Math.min(2, hits[i]); });
+    if (fixed && intentIndex(fixed) >= 0) scores[intentIndex(fixed)] = 2;
+    Object.keys(scores).forEach(function (i) { if (KB.intents[i] && KB.intents[i].custom && scores[i] >= 0.5) scores[i] += 0.15; });
     var bi = null, bs = 0;
     Object.keys(scores).forEach(function (i) { if (scores[i] > bs) { bs = scores[i]; bi = +i; } });
     if (bi != null) top = { i: bi, s: bs };
     if (top && KB.intents[top.i].act === 'go' && !API._take.some(function (k) { return nq.indexOf(k) >= 0; })) { var wi = intentIndex('where:' + KB.intents[top.i].place); if (wi >= 0) top = { i: wi, s: top.s }; }
     var ranked = Object.keys(scores).map(function (i) { return [+i, scores[i]]; }).sort(function (a, b) { return b[1] - a[1]; }).slice(0, 3);
     var hints = ranked.filter(function (x) { var t = KB.intents[x[0]]; return x[1] > 0.2 && !t.live && t.act !== 'go'; }).map(function (x) { return fill(pick(KB.intents[x[0]].a.en, 0), { name: 'I', role: 'resident', bio: '', user: '' }); });
-    var npc = opt.npc || {}, it = top && top.s >= 0.30 ? KB.intents[top.i] : null;
+    var npc = opt.npc || {}, it = top && top.s >= 0.36 ? KB.intents[top.i] : null;
     var o = { name: npc.name || 'Maya', role: npc.role || 'guide', bio: npc.bio || KB.words.bioDefault[lang], user: opt.user || '', city: npc.city || 'Fyrus Core Plaza' };
     var out;
     if (!it) { out = pick(KB.words.dunno[lang]); return { text: out, lang: lang, intent: null, score: top ? top.s : 0, hints: hints }; }
@@ -229,7 +232,11 @@
       out = fill(pick(it.a[lang] || it.a.en), { place: p ? p.n : '' });
       if (p && p.adult) out = fill(KB.words.marked[lang], { place: p.n });
       if (!opt.dry) { if (p && p.adult) try { W.__fyrus.setState({ waypoint: { x: p.x, z: p.z, name: p.n } }); } catch (e) {} else go(it.place); }
-    } else out = fill(pick(it.a[lang] || it.a.en), o);
+    } else {
+      var A = it.a[lang] || (lang === 'rur' && it.a.ur) || (lang === 'ur' && it.a.rur) || (lang === 'hi' && (it.a.rur || it.a.ur)) || it.a.en;
+      if (!A) { var ks = Object.keys(it.a); A = it.a[ks[0]]; }
+      out = fill(pick(A), o);
+    }
     memo.last = it.id;
     if (it.place && KB.places[it.place]) memo.lastPlace = it.place;
     return { text: out, lang: lang, intent: it.id, score: top.s, hints: hints, live: !!it.live, act: it.act || '' };
@@ -262,10 +269,36 @@
   function load() {
     if (KB) return Promise.resolve(KB);
     if (loading) return loading;
-    loading = fetch('/brain/fyrus-brain.json?v=' + API.kbv).then(function (r) { return r.json(); }).then(function (j) { KB = j; API.ready = true; API.kb = j; return j; }).catch(function (e) { loading = null; throw e; });
+    loading = fetch('/brain/fyrus-brain.json?v=' + API.kbv).then(function (r) { return r.json(); }).then(function (j) { KB = j; KB.base = KB.intents.length; API.ready = true; API.kb = j; return loadCustom().then(function () { return j; }); }).catch(function (e) { loading = null; throw e; });
     return loading;
   }
   API.load = load;
+  /* answers written by the team in Admin desk > Brain (live, no deploy) */
+  var customV = '';
+  function loadCustom() {
+    return fetch('/api/brain/custom').then(function (r) { return r.json(); }).then(function (c) {
+      if (!c || c.v === customV) return;
+      customV = c.v;
+      KB.intents.length = KB.base;
+      KB.langs.forEach(function (l) { KB.q[l] = (KB.q[l] || []).filter(function (row) { return row[0] < KB.base; }); });
+      (c.custom || []).forEach(function (cu) {
+        var i = KB.intents.length;
+        KB.intents.push({ id: 'custom:' + cu.id, a: cu.a, custom: 1 });
+        (cu.q || []).forEach(function (q) {
+          var l = detect(q, ''); if (l === 'other' || !KB.q[l]) l = 'en';
+          KB.q[l].push([i, q]);
+          if (l === 'rur') KB.q.en.push([i, q]); else if (l === 'en') KB.q.rur.push([i, q]);
+        });
+      });
+      KB.fix = c.fix || {};
+      IDX = {}; idIdx = null;
+    }).catch(function () {});
+  }
+  setInterval(function () { if (KB) loadCustom(); }, 10 * 60000);
+  var qKey = function (s) { return String(s || '').toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, ' ').replace(/\s+/g, ' ').trim().slice(0, 200); };
+  function logQ(text, r, npc) {
+    try { fetch('/api/brain/log', { method: 'POST', keepalive: true, headers: { 'content-type': 'application/json' }, body: JSON.stringify({ q: String(text).slice(0, 300), lang: r && r.lang, intent: r && r.intent, score: r && r.score, npc: npc && npc.role }) }).catch(function () {}); } catch (e) {}
+  }
   API.reply = function (npc, text) {
     return load().then(function () {
       var s = S() || {}, me = null;
@@ -278,6 +311,7 @@
       var remember = function (a) { hist.push({ role: 'user', content: text }, { role: 'assistant', content: a }); if (hist.length > 12) hist.splice(0, hist.length - 12); return a; };
       var direct = function () {
         var r = API.ask(text, opt);
+        logQ(text, r, opt.npc);
         var unsure = !r.intent || r.score < 0.45 || (hist.length >= 4 && r.score < 0.6 && !r.live && !r.act);
         if (!unsure) return remember(r.text);
         return aiOn().then(function (on) {
@@ -324,6 +358,88 @@
     }
     root.textContent = 'Loading…';
     get('').then(draw).catch(function (e) { root.textContent = String(e.message || e); });
+  };
+
+  /* Admin desk > Brain: every question residents were asked; write answers that go live at once */
+  API.mountSheet = function (root) {
+    if (!root || root.__fxsheet) return; root.__fxsheet = 1;
+    var tok = LS.get('fyrus.net.token') || '';
+    var H = { 'content-type': 'application/json', authorization: 'Bearer ' + tok };
+    var tab = 'open';
+    var css = document.createElement('style');
+    css.textContent = '.fxbs{font:13px "Plus Jakarta Sans",system-ui,sans-serif;color:#f4efe6}.fxbs h4{margin:0 0 6px;font:600 13px Sora,sans-serif;color:#e8d5a8}.fxbs .m{font-size:12px;color:#9aa3b2}.fxbs .tabs{display:flex;gap:6px;flex-wrap:wrap;margin:10px 0}.fxbs button{border:1px solid rgba(201,169,110,.4);background:transparent;color:#f4efe6;border-radius:999px;padding:5px 12px;font:600 12px Sora,sans-serif;cursor:pointer}.fxbs button.on,.fxbs button.p{background:#c9a96e;color:#0a0f1a;border-color:#c9a96e}.fxbs .row{border:1px solid rgba(255,255,255,.1);border-radius:12px;padding:10px;margin-bottom:8px}.fxbs .q{font-size:14px;color:#f4efe6;word-break:break-word}.fxbs textarea,.fxbs input,.fxbs select{width:100%;box-sizing:border-box;background:#0a0f1a;border:1px solid rgba(255,255,255,.15);border-radius:10px;color:#f4efe6;padding:8px;font:13px "Plus Jakarta Sans",system-ui,sans-serif;margin-top:6px}.fxbs .acts{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}.fxbs .ok{color:#bff5e3}.fxbs .bad{color:#ffd2d2}';
+    root.appendChild(css);
+    root.classList.add('fxbs');
+    ['keydown', 'keyup', 'keypress'].forEach(function (ev) { root.addEventListener(ev, function (e) { if (e.key !== 'Escape') e.stopPropagation(); }); });
+    var body = document.createElement('div'); root.appendChild(body);
+    function el(tag, txt, cls) { var e = document.createElement(tag); if (txt != null) e.textContent = txt; if (cls) e.className = cls; return e; }
+    var topics = [];
+    function post(b) { return fetch('/api/admin/brain', { method: 'POST', headers: H, body: JSON.stringify(b) }).then(function (r) { return r.json(); }); }
+    function answerForm(box, item, existing) {
+      var f = el('div');
+      var lang = el('select'); [['en', 'English'], ['rur', 'Roman Urdu'], ['ur', 'اردو'], ['hi', 'हिन्दी'], ['ar', 'العربية']].forEach(function (o) { var op = el('option', o[1]); op.value = o[0]; lang.appendChild(op); });
+      lang.value = item && item.lang && /^(en|rur|ur|hi|ar)$/.test(item.lang) ? item.lang : 'en';
+      var a = el('textarea'); a.placeholder = 'The answer residents will give (1–3 short sentences)'; a.rows = 3;
+      var more = el('textarea'); more.placeholder = 'Other ways people may ask the same thing (one per line, optional)'; more.rows = 2;
+      var msg = el('div', '', 'm');
+      var save = el('button', 'Save answer — live now', 'p');
+      save.onclick = function () { var A = {}; A[lang.value] = a.value; post({ act: 'answer', q: item ? item.q : '', more: more.value, a: A, id: existing && existing.id }).then(function (j) { if (j.ok) { msg.textContent = '✓ Saved. Residents use it within a few minutes.'; msg.className = 'm ok'; setTimeout(load, 900); } else { msg.textContent = j.error || 'Could not save'; msg.className = 'm bad'; } }); };
+      f.appendChild(lang); f.appendChild(a); f.appendChild(more);
+      var acts = el('div', '', 'acts'); acts.appendChild(save); f.appendChild(acts); f.appendChild(msg);
+      box.appendChild(f); a.focus();
+    }
+    function fixForm(box, item) {
+      var f = el('div');
+      var inp = el('input'); inp.placeholder = 'Type to find the right topic (e.g. homes, where:pool, fyc)'; inp.setAttribute('list', 'fxbs-topics');
+      var go = el('button', 'Use this topic', 'p'); var msg = el('div', '', 'm');
+      go.onclick = function () { post({ act: 'fix', k: item.k, intent: inp.value.trim() }).then(function (j) { msg.textContent = j.ok ? '✓ Fixed — this question now gets that answer.' : (j.error || 'Could not save'); msg.className = j.ok ? 'm ok' : 'm bad'; if (j.ok) setTimeout(load, 900); }); };
+      f.appendChild(inp); var acts = el('div', '', 'acts'); acts.appendChild(go); f.appendChild(acts); f.appendChild(msg); box.appendChild(f); inp.focus();
+    }
+    function row(item, mode) {
+      var box = el('div', '', 'row');
+      box.appendChild(el('div', item.q, 'q'));
+      box.appendChild(el('div', 'Asked ' + item.n + '× · ' + (item.lang || '?') + (item.intent ? ' · matched: ' + item.intent + ' (' + item.score + ')' : ' · no match') + (item.npc ? ' · to a ' + item.npc : ''), 'm'));
+      var acts = el('div', '', 'acts');
+      var b1 = el('button', '✍️ Write answer'); b1.onclick = function () { b1.disabled = true; answerForm(box, item); };
+      var b2 = el('button', '🎯 Correct topic'); b2.onclick = function () { b2.disabled = true; fixForm(box, item); };
+      var b3 = el('button', 'Dismiss'); b3.onclick = function () { post({ act: 'dismiss', k: item.k }).then(load); };
+      acts.appendChild(b1); acts.appendChild(b2); if (mode === 'open') acts.appendChild(b3);
+      box.appendChild(acts);
+      return box;
+    }
+    var load = function () {
+      body.innerHTML = ''; body.appendChild(el('div', 'Loading…', 'm'));
+      fetch('/api/admin/brain', { headers: H }).then(function (r) { return r.json(); }).then(function (j) {
+        body.innerHTML = '';
+        if (j.error) { body.appendChild(el('div', j.error, 'm bad')); return; }
+        body.appendChild(el('h4', 'Brain · questions people asked the AI residents'));
+        body.appendChild(el('div', j.total + ' different questions · asked ' + j.asks + ' times · ' + j.unanswered + ' without a good answer · ' + j.custom.length + ' answers written by the team · ' + j.fixes + ' topic fixes', 'm'));
+        if (!document.getElementById('fxbs-topics') && KB) { var dl = el('datalist'); dl.id = 'fxbs-topics'; KB.intents.slice(0, KB.base).forEach(function (it) { var o = el('option'); o.value = it.id; dl.appendChild(o); }); document.body.appendChild(dl); }
+        var tabs = el('div', '', 'tabs');
+        [['open', 'Needs an answer (' + j.open.length + ')'], ['top', 'Most asked'], ['custom', 'Team answers (' + j.custom.length + ')'], ['new', '+ New answer'], ['csv', 'Sheet (CSV)']].forEach(function (t) { var b = el('button', t[1], tab === t[0] ? 'on' : ''); b.onclick = function () { tab = t[0]; load(); }; tabs.appendChild(b); });
+        body.appendChild(tabs);
+        if (tab === 'open') { if (!j.open.length) body.appendChild(el('div', 'Nothing waiting — residents answered everything. 🎉', 'm')); j.open.forEach(function (it) { body.appendChild(row(it, 'open')); }); }
+        if (tab === 'top') j.top.forEach(function (it) { body.appendChild(row(it, 'top')); });
+        if (tab === 'custom') j.custom.forEach(function (c) {
+          var box = el('div', '', 'row');
+          box.appendChild(el('div', c.q.join(' · '), 'q'));
+          Object.keys(c.a).forEach(function (l) { box.appendChild(el('div', l + ': ' + c.a[l], 'm')); });
+          var acts = el('div', '', 'acts'); var e1 = el('button', 'Add a language / edit'); e1.onclick = function () { e1.disabled = true; answerForm(box, { q: c.q[0], lang: 'en' }, c); }; var e2 = el('button', 'Delete'); e2.onclick = function () { post({ act: 'delcustom', id: c.id }).then(load); };
+          acts.appendChild(e1); acts.appendChild(e2); box.appendChild(acts); body.appendChild(box);
+        });
+        if (tab === 'new') { var box = el('div', '', 'row'); var qi = el('input'); qi.placeholder = 'The question (for example: Fyrus mein shadi ho sakti hai?)'; box.appendChild(qi); var b = el('button', 'Next: write the answer', 'p'); b.onclick = function () { if (qi.value.trim().length < 2) return; b.disabled = true; answerForm(box, { q: qi.value.trim(), lang: detect(qi.value, '') === 'other' ? 'en' : detect(qi.value, '') }); }; var a2 = el('div', '', 'acts'); a2.appendChild(b); box.appendChild(a2); body.appendChild(box); }
+        if (tab === 'csv') {
+          var box2 = el('div', '', 'row');
+          box2.appendChild(el('div', 'Download every question with its answer, fill the "answer" column in Excel or Google Sheets, and upload it back. Columns needed: question, answer, language (en, rur, ur, hi or ar).', 'm'));
+          var dlb = el('button', '⬇ Download sheet (CSV)', 'p'); dlb.onclick = function () { fetch('/api/admin/brain.csv', { headers: H }).then(function (r) { return r.blob(); }).then(function (bl) { var a = document.createElement('a'); a.href = URL.createObjectURL(bl); a.download = 'fyrus-brain-questions.csv'; document.body.appendChild(a); a.click(); setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 1000); }); };
+          var file = el('input'); file.type = 'file'; file.accept = '.csv,text/csv';
+          var up = el('button', '⬆ Upload filled sheet'); var msg = el('div', '', 'm');
+          up.onclick = function () { var fl = file.files && file.files[0]; if (!fl) { msg.textContent = 'Choose the CSV file first.'; return; } fl.text().then(function (t) { return post({ act: 'import', csv: t }); }).then(function (j) { msg.textContent = j.ok ? '✓ ' + j.added + ' answers added — live within a few minutes.' : (j.error || 'Could not import'); msg.className = j.ok ? 'm ok' : 'm bad'; }); };
+          var a3 = el('div', '', 'acts'); a3.appendChild(dlb); box2.appendChild(a3); box2.appendChild(file); var a4 = el('div', '', 'acts'); a4.appendChild(up); box2.appendChild(a4); box2.appendChild(msg); body.appendChild(box2);
+        }
+      }).catch(function (e) { body.innerHTML = ''; body.appendChild(el('div', String(e.message || e), 'm bad')); });
+    };
+    (KB ? Promise.resolve() : API.load()).then(load, load);
   };
 
   /* ---------------- AI residents start small conversations ---------------- */

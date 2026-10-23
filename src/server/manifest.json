@@ -23,5 +23,6 @@
  "ladder.mjs",
  "payments.mjs",
  "ai.mjs",
+ "brainsheet.mjs",
  "index.2.mjs"
 ]

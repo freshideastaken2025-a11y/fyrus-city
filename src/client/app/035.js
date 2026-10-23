@@ -606,6 +606,7 @@ function a5() {
           ["support", "Help desk", Fs],
           ["pay", "Payments", ax],
           ["ai", "AI", ax],
+          ["brain", "Brain", ax],
         ].map(([g, m, f]) =>
           (0, xt.jsxs)(
             "button",
@@ -619,6 +620,13 @@ function a5() {
           ),
         ),
       }),
+      e === "brain" &&
+        (0, xt.jsx)("div", {
+          className: "card p-3",
+          ref: (g) => {
+            g && window.__fyrusBrain && window.__fyrusBrain.mountSheet && window.__fyrusBrain.mountSheet(g);
+          },
+        }),
       e === "ai" &&
         (0, xt.jsx)("div", {
           className: "card p-3",

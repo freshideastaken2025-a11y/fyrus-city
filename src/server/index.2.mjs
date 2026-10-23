@@ -539,6 +539,7 @@ var accounts = createAccounts({ db, save, sha, rid, clean, createUser: (n, l) =>
 } });
 var ops = createOps({ db, dataDir: DATA_DIR, dbFile: () => dbFile, dbInfo: () => DB_INFO, save, send, liveOf: (id) => live.get(id), liveCount: () => live.size, isAdmin, isMod, findByNumber, clean, shown: (id) => db.users[id] ? shown(db.users[id]) : "Citizen" });
 var ai = createAI({ db, save, isAdmin });
+var brainSheet = createBrainSheet({ db, save, isAdmin, isMod, shown: (id) => db.users[id] ? shown(db.users[id]) : "Citizen" });
 var pay = createPayments({ db, save, send, liveOf: (id) => live.get(id), bank, isAdmin });
 var meOf = (u) => ({ ...pub(u), lang: u.lang, blocks: u.blocks, email: u.email || null, google: !!u.google, age18: !!u.age18, admin: isMod(u.id), role: isAdmin(u.id) ? "judge" : isMod(u.id) ? "moderator" : "", guest: !u.email && !u.google });
 var SEC = { "X-Content-Type-Options": "nosniff", "Referrer-Policy": "strict-origin-when-cross-origin", "X-Frame-Options": "SAMEORIGIN", "Strict-Transport-Security": "max-age=31536000; includeSubDomains", "Permissions-Policy": "camera=(self), microphone=(self), geolocation=()" };
@@ -554,6 +555,7 @@ var server = http.createServer((req, res) => {
   if (accounts.http(req, res, url.pathname, ip)) return;
   if (pay.http(req, res, url.pathname, ip, accounts.byToken)) return;
   if (ai.http(req, res, url.pathname, ip, accounts.byToken)) return;
+  if (brainSheet.http(req, res, url.pathname, ip, accounts.byToken)) return;
   if (ops.http(req, res, url.pathname, ip, accounts.byToken)) return;
   if (url.pathname === "/terms" || url.pathname === "/privacy" || url.pathname === "/refunds" || url.pathname === "/pricing" || url.pathname === "/contact") {
     res.writeHead(200, { ...SEC, "content-type": "text/html; charset=utf-8" });
