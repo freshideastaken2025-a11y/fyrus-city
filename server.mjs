@@ -8012,19 +8012,47 @@ function createPayments(d) {
   return { http: http2, live, PACKS };
 }
 
+import osAI from "node:os";
 // --- AI gateway (v48): smarter AI residents + chat translation through any Claude-compatible API. ---
 // Env (Coolify): AI_BASE_URL (e.g. https://api.mwapi.dev), AI_API_KEY, optional AI_MODEL (default claude-haiku-4-5),
 // AI_FORMAT = auto | anthropic | openai, AI_USER_DAILY (replies per citizen per day, default 40),
 // AI_DAILY_LIMIT (all replies per day, default 4000). Falls back to ANTHROPIC_API_KEY on api.anthropic.com.
 // The Fyrus Brain answers first in the browser for free; only questions it is unsure about come here.
+// Self-hosted (v51): AI_OLLAMA=1 + AI_BASE_URL=http://<ollama container>:11434 + AI_MODEL (default gemma2:2b).
+// The server pulls the model by itself on start, talks the OpenAI-compatible format, runs at most
+// AI_MAX_INFLIGHT (2) replies at once and gives up after AI_TIMEOUT_MS (40000) so the game never waits.
 function createAI(d) {
   const env = process.env;
+  const OLLAMA = String(env.AI_OLLAMA || "") === "1" || /:11434/.test(String(env.AI_BASE_URL || ""));
+  const MAX_INFLIGHT = +(env.AI_MAX_INFLIGHT || 2), TIMEOUT = +(env.AI_TIMEOUT_MS || (OLLAMA ? 4e4 : 2e4));
+  let inflight = 0, ollamaState = OLLAMA ? "starting" : "";
   const base = String(env.AI_BASE_URL || (env.ANTHROPIC_API_KEY ? "https://api.anthropic.com" : "")).replace(/\/+$/, "");
-  const key = env.AI_API_KEY || env.ANTHROPIC_API_KEY || "";
-  const model = env.AI_MODEL || env.ANTHROPIC_MODEL || "claude-haiku-4-5";
-  let format = String(env.AI_FORMAT || "auto").toLowerCase();
+  const key = env.AI_API_KEY || env.ANTHROPIC_API_KEY || (OLLAMA ? "ollama" : "");
+  const model = env.AI_MODEL || env.ANTHROPIC_MODEL || (OLLAMA ? "gemma2:2b" : "claude-haiku-4-5");
+  let format = String(env.AI_FORMAT || (OLLAMA ? "openai" : "auto")).toLowerCase();
   const USER_DAY = +(env.AI_USER_DAILY || 40), ALL_DAY = +(env.AI_DAILY_LIMIT || 4e3);
-  const on = () => !!(base && key);
+  const on = () => !!(base && key) && (!OLLAMA || ollamaState === "ready");
+  /* self-hosted: make sure the model is there (pull once, then keep it loaded) */
+  async function ollamaBoot(tries = 0) {
+    try {
+      const tags = await fetch(base.replace(/\/v1$/, "") + "/api/tags").then((r) => r.json());
+      const have = (tags.models || []).some((m) => m.name === model || m.name === model + ":latest" || m.model === model);
+      if (!have) {
+        ollamaState = "downloading " + model;
+        console.log("ai: pulling", model, "(first start can take several minutes)");
+        const r = await fetch(base.replace(/\/v1$/, "") + "/api/pull", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ model, stream: false }) });
+        if (!r.ok) throw new Error("pull " + r.status + " " + (await r.text()).slice(0, 120));
+        await r.text();
+      }
+      await fetch(base.replace(/\/v1$/, "") + "/api/generate", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ model, prompt: "", keep_alive: "24h" }) }).then((r) => r.text()).catch(() => {});
+      ollamaState = "ready";
+      console.log("ai: self-hosted model ready:", model);
+    } catch (e) {
+      ollamaState = "waiting for Ollama (" + String(e.message || e).slice(0, 80) + ")";
+      if (tries < 200) setTimeout(() => ollamaBoot(tries + 1), Math.min(6e4, 5e3 * (tries + 1)));
+    }
+  }
+  if (OLLAMA && base) setTimeout(() => ollamaBoot(), 3e3);
   d.db.aiStats ||= {};
   const S = d.db.aiStats;
   const today = () => (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
@@ -8063,6 +8091,18 @@ function createAI(d) {
     if (!on()) return null;
     const t = day();
     if (t.calls >= ALL_DAY) return null;
+    if (inflight >= MAX_INFLIGHT) {
+      t.busy = (t.busy || 0) + 1;
+      return null;
+    }
+    inflight++;
+    const job = complete2(system, messages, OLLAMA ? Math.min(maxTokens, 160) : maxTokens, kind, t).finally(() => inflight--);
+    return Promise.race([job, new Promise((res) => setTimeout(() => {
+      t.slow = (t.slow || 0) + 1;
+      res(null);
+    }, TIMEOUT))]);
+  }
+  async function complete2(system, messages, maxTokens, kind, t) {
     t.calls++;
     t[kind] = (t[kind] || 0) + 1;
     try {
@@ -8098,7 +8138,7 @@ function createAI(d) {
       res.writeHead(code, { "content-type": "application/json", "cache-control": "no-store" });
       res.end(JSON.stringify(o));
     };
-    if (p === "/api/ai/status") return json(200, { on: on() }), true;
+    if (p === "/api/ai/status") return json(200, { on: on(), wait: TIMEOUT }), true;
     if (p === "/api/ai/talk" && req.method === "POST") {
       let raw = "";
       req.on("data", (c) => {
@@ -8144,12 +8184,13 @@ Never give medical, legal or financial advice beyond general information; never 
     if (p === "/api/admin/ai") {
       const u = auth(String(req.headers.authorization || "").replace(/^Bearer\s+/i, ""));
       if (!u || !d.isAdmin(u.id)) return json(403, { error: "Judges only" }), true;
-      const days = Object.entries(S).sort((a, b2) => b2[0].localeCompare(a[0])).slice(0, 14).map(([k, x]) => ({ day: k, calls: x.calls, talk: x.talk || 0, translate: x.translate || 0, inTok: x.inTok, outTok: x.outTok, fail: x.fail, people: Object.keys(x.users || {}).length }));
+      const days = Object.entries(S).sort((a, b2) => b2[0].localeCompare(a[0])).slice(0, 14).map(([k, x]) => ({ day: k, calls: x.calls, talk: x.talk || 0, translate: x.translate || 0, inTok: x.inTok, outTok: x.outTok, fail: x.fail, slow: x.slow || 0, busy: x.busy || 0, people: Object.keys(x.users || {}).length }));
       if (new URL(req.url || "/", "http://x").searchParams.get("test") === "1" && on()) {
-        complete("Reply with exactly: OK, then the name of the model you are.", [{ role: "user", content: "Who are you?" }], 40, "test").then((t) => json(200, { on: on(), base: base.replace(/^https?:\/\//, ""), model, format, test: t, lastErr, days }));
+        const t0 = Date.now();
+        complete("Reply with exactly: OK, then the name of the model you are.", [{ role: "user", content: "Who are you?" }], 40, "test").then((t) => json(200, { on: on(), base: base.replace(/^https?:\/\//, ""), model, format, test: t ? t + "  (" + ((Date.now() - t0) / 1e3).toFixed(1) + " s)" : t, lastErr, selfHosted: OLLAMA ? ollamaState : "", days }));
         return true;
       }
-      return json(200, { on: on(), base: base.replace(/^https?:\/\//, ""), model, format, lastErr, limits: { perCitizenDay: USER_DAY, perDay: ALL_DAY }, days }), true;
+      return json(200, { on: on(), base: base.replace(/^https?:\/\//, ""), model, format, lastErr, selfHosted: OLLAMA ? ollamaState : "", inflight, limits: { perCitizenDay: USER_DAY, perDay: ALL_DAY, atOnce: MAX_INFLIGHT, timeoutS: TIMEOUT / 1e3 }, server: { cpus: osAI.cpus().length, memGB: +(osAI.totalmem() / 1073741824).toFixed(1), freeGB: +(osAI.freemem() / 1073741824).toFixed(1), load: osAI.loadavg().map((x) => +x.toFixed(2)) }, days }), true;
     }
     return false;
   }

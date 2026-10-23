@@ -6,7 +6,7 @@
   'use strict';
   var W = root;
   if (W.__fyrusBrain) return;
-  var API = W.__fyrusBrain = { version: '1.3.0', ready: false };
+  var API = W.__fyrusBrain = { version: '1.4.0', ready: false };
   var KB = null, IDX = {}, loading = null;
   var LS = { get: function (k) { try { return localStorage.getItem(k); } catch (e) { return null; } }, set: function (k, v) { try { localStorage.setItem(k, v); } catch (e) {} } };
 
@@ -236,11 +236,11 @@
   };
 
   /* other languages through Chrome's built-in, on-device translator (no key, no server) */
-  var HIST = {}, aiState = null, aiAt = 0;
+  var HIST = {}, aiState = null, aiAt = 0, aiWait = 12000;
   function aiOn() {
     if (!LS.get('fyrus.net.token')) return Promise.resolve(false);
     if (aiState !== null && Date.now() - aiAt < 6e5) return Promise.resolve(aiState);
-    return fetch('/api/ai/status').then(function (r) { return r.json(); }).then(function (j) { aiState = !!j.on; aiAt = Date.now(); return aiState; }).catch(function () { return false; });
+    return fetch('/api/ai/status').then(function (r) { return r.json(); }).then(function (j) { aiState = !!j.on; aiWait = Math.min(45000, (+j.wait || 10000) + 2000); aiAt = Date.now(); return aiState; }).catch(function () { return false; });
   }
   var trCache = {};
   function translator(src, dst) {
@@ -282,7 +282,7 @@
         if (!unsure) return remember(r.text);
         return aiOn().then(function (on) {
           if (!on) return remember(r.text);
-          return within(fetch('/api/ai/talk', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + (LS.get('fyrus.net.token') || '') }, body: JSON.stringify({ npc: { name: npc && npc.name, role: npc && npc.role, persona: npc && npc.persona ? String(npc.persona).slice(0, 600) : '' }, history: hist, text: text, hints: r.hints || [] }) }).then(function (x) { return x.ok ? x.json() : null; }), 12000)
+          return within(fetch('/api/ai/talk', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + (LS.get('fyrus.net.token') || '') }, body: JSON.stringify({ npc: { name: npc && npc.name, role: npc && npc.role, persona: npc && npc.persona ? String(npc.persona).slice(0, 600) : '' }, history: hist, text: text, hints: r.hints || [] }) }).then(function (x) { return x.ok ? x.json() : null; }), aiWait)
             .then(function (j) { return remember(j && j.text ? j.text : r.text); })
             .catch(function () { return remember(r.text); });
         });
@@ -311,13 +311,15 @@
       var h = function (tag, txt, st) { var e = document.createElement(tag); e.textContent = txt; if (st) e.style.cssText = st; root.appendChild(e); return e; };
       if (j.error) { h('div', j.error); return; }
       h('div', j.on ? 'AI gateway: ON · ' + j.base + ' · model ' + j.model + ' · format ' + j.format : 'AI gateway: OFF — set AI_BASE_URL and AI_API_KEY in Coolify, then Deploy. The Fyrus Brain still answers for free.', 'font:600 13px Sora,sans-serif;color:#e8d5a8;margin-bottom:6px');
+      if (j.selfHosted) h('div', 'Self-hosted model (Ollama): ' + j.selfHosted + (j.inflight != null ? ' · answering now: ' + j.inflight : ''), 'font-size:12px;color:#e8d5a8');
+      if (j.server) h('div', 'Server: ' + j.server.cpus + ' CPU · ' + j.server.memGB + ' GB RAM (' + j.server.freeGB + ' GB free) · load ' + j.server.load.join(' / '), 'font-size:12px;color:#9aa3b2');
       if (j.limits) h('div', 'Limits: ' + j.limits.perCitizenDay + ' AI replies per citizen per day, ' + j.limits.perDay + ' per day in total (AI_USER_DAILY, AI_DAILY_LIMIT).', 'font-size:12px;color:#9aa3b2');
       if (j.test !== undefined) h('div', 'Test answer: ' + (j.test || '(no answer)'), 'font-size:12px;color:#bff5e3;margin-top:6px');
       if (j.lastErr) h('div', 'Last error: ' + j.lastErr, 'font-size:12px;color:#ffd2d2;margin-top:6px');
       var b = h('button', 'Run a test', 'margin:10px 0;border:1px solid #c9a96e;background:transparent;color:#f4efe6;border-radius:999px;padding:6px 14px;cursor:pointer');
       b.onclick = function () { b.textContent = 'Testing…'; get('?test=1').then(draw); };
       var t = document.createElement('table'); t.style.cssText = 'width:100%;font-size:12px;border-collapse:collapse';
-      t.innerHTML = '<tr><th align=left>Day</th><th align=left>Resident replies</th><th align=left>Translations</th><th align=left>People</th><th align=left>Tokens in/out</th><th align=left>Failed</th></tr>' + (j.days || []).map(function (x) { return '<tr><td>' + x.day + '</td><td>' + x.talk + '</td><td>' + x.translate + '</td><td>' + x.people + '</td><td>' + x.inTok + ' / ' + x.outTok + '</td><td>' + x.fail + '</td></tr>'; }).join('');
+      t.innerHTML = '<tr><th align=left>Day</th><th align=left>Resident replies</th><th align=left>Translations</th><th align=left>People</th><th align=left>Tokens in/out</th><th align=left>Failed</th><th align=left>Too slow/busy</th></tr>' + (j.days || []).map(function (x) { return '<tr><td>' + x.day + '</td><td>' + x.talk + '</td><td>' + x.translate + '</td><td>' + x.people + '</td><td>' + x.inTok + ' / ' + x.outTok + '</td><td>' + x.fail + '</td><td>' + ((x.slow || 0) + (x.busy || 0)) + '</td></tr>'; }).join('');
       root.appendChild(t);
     }
     root.textContent = 'Loading…';

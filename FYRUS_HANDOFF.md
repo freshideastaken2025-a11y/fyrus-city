@@ -3,7 +3,7 @@
 > **For any AI or developer picking this up (Claude, ChatGPT, Gemini, OpenClaw agents, humans):**
 > Read this whole file before changing anything. When you finish a task, **update the
 > "Done" and "Pending" sections and the changelog at the bottom** in the same commit.
-> Last updated: **24 Oct 2026, v50** (by Claude).
+> Last updated: **24 Oct 2026, v51** (by Claude).
 
 ---
 
@@ -149,6 +149,7 @@ zero real crime, fair trade (escrow), one citizen one vote, protect children & e
 - v42: **safe storage + backups** (see §2), **moderators** (`FYRUS_MODS`) with a moderation log, Skyline Club is 18+ (self-declared age, same as voice), **phone speed** (compiled Tailwind, self-hosted three.js, brotli, long cache).
 - v43: **growth analytics + invite links** for the beta (Admin desk → Growth).
 - v44: **avatars v2** — every citizen avatar redrawn in a stylised full-body look (018b.js).
+- v51: **Self-hosted AI (Ollama) support** — `AI_OLLAMA=1`, `AI_BASE_URL=http://<ollama container>:11434`, optional `AI_MODEL` (default `gemma2:2b`). The server pulls the model itself, keeps it loaded, uses the OpenAI-compatible API, allows `AI_MAX_INFLIGHT` (2) replies at once and stops waiting after `AI_TIMEOUT_MS` (40 s) — then the Brain answers, so the game never waits. Admin desk → AI shows model state, server CPU/RAM/load and slow/busy counts. The model gets Fyrus knowledge through the Brain's hints (no GPU training on a CPU VPS).
 - v50: **Brain v3** — 272 topics: each daily event, the Charter, is-it-free, app/install, internet, who made Fyrus, stealth/online, language/music/colour settings, password and scam safety, bans, two tabs, name change, groups, voice, tax & Land Bank, welcome grant, certificates, teaching, judges, weather effects, mountains, helicopters, Open Mic; **live maths and unit conversion** ("23 x 47", "10 km to miles", "100 f in c"). New files `tools/brain/intents-life.mjs`, `paraphrase.mjs` (synonyms + openers + endings). With a dataset dir the build also writes **one file per language: English 254,813, Urdu 203,810, Roman Urdu 226,176, Hindi 177,649 questions with answers** (`fyrus-qa-<lang>.jsonl.gz`). Tests: 107/107, 37/38 fresh, new-topic set 21/29 before tuning → 29/29 after.
 - v49: **Brain v2** — 237 topics / ≈17k base questions (≈486k with variants): small talk (hobbies, food, music, festivals incl. Eid/Diwali/Christmas, riddles, fun facts, motivation), memory ("take me there" goes to the last place mentioned), the 10 named residents, every game and home, the 9 courses, Vector Bay activities, Joyland, brands, luxury items, and **work knowledge per resident type** (50 roles in 10 groups: tips + business, CV/interview, fitness, study, creative, friendship topics) in `tools/brain/intents-more.mjs` and `roles.mjs`. Held-out tests: 107/107 on the tuning set, 37/38 on a fresh set. Datasets + Modelfiles regenerated.
 - v48: **AI gateway** — residents ask a Claude-compatible API (owner uses an API gateway) only when the Brain is unsure; chat translation through the same key; daily limits; Admin desk → AI; privacy page names an AI service provider.
@@ -256,6 +257,7 @@ zero real crime, fair trade (escrow), one citizen one vote, protect children & e
   (this repo is public — **never commit secrets**).
 
 ## 10. Changelog
+- 2026-10-24 v51 — self-hosted Ollama support with limits and timeouts.
 - 2026-10-24 v50 — Brain v3 (272 topics, live maths/units, 1 lakh+ questions per language datasets).
 - 2026-10-24 v49 — Brain v2 (more topics, resident work knowledge, memory).
 - 2026-10-24 v48 — AI gateway (AI_BASE_URL/AI_API_KEY) for residents + translation, Admin → AI.
