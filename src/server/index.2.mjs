@@ -139,22 +139,13 @@ var badRe = new RegExp(`\\b(${BAD.join("|")})\\w*`, "gi");
 var filter = (t) => t.replace(badRe, (m) => "*".repeat(m.length));
 var tcache = /* @__PURE__ */ new Map();
 async function translate(text, lang) {
-  if (!AI_KEY || !text.trim()) return null;
+  if (!ai.on() || !text.trim()) return null;
   const key = lang + "|" + text;
   const hit = tcache.get(key);
   if (hit !== void 0) return hit;
   try {
-    const r = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: { "content-type": "application/json", "x-api-key": AI_KEY, "anthropic-version": "2023-06-01" },
-      body: JSON.stringify({ model: AI_MODEL, max_tokens: 600, system: `You translate chat messages in a game city. Translate the user's message into ${langName(lang)}. If it is already in ${langName(lang)}, return it unchanged. Romanized Urdu/Hindi counts as Urdu/Hindi. Keep names, emojis and numbers. Output only the translated message, nothing else.`, messages: [{ role: "user", content: text }] })
-    });
-    if (!r.ok) {
-      console.error("translate", r.status, (await r.text()).slice(0, 200));
-      return null;
-    }
-    const j = await r.json();
-    const out = String(j?.content?.[0]?.text || "").trim();
+    const out = await ai.complete(`You translate chat messages in a game city. Translate the user's message into ${langName(lang)}. If it is already in ${langName(lang)}, return it unchanged. Romanized Urdu/Hindi counts as Urdu/Hindi. Keep names, emojis and numbers. Output only the translated message, nothing else.`, [{ role: "user", content: text }], 600, "translate");
+    if (!out) return null;
     if (tcache.size > 5e3) tcache.clear();
     tcache.set(key, out);
     return out;
@@ -547,6 +538,7 @@ var accounts = createAccounts({ db, save, sha, rid, clean, createUser: (n, l) =>
   return c;
 } });
 var ops = createOps({ db, dataDir: DATA_DIR, dbFile: () => dbFile, dbInfo: () => DB_INFO, save, send, liveOf: (id) => live.get(id), liveCount: () => live.size, isAdmin, isMod, findByNumber, clean, shown: (id) => db.users[id] ? shown(db.users[id]) : "Citizen" });
+var ai = createAI({ db, save, isAdmin });
 var pay = createPayments({ db, save, send, liveOf: (id) => live.get(id), bank, isAdmin });
 var meOf = (u) => ({ ...pub(u), lang: u.lang, blocks: u.blocks, email: u.email || null, google: !!u.google, age18: !!u.age18, admin: isMod(u.id), role: isAdmin(u.id) ? "judge" : isMod(u.id) ? "moderator" : "", guest: !u.email && !u.google });
 var SEC = { "X-Content-Type-Options": "nosniff", "Referrer-Policy": "strict-origin-when-cross-origin", "X-Frame-Options": "SAMEORIGIN", "Strict-Transport-Security": "max-age=31536000; includeSubDomains", "Permissions-Policy": "camera=(self), microphone=(self), geolocation=()" };
@@ -556,11 +548,12 @@ var server = http.createServer((req, res) => {
   const url = new URL(req.url || "/", "http://x");
   if (url.pathname === "/health") {
     res.writeHead(200, { "content-type": "application/json" });
-    return res.end(JSON.stringify({ ok: true, online: live.size, users: Object.keys(db.users).length, translate: !!AI_KEY, news: db.news?.items.length || 0 }));
+    return res.end(JSON.stringify({ ok: true, online: live.size, users: Object.keys(db.users).length, translate: ai.on(), news: db.news?.items.length || 0 }));
   }
   const ip = String(req.headers["x-forwarded-for"] || req.socket.remoteAddress || "").split(",")[0].trim();
   if (accounts.http(req, res, url.pathname, ip)) return;
   if (pay.http(req, res, url.pathname, ip, accounts.byToken)) return;
+  if (ai.http(req, res, url.pathname, ip, accounts.byToken)) return;
   if (ops.http(req, res, url.pathname, ip, accounts.byToken)) return;
   if (url.pathname === "/terms" || url.pathname === "/privacy" || url.pathname === "/refunds" || url.pathname === "/pricing" || url.pathname === "/contact") {
     res.writeHead(200, { ...SEC, "content-type": "text/html; charset=utf-8" });
@@ -639,7 +632,7 @@ wss.on("connection", (ws, req) => {
       live.set(u.id, me);
       ops.bump("visits");
       ops.seen(u);
-      send(ws, { t: "welcome", token, me: meOf(u), plots: db.plots, groups: Object.values(db.groups).filter((g) => g.members.includes(u.id)), online: live.size, translate: !!AI_KEY });
+      send(ws, { t: "welcome", token, me: meOf(u), plots: db.plots, groups: Object.values(db.groups).filter((g) => g.members.includes(u.id)), online: live.size, translate: ai.on() });
       broadcast({ t: "online", n: live.size });
       return;
     }
@@ -673,4 +666,4 @@ wss.on("connection", (c) => {
   c.isAlive = true;
   c.on("pong", () => c.isAlive = true);
 });
-server.listen(PORT, () => console.log(`Fyrus server on :${PORT} \xB7 translate ${AI_KEY ? "on (" + AI_MODEL + ")" : "off (set ANTHROPIC_API_KEY)"}`));
+server.listen(PORT, () => console.log(`Fyrus server on :${PORT} \xB7 AI ${ai.on() ? "on" : "off (set AI_BASE_URL + AI_API_KEY)"}`));

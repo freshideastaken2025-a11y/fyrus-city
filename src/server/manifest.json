@@ -22,5 +22,6 @@
  "legal.mjs",
  "ladder.mjs",
  "payments.mjs",
+ "ai.mjs",
  "index.2.mjs"
 ]

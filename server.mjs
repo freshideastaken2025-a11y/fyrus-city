@@ -7701,7 +7701,7 @@ function createOps(d) {
 }
 
 // server/legal.ts
-var UPDATED = "23 October 2026";
+var UPDATED = "24 October 2026";
 var ORG = {
   name: String(process.env.LEGAL_ENTITY || "").trim(),
   address: String(process.env.LEGAL_ADDRESS || "").trim(),
@@ -7728,7 +7728,7 @@ var PRIVACY = `
 <p class="note">This explains what Fyrus stores, why, and your choices. Fyrus servers are in Germany (EU).</p>
 <h2>What we store</h2><ul><li><b>Account:</b> your display name, Fyrus number, email (if you add one), a scrambled (hashed) password, or your Google account id if you sign in with Google.</li><li><b>City data:</b> your FYC statement, properties, listings and orders, courses and certificates, events, messages you send (city chat, groups and DMs), reports, and your avatar settings and optional face photo.</li><li><b>Technical:</b> error reports from your browser (to fix bugs), simple daily counts of visits, and your IP address in short-lived rate limits and server logs.</li><li><b>Usage statistics (our own, no outside trackers):</b> the days you visit (last 120), which invite link you came from, and once a minute the area of Fyrus you are in (for example a district or a menu) so we can see which places people like and where they leave; once a day also the kind of device (phone, tablet or computer), operating system, browser, time zone, language, which site sent you (for example WhatsApp or Google) and how smoothly Fyrus runs on your device. Admins only see totals, not a timeline of a person.</li></ul>
 <h2>What we do not do</h2><ul><li>We do not sell your data.</li><li>We do not show third-party ads based on your data.</li><li>We do not ask for ID cards. Card and bank details for purchases are entered on our payment partner\u2019s page and never reach Fyrus servers; we only receive the order number and whether it was paid.</li></ul>
-<h2>Who else processes data</h2><ul><li><b>Anthropic</b> translates chat messages when translation is on (the message text only).</li><li><b>Google</b> confirms your sign-in if you use "Sign in with Google".</li><li><b>Email provider</b> sends password reset codes and answers from the help desk.</li><li><b>Payment partner</b> (when FYC packs are on sale, for example Paddle) processes your payment, your billing details and tax as the seller of record, under its own privacy policy.</li><li>Our hosting provider stores the server and its backups.</li></ul>
+<h2>Who else processes data</h2><ul><li><b>AI service provider</b> (an AI language model reached through an API provider) writes some replies of the AI residents and translates chat messages when translation is on. Only the text of that conversation is sent, never your name, number, e-mail or location; the provider may keep it for a short time under its own terms.</li><li><b>Google</b> confirms your sign-in if you use "Sign in with Google".</li><li><b>Email provider</b> sends password reset codes and answers from the help desk.</li><li><b>Payment partner</b> (when FYC packs are on sale, for example Paddle) processes your payment, your billing details and tax as the seller of record, under its own privacy policy.</li><li>Our hosting provider stores the server and its backups.</li></ul>
 <h2>Visibility</h2><p>Your name, colour, Fyrus number and avatar are visible to other people in the city. Stealth mode hides your name and photo behind an alias. Blocked people cannot message you.</p>
 <h2>How long</h2><p>Account and city data are kept while your account exists. Backups are kept for 14 days (hourly copies for 48 hours); if the owner turns it on, a daily copy is also e-mailed to the owner for safekeeping. Error reports are kept for the most recent 300.</p>
 <h2>Help desk messages</h2><p>Messages you send through Help & feedback are kept with the place in Fyrus and the type of device you were using, so the team can fix problems; the most recent 2,000 are kept.</p><h2>Your rights</h2><p>You can ask to see, correct, export or delete your data, and you can withdraw consent at any time. If you are in the EU you can also complain to your data protection authority. To ask, use Help & feedback in the city.</p><h2>Who we are</h2>${whoWeAre()}
@@ -8011,6 +8011,150 @@ function createPayments(d) {
   }
   return { http: http2, live, PACKS };
 }
+
+// --- AI gateway (v48): smarter AI residents + chat translation through any Claude-compatible API. ---
+// Env (Coolify): AI_BASE_URL (e.g. https://api.mwapi.dev), AI_API_KEY, optional AI_MODEL (default claude-haiku-4-5),
+// AI_FORMAT = auto | anthropic | openai, AI_USER_DAILY (replies per citizen per day, default 40),
+// AI_DAILY_LIMIT (all replies per day, default 4000). Falls back to ANTHROPIC_API_KEY on api.anthropic.com.
+// The Fyrus Brain answers first in the browser for free; only questions it is unsure about come here.
+function createAI(d) {
+  const env = process.env;
+  const base = String(env.AI_BASE_URL || (env.ANTHROPIC_API_KEY ? "https://api.anthropic.com" : "")).replace(/\/+$/, "");
+  const key = env.AI_API_KEY || env.ANTHROPIC_API_KEY || "";
+  const model = env.AI_MODEL || env.ANTHROPIC_MODEL || "claude-haiku-4-5";
+  let format = String(env.AI_FORMAT || "auto").toLowerCase();
+  const USER_DAY = +(env.AI_USER_DAILY || 40), ALL_DAY = +(env.AI_DAILY_LIMIT || 4e3);
+  const on = () => !!(base && key);
+  d.db.aiStats ||= {};
+  const S = d.db.aiStats;
+  const today = () => (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+  const day = () => {
+    const t = today();
+    const x = S[t] ||= { calls: 0, talk: 0, translate: 0, inTok: 0, outTok: 0, fail: 0, users: {} };
+    const ks = Object.keys(S).sort();
+    ks.slice(0, Math.max(0, ks.length - 30)).forEach((k) => delete S[k]);
+    return x;
+  };
+  let lastErr = "";
+  const v = (b) => b.replace(/\/v1$/, "");
+  async function callAnthropic(system, messages, maxTokens) {
+    const r = await fetch(v(base) + "/v1/messages", { method: "POST", headers: { "content-type": "application/json", "x-api-key": key, authorization: `Bearer ${key}`, "anthropic-version": "2023-06-01" }, body: JSON.stringify({ model, max_tokens: maxTokens, system, messages }) });
+    if (!r.ok) {
+      const t = (await r.text()).slice(0, 200);
+      const e = new Error(`anthropic ${r.status} ${t}`);
+      e.status = r.status;
+      throw e;
+    }
+    const j = await r.json();
+    return { text: (j.content || []).map((c) => c.text || "").join("").trim(), inTok: j.usage?.input_tokens || 0, outTok: j.usage?.output_tokens || 0 };
+  }
+  async function callOpenAI(system, messages, maxTokens) {
+    const r = await fetch(v(base) + "/v1/chat/completions", { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${key}` }, body: JSON.stringify({ model, max_tokens: maxTokens, messages: [{ role: "system", content: system }, ...messages] }) });
+    if (!r.ok) {
+      const t = (await r.text()).slice(0, 200);
+      const e = new Error(`openai ${r.status} ${t}`);
+      e.status = r.status;
+      throw e;
+    }
+    const j = await r.json();
+    return { text: String(j.choices?.[0]?.message?.content || "").trim(), inTok: j.usage?.prompt_tokens || 0, outTok: j.usage?.completion_tokens || 0 };
+  }
+  async function complete(system, messages, maxTokens, kind) {
+    if (!on()) return null;
+    const t = day();
+    if (t.calls >= ALL_DAY) return null;
+    t.calls++;
+    t[kind] = (t[kind] || 0) + 1;
+    try {
+      let out;
+      if (format === "openai") out = await callOpenAI(system, messages, maxTokens);
+      else if (format === "anthropic") out = await callAnthropic(system, messages, maxTokens);
+      else {
+        try {
+          out = await callAnthropic(system, messages, maxTokens);
+          format = "anthropic";
+        } catch (e) {
+          if (![400, 404, 405, 415].includes(e.status)) throw e;
+          out = await callOpenAI(system, messages, maxTokens);
+          format = "openai";
+        }
+      }
+      t.inTok += out.inTok;
+      t.outTok += out.outTok;
+      d.save();
+      return out.text || null;
+    } catch (e) {
+      t.fail++;
+      lastErr = String(e.message || e).replace(key, "***").slice(0, 200);
+      console.error("ai", lastErr);
+      return null;
+    }
+  }
+  const FACTS = "Fyrus is a free virtual country in the year 2040 at fyrus.io: walk a 3D city, get a passport, own homes and land, open a shop on the escrow market, take free courses with certificates, shift jobs, 13 arcade games and a battle arena (XP only), elections (one citizen one vote), a daily programme (09:00 parade, 11:00 storytime, 13:00 open mic, 16:00 market hour, 18:00 changing of the guard, 20:00 sunset concert, 22:00 night set), Vector Bay city across the sea (fly via More > Transit), SkyPort with free flying cars. FYC is play money only: it cannot be cashed out. Safety: block/report people, Help & feedback under the More button, Kids mode with a parent PIN, 13+ to use, voice chat and Skyline Club 18+. Never ask for or give personal data, money outside Fyrus, or contact details.";
+  const clean = (s, n) => String(s ?? "").replace(/[\u0000-\u0008\u000b-\u001f]/g, " ").trim().slice(0, n);
+  const hits = /* @__PURE__ */ new Map();
+  function http2(req, res, p, ip, auth) {
+    const json = (code, o) => {
+      res.writeHead(code, { "content-type": "application/json", "cache-control": "no-store" });
+      res.end(JSON.stringify(o));
+    };
+    if (p === "/api/ai/status") return json(200, { on: on() }), true;
+    if (p === "/api/ai/talk" && req.method === "POST") {
+      let raw = "";
+      req.on("data", (c) => {
+        raw += c;
+        if (raw.length > 12e3) req.destroy();
+      });
+      req.on("end", async () => {
+        let b = {};
+        try {
+          b = JSON.parse(raw || "{}");
+        } catch {}
+        const u = auth(String(req.headers.authorization || "").replace(/^Bearer\s+/i, ""));
+        if (!u) return json(401, { error: "enter first" });
+        if (!on()) return json(503, { error: "off" });
+        if (u.muteUntil && u.muteUntil > Date.now()) return json(429, { error: "muted" });
+        const t = day();
+        const n = t.users[u.id] || 0;
+        if (n >= USER_DAY) return json(429, { error: "limit" });
+        const now = Date.now(), h = (hits.get(u.id) || []).filter((x) => now - x < 6e4);
+        if (h.length >= 8) return json(429, { error: "slow down" });
+        h.push(now);
+        hits.set(u.id, h);
+        if (hits.size > 2e4) hits.clear();
+        t.users[u.id] = n + 1;
+        const npc = b.npc || {};
+        const hist = (Array.isArray(b.history) ? b.history : []).slice(-6).map((m) => ({ role: m.role === "assistant" ? "assistant" : "user", content: clean(m.content, 500) })).filter((m) => m.content);
+        const text = clean(b.text, 600);
+        if (!text) return json(400, { error: "empty" });
+        while (hist.length && hist[0].role !== "user") hist.shift();
+        const msgs = [...hist, { role: "user", content: text }];
+        for (let i = msgs.length - 1; i > 0; i--) if (msgs[i].role === msgs[i - 1].role) msgs.splice(i - 1, 1);
+        const hints = (Array.isArray(b.hints) ? b.hints : []).slice(0, 3).map((x) => clean(x, 600)).filter(Boolean);
+        const system = `You are ${clean(npc.name, 40) || "Maya"}, ${clean(npc.role, 60) || "a resident"} in Fyrus. ${clean(npc.persona, 600)}
+You are an AI resident (if asked directly, say so honestly). Talk face to face with a visitor in the 3D city. Reply in the visitor's language and script (Roman Urdu stays Roman Urdu), in 1-3 short, warm, natural sentences. Use only these facts about Fyrus; if you are not sure, say so and suggest "Where to?" at the top or More > Help & feedback.
+FACTS: ${FACTS}${hints.length ? "\nMOST RELEVANT FACTS FOR THIS QUESTION:\n- " + hints.join("\n- ") : ""}
+Never give medical, legal or financial advice beyond general information; never share or ask for personal contact details; keep it friendly for ages 13+.`;
+        const out = await complete(system, msgs, 300, "talk");
+        if (!out) return json(502, { error: "unavailable" });
+        json(200, { text: out.slice(0, 900) });
+      });
+      return true;
+    }
+    if (p === "/api/admin/ai") {
+      const u = auth(String(req.headers.authorization || "").replace(/^Bearer\s+/i, ""));
+      if (!u || !d.isAdmin(u.id)) return json(403, { error: "Judges only" }), true;
+      const days = Object.entries(S).sort((a, b2) => b2[0].localeCompare(a[0])).slice(0, 14).map(([k, x]) => ({ day: k, calls: x.calls, talk: x.talk || 0, translate: x.translate || 0, inTok: x.inTok, outTok: x.outTok, fail: x.fail, people: Object.keys(x.users || {}).length }));
+      if (new URL(req.url || "/", "http://x").searchParams.get("test") === "1" && on()) {
+        complete("Reply with exactly: OK, then the name of the model you are.", [{ role: "user", content: "Who are you?" }], 40, "test").then((t) => json(200, { on: on(), base: base.replace(/^https?:\/\//, ""), model, format, test: t, lastErr, days }));
+        return true;
+      }
+      return json(200, { on: on(), base: base.replace(/^https?:\/\//, ""), model, format, lastErr, limits: { perCitizenDay: USER_DAY, perDay: ALL_DAY }, days }), true;
+    }
+    return false;
+  }
+  return { http: http2, on, complete };
+}
 // server/index.ts
 var PORT = Number(process.env.PORT || 80);
 var PUBLIC = process.env.PUBLIC_DIR || path2.join(process.cwd(), "public");
@@ -8152,22 +8296,13 @@ var badRe = new RegExp(`\\b(${BAD.join("|")})\\w*`, "gi");
 var filter = (t) => t.replace(badRe, (m) => "*".repeat(m.length));
 var tcache = /* @__PURE__ */ new Map();
 async function translate(text, lang) {
-  if (!AI_KEY || !text.trim()) return null;
+  if (!ai.on() || !text.trim()) return null;
   const key = lang + "|" + text;
   const hit = tcache.get(key);
   if (hit !== void 0) return hit;
   try {
-    const r = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: { "content-type": "application/json", "x-api-key": AI_KEY, "anthropic-version": "2023-06-01" },
-      body: JSON.stringify({ model: AI_MODEL, max_tokens: 600, system: `You translate chat messages in a game city. Translate the user's message into ${langName(lang)}. If it is already in ${langName(lang)}, return it unchanged. Romanized Urdu/Hindi counts as Urdu/Hindi. Keep names, emojis and numbers. Output only the translated message, nothing else.`, messages: [{ role: "user", content: text }] })
-    });
-    if (!r.ok) {
-      console.error("translate", r.status, (await r.text()).slice(0, 200));
-      return null;
-    }
-    const j = await r.json();
-    const out = String(j?.content?.[0]?.text || "").trim();
+    const out = await ai.complete(`You translate chat messages in a game city. Translate the user's message into ${langName(lang)}. If it is already in ${langName(lang)}, return it unchanged. Romanized Urdu/Hindi counts as Urdu/Hindi. Keep names, emojis and numbers. Output only the translated message, nothing else.`, [{ role: "user", content: text }], 600, "translate");
+    if (!out) return null;
     if (tcache.size > 5e3) tcache.clear();
     tcache.set(key, out);
     return out;
@@ -8560,6 +8695,7 @@ var accounts = createAccounts({ db, save, sha, rid, clean, createUser: (n, l) =>
   return c;
 } });
 var ops = createOps({ db, dataDir: DATA_DIR, dbFile: () => dbFile, dbInfo: () => DB_INFO, save, send, liveOf: (id) => live.get(id), liveCount: () => live.size, isAdmin, isMod, findByNumber, clean, shown: (id) => db.users[id] ? shown(db.users[id]) : "Citizen" });
+var ai = createAI({ db, save, isAdmin });
 var pay = createPayments({ db, save, send, liveOf: (id) => live.get(id), bank, isAdmin });
 var meOf = (u) => ({ ...pub(u), lang: u.lang, blocks: u.blocks, email: u.email || null, google: !!u.google, age18: !!u.age18, admin: isMod(u.id), role: isAdmin(u.id) ? "judge" : isMod(u.id) ? "moderator" : "", guest: !u.email && !u.google });
 var SEC = { "X-Content-Type-Options": "nosniff", "Referrer-Policy": "strict-origin-when-cross-origin", "X-Frame-Options": "SAMEORIGIN", "Strict-Transport-Security": "max-age=31536000; includeSubDomains", "Permissions-Policy": "camera=(self), microphone=(self), geolocation=()" };
@@ -8569,11 +8705,12 @@ var server = http.createServer((req, res) => {
   const url = new URL(req.url || "/", "http://x");
   if (url.pathname === "/health") {
     res.writeHead(200, { "content-type": "application/json" });
-    return res.end(JSON.stringify({ ok: true, online: live.size, users: Object.keys(db.users).length, translate: !!AI_KEY, news: db.news?.items.length || 0 }));
+    return res.end(JSON.stringify({ ok: true, online: live.size, users: Object.keys(db.users).length, translate: ai.on(), news: db.news?.items.length || 0 }));
   }
   const ip = String(req.headers["x-forwarded-for"] || req.socket.remoteAddress || "").split(",")[0].trim();
   if (accounts.http(req, res, url.pathname, ip)) return;
   if (pay.http(req, res, url.pathname, ip, accounts.byToken)) return;
+  if (ai.http(req, res, url.pathname, ip, accounts.byToken)) return;
   if (ops.http(req, res, url.pathname, ip, accounts.byToken)) return;
   if (url.pathname === "/terms" || url.pathname === "/privacy" || url.pathname === "/refunds" || url.pathname === "/pricing" || url.pathname === "/contact") {
     res.writeHead(200, { ...SEC, "content-type": "text/html; charset=utf-8" });
@@ -8652,7 +8789,7 @@ wss.on("connection", (ws, req) => {
       live.set(u.id, me);
       ops.bump("visits");
       ops.seen(u);
-      send(ws, { t: "welcome", token, me: meOf(u), plots: db.plots, groups: Object.values(db.groups).filter((g) => g.members.includes(u.id)), online: live.size, translate: !!AI_KEY });
+      send(ws, { t: "welcome", token, me: meOf(u), plots: db.plots, groups: Object.values(db.groups).filter((g) => g.members.includes(u.id)), online: live.size, translate: ai.on() });
       broadcast({ t: "online", n: live.size });
       return;
     }
@@ -8686,4 +8823,4 @@ wss.on("connection", (c) => {
   c.isAlive = true;
   c.on("pong", () => c.isAlive = true);
 });
-server.listen(PORT, () => console.log(`Fyrus server on :${PORT} \xB7 translate ${AI_KEY ? "on (" + AI_MODEL + ")" : "off (set ANTHROPIC_API_KEY)"}`));
+server.listen(PORT, () => console.log(`Fyrus server on :${PORT} \xB7 AI ${ai.on() ? "on" : "off (set AI_BASE_URL + AI_API_KEY)"}`));

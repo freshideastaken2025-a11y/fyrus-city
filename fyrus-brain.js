@@ -6,7 +6,7 @@
   'use strict';
   var W = root;
   if (W.__fyrusBrain) return;
-  var API = W.__fyrusBrain = { version: '1.0.0', ready: false };
+  var API = W.__fyrusBrain = { version: '1.1.0', ready: false };
   var KB = null, IDX = {}, loading = null;
   var LS = { get: function (k) { try { return localStorage.getItem(k); } catch (e) { return null; } }, set: function (k, v) { try { localStorage.setItem(k, v); } catch (e) {} } };
 
@@ -142,6 +142,7 @@
       } catch (e) {}
     }, 1300);
   }
+  API.kbv = '1.0.0';
   var memo = { last: null }, idIdx = null;
   function intentIndex(id) { if (!idIdx) { idIdx = {}; KB.intents.forEach(function (it, i) { idIdx[it.id] = i; }); } return id in idIdx ? idIdx[id] : -1; }
   API.ask = function (text, opt) {
@@ -167,10 +168,12 @@
     Object.keys(scores).forEach(function (i) { if (scores[i] > bs) { bs = scores[i]; bi = +i; } });
     if (bi != null) top = { i: bi, s: bs };
     if (top && KB.intents[top.i].act === 'go' && !API._take.some(function (k) { return nq.indexOf(k) >= 0; })) { var wi = intentIndex('where:' + KB.intents[top.i].place); if (wi >= 0) top = { i: wi, s: top.s }; }
+    var ranked = Object.keys(scores).map(function (i) { return [+i, scores[i]]; }).sort(function (a, b) { return b[1] - a[1]; }).slice(0, 3);
+    var hints = ranked.filter(function (x) { var t = KB.intents[x[0]]; return x[1] > 0.2 && !t.live && t.act !== 'go'; }).map(function (x) { return fill(pick(KB.intents[x[0]].a.en, 0), { name: 'I', role: 'resident', bio: '', user: '' }); });
     var npc = opt.npc || {}, it = top && top.s >= 0.30 ? KB.intents[top.i] : null;
     var o = { name: npc.name || 'Maya', role: npc.role || 'guide', bio: npc.bio || KB.words.bioDefault[lang], user: opt.user || '', city: 'Fyrus' };
     var out;
-    if (!it) { out = pick(KB.words.dunno[lang]); return { text: out, lang: lang, intent: null, score: top ? top.s : 0 }; }
+    if (!it) { out = pick(KB.words.dunno[lang]); return { text: out, lang: lang, intent: null, score: top ? top.s : 0, hints: hints }; }
     if (it.live) { var L = live(it.live, lang); out = typeof L === 'string' ? L : fill(pick(it.a[lang] || it.a.en), Object.assign(o, L)); }
     else if (it.act === 'go') {
       var p = KB.places[it.place];
@@ -179,10 +182,16 @@
       if (!opt.dry) { if (p && p.adult) try { W.__fyrus.setState({ waypoint: { x: p.x, z: p.z, name: p.n } }); } catch (e) {} else go(it.place); }
     } else out = fill(pick(it.a[lang] || it.a.en), o);
     memo.last = it.id;
-    return { text: out, lang: lang, intent: it.id, score: top.s };
+    return { text: out, lang: lang, intent: it.id, score: top.s, hints: hints, live: !!it.live, act: it.act || '' };
   };
 
   /* other languages through Chrome's built-in, on-device translator (no key, no server) */
+  var HIST = {}, aiState = null, aiAt = 0;
+  function aiOn() {
+    if (!LS.get('fyrus.net.token')) return Promise.resolve(false);
+    if (aiState !== null && Date.now() - aiAt < 6e5) return Promise.resolve(aiState);
+    return fetch('/api/ai/status').then(function (r) { return r.json(); }).then(function (j) { aiState = !!j.on; aiAt = Date.now(); return aiState; }).catch(function () { return false; });
+  }
   var trCache = {};
   function translator(src, dst) {
     var k = src + '>' + dst;
@@ -203,7 +212,7 @@
   function load() {
     if (KB) return Promise.resolve(KB);
     if (loading) return loading;
-    loading = fetch('/brain/fyrus-brain.json?v=' + API.version).then(function (r) { return r.json(); }).then(function (j) { KB = j; API.ready = true; API.kb = j; return j; }).catch(function (e) { loading = null; throw e; });
+    loading = fetch('/brain/fyrus-brain.json?v=' + API.kbv).then(function (r) { return r.json(); }).then(function (j) { KB = j; API.ready = true; API.kb = j; return j; }).catch(function (e) { loading = null; throw e; });
     return loading;
   }
   API.load = load;
@@ -214,7 +223,20 @@
       var uiLang = (s.settings && s.settings.lang) || (navigator.language || 'en').slice(0, 2);
       var opt = { npc: { name: npc && npc.name, role: npc && npc.role ? String(npc.role).toLowerCase() : '', bio: npc && npc.bio }, user: me && me.name && me.name !== 'Guest' ? me.name : '', pref: uiLang };
       var sc = scriptOf(text);
-      var direct = function () { return API.ask(text, opt).text; };
+      var npcKey = (npc && (npc.id || npc.name)) || 'npc';
+      var hist = HIST[npcKey] = HIST[npcKey] || [];
+      var remember = function (a) { hist.push({ role: 'user', content: text }, { role: 'assistant', content: a }); if (hist.length > 12) hist.splice(0, hist.length - 12); return a; };
+      var direct = function () {
+        var r = API.ask(text, opt);
+        var unsure = !r.intent || r.score < 0.45 || (hist.length >= 4 && r.score < 0.6 && !r.live && !r.act);
+        if (!unsure) return remember(r.text);
+        return aiOn().then(function (on) {
+          if (!on) return remember(r.text);
+          return within(fetch('/api/ai/talk', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + (LS.get('fyrus.net.token') || '') }, body: JSON.stringify({ npc: { name: npc && npc.name, role: npc && npc.role, persona: npc && npc.persona ? String(npc.persona).slice(0, 600) : '' }, history: hist, text: text, hints: r.hints || [] }) }).then(function (x) { return x.ok ? x.json() : null; }), 12000)
+            .then(function (j) { return remember(j && j.text ? j.text : r.text); })
+            .catch(function () { return remember(r.text); });
+        });
+      };
       if (sc !== 'latin' && sc !== 'other') return direct();
       if (sc === 'latin' && detect(text, uiLang) === 'rur') return direct();
       return foreignLang(text).then(function (fl) {
@@ -227,6 +249,29 @@
         }).catch(direct);
       });
     }).catch(function () { return null; });
+  };
+
+  /* Admin desk > AI (judges): gateway status, a live test and daily use */
+  API.mountAdmin = function (root) {
+    if (!root || root.__fxbr) return; root.__fxbr = 1;
+    var tok = LS.get('fyrus.net.token') || '';
+    var get = function (q) { return fetch('/api/admin/ai' + (q || ''), { headers: { authorization: 'Bearer ' + tok } }).then(function (r) { return r.json(); }); };
+    function draw(j) {
+      root.innerHTML = '';
+      var h = function (tag, txt, st) { var e = document.createElement(tag); e.textContent = txt; if (st) e.style.cssText = st; root.appendChild(e); return e; };
+      if (j.error) { h('div', j.error); return; }
+      h('div', j.on ? 'AI gateway: ON · ' + j.base + ' · model ' + j.model + ' · format ' + j.format : 'AI gateway: OFF — set AI_BASE_URL and AI_API_KEY in Coolify, then Deploy. The Fyrus Brain still answers for free.', 'font:600 13px Sora,sans-serif;color:#e8d5a8;margin-bottom:6px');
+      if (j.limits) h('div', 'Limits: ' + j.limits.perCitizenDay + ' AI replies per citizen per day, ' + j.limits.perDay + ' per day in total (AI_USER_DAILY, AI_DAILY_LIMIT).', 'font-size:12px;color:#9aa3b2');
+      if (j.test !== undefined) h('div', 'Test answer: ' + (j.test || '(no answer)'), 'font-size:12px;color:#bff5e3;margin-top:6px');
+      if (j.lastErr) h('div', 'Last error: ' + j.lastErr, 'font-size:12px;color:#ffd2d2;margin-top:6px');
+      var b = h('button', 'Run a test', 'margin:10px 0;border:1px solid #c9a96e;background:transparent;color:#f4efe6;border-radius:999px;padding:6px 14px;cursor:pointer');
+      b.onclick = function () { b.textContent = 'Testing…'; get('?test=1').then(draw); };
+      var t = document.createElement('table'); t.style.cssText = 'width:100%;font-size:12px;border-collapse:collapse';
+      t.innerHTML = '<tr><th align=left>Day</th><th align=left>Resident replies</th><th align=left>Translations</th><th align=left>People</th><th align=left>Tokens in/out</th><th align=left>Failed</th></tr>' + (j.days || []).map(function (x) { return '<tr><td>' + x.day + '</td><td>' + x.talk + '</td><td>' + x.translate + '</td><td>' + x.people + '</td><td>' + x.inTok + ' / ' + x.outTok + '</td><td>' + x.fail + '</td></tr>'; }).join('');
+      root.appendChild(t);
+    }
+    root.textContent = 'Loading…';
+    get('').then(draw).catch(function (e) { root.textContent = String(e.message || e); });
   };
 
   /* ---------------- AI residents start small conversations ---------------- */
