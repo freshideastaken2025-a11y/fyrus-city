@@ -1,14 +1,14 @@
 {
- "intents": 174,
- "baseQuestions": 15717,
+ "intents": 237,
+ "baseQuestions": 17022,
  "perLanguage": {
-  "en": 3704,
-  "rur": 3305,
-  "ur": 3050,
-  "hi": 2614,
-  "ar": 3044
+  "en": 4057,
+  "rur": 3598,
+  "ur": 3272,
+  "hi": 2830,
+  "ar": 3265
  },
- "withVariants": 446588,
+ "withVariants": 485697,
  "dataset_10k": 10000,
  "dataset_20k": 20000,
  "dataset_50k": 50000

@@ -6,7 +6,7 @@
   'use strict';
   var W = root;
   if (W.__fyrusBrain) return;
-  var API = W.__fyrusBrain = { version: '1.1.0', ready: false };
+  var API = W.__fyrusBrain = { version: '1.2.0', ready: false };
   var KB = null, IDX = {}, loading = null;
   var LS = { get: function (k) { try { return localStorage.getItem(k); } catch (e) { return null; } }, set: function (k, v) { try { localStorage.setItem(k, v); } catch (e) {} } };
 
@@ -42,9 +42,9 @@
     if (lang === 'rur' || lang === 'en') s = s.split(' ').map(function (w) { var m = RUR_MAP[w]; return m || w; }).join(' ');
     return s;
   }
-  var STOP = { en: 1, the: 1, a: 1, an: 1, is: 1, are: 1, to: 1, of: 1, i: 1, me: 1, my: 1, do: 1, can: 1, please: 1, you: 1, it: 1, this: 1, in: 1, at: 1, there: 1, here: 1, hey: 1, hi: 0 };
+  var STOP = { and: 1, the: 1, a: 1, an: 1, is: 1, are: 1, to: 1, of: 1, i: 1, me: 1, my: 1, do: 1, can: 1, please: 1, you: 1, it: 1, this: 1, in: 1, at: 1, there: 1, here: 1, hey: 1, hi: 0 };
   function grams(s) { var g = {}, t = ' ' + s + ' '; for (var i = 0; i < t.length - 2; i++) g[t.substr(i, 3)] = 1; return g; }
-  function toks(s) { var o = {}; s.split(' ').forEach(function (w) { if (w && !STOP[w]) o[w] = 1; }); return o; }
+  function toks(s) { var o = {}; s.split(' ').forEach(function (w) { if (!w || STOP[w]) return; o[w] = 1; if (/^[a-z]{4,}s$/.test(w) && !/ss$/.test(w)) o[w.slice(0, -1)] = 1; }); return o; }
 
   /* ---------------- index ---------------- */
   function buildIndex(lang) {
@@ -103,8 +103,14 @@
   function pick(a, k) { if (Array.isArray(a)) return a[(k == null ? Math.floor(Math.random() * a.length) : k) % a.length]; return a; }
   var fill = function (s, o) { return String(s).replace(/\{(\w+)\}/g, function (m, k) { return o[k] != null && o[k] !== '' ? o[k] : (k === 'bio' ? '' : m); }).replace(/\s+([.,!?])/g, '$1').trim(); };
   function S() { try { return W.__fyrus.getState(); } catch (e) { return null; } }
-  function live(kind, lang) {
+  function live(kind, lang, npc) {
     var s = S() || {}, w = KB.words, o = {};
+    if (kind === 'roletip') {
+      var g = (KB.roleGroup || {})[String((npc && npc.role) || '').toLowerCase()] || 'guide';
+      var T = (KB.tips[g] || KB.tips.guide); var arr = T[lang] || T.en;
+      o.tip = arr[Math.floor(Math.random() * arr.length)];
+      return o;
+    }
     if (kind === 'where') {
       var nm = '';
       try { var P = W.__fyrusW.player.root.position; var r = W.__fyrusRegion && W.__fyrusRegion(P.x, P.z); nm = r && r.name; } catch (e) {}
@@ -142,7 +148,7 @@
       } catch (e) {}
     }, 1300);
   }
-  API.kbv = '1.0.0';
+  API.kbv = '2.0.0';
   var memo = { last: null }, idIdx = null;
   function intentIndex(id) { if (!idIdx) { idIdx = {}; KB.intents.forEach(function (it, i) { idIdx[it.id] = i; }); } return id in idIdx ? idIdx[id] : -1; }
   API.ask = function (text, opt) {
@@ -171,10 +177,15 @@
     var ranked = Object.keys(scores).map(function (i) { return [+i, scores[i]]; }).sort(function (a, b) { return b[1] - a[1]; }).slice(0, 3);
     var hints = ranked.filter(function (x) { var t = KB.intents[x[0]]; return x[1] > 0.2 && !t.live && t.act !== 'go'; }).map(function (x) { return fill(pick(KB.intents[x[0]].a.en, 0), { name: 'I', role: 'resident', bio: '', user: '' }); });
     var npc = opt.npc || {}, it = top && top.s >= 0.30 ? KB.intents[top.i] : null;
-    var o = { name: npc.name || 'Maya', role: npc.role || 'guide', bio: npc.bio || KB.words.bioDefault[lang], user: opt.user || '', city: 'Fyrus' };
+    var o = { name: npc.name || 'Maya', role: npc.role || 'guide', bio: npc.bio || KB.words.bioDefault[lang], user: opt.user || '', city: npc.city || 'Fyrus Core Plaza' };
     var out;
     if (!it) { out = pick(KB.words.dunno[lang]); return { text: out, lang: lang, intent: null, score: top ? top.s : 0, hints: hints }; }
-    if (it.live) { var L = live(it.live, lang); out = typeof L === 'string' ? L : fill(pick(it.a[lang] || it.a.en), Object.assign(o, L)); }
+    if (it.live === 'there_go' && memo.lastPlace && KB.places[memo.lastPlace]) {
+      var pp = KB.places[memo.lastPlace];
+      out = fill(pick(KB.words.going[lang] || KB.words.going.en), { place: pp.n });
+      if (pp.adult) out = fill(KB.words.marked[lang], { place: pp.n });
+      if (!opt.dry) { if (pp.adult) try { W.__fyrus.setState({ waypoint: { x: pp.x, z: pp.z, name: pp.n } }); } catch (e) {} else go(memo.lastPlace); }
+    } else if (it.live) { var L = live(it.live, lang, npc); out = typeof L === 'string' ? L : fill(pick(it.a[lang] || it.a.en), Object.assign(o, L)); }
     else if (it.act === 'go') {
       var p = KB.places[it.place];
       out = fill(pick(it.a[lang] || it.a.en), { place: p ? p.n : '' });
@@ -182,6 +193,7 @@
       if (!opt.dry) { if (p && p.adult) try { W.__fyrus.setState({ waypoint: { x: p.x, z: p.z, name: p.n } }); } catch (e) {} else go(it.place); }
     } else out = fill(pick(it.a[lang] || it.a.en), o);
     memo.last = it.id;
+    if (it.place && KB.places[it.place]) memo.lastPlace = it.place;
     return { text: out, lang: lang, intent: it.id, score: top.s, hints: hints, live: !!it.live, act: it.act || '' };
   };
 

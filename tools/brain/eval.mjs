@@ -25,19 +25,25 @@ const T = [
   ['en', 'whats the cheapest home', 'homes'], ['en', 'how do people make money in this city', 'earn_fyc'], ['en', 'where do kids play', 'where:site-park|kids_mode'], ['en', 'can i change my hairstyle', 'avatar'],
   ['en', 'is there a train station', 'where:site-central|transit'], ['en', 'who is the police here', 'where:site-peace|what:site-peace'], ['en', 'where are the yachts', 'where:marina|where:coast'], ['en', 'how many people are playing right now', 'online_now'],
   ['en', 'what is the weather like', 'weather_now'], ['en', 'thank you so much friend', 'thanks'], ['en', 'i dont know what to do', 'what_to_do|help_me'], ['en', 'can i vote in elections', 'politics'],
-  ['en', 'what is silica', 'prov:silica'], ['en', 'how does the escrow work', 'escrow_dispute'], ['en', 'where do i watch news', 'where:newstv|news'], ['en', 'show me the theme park', 'where:joyland|what:joyland'],
+  ['en', 'what is silica', 'prov:silica|where:tech-city'], ['en', 'how does the escrow work', 'escrow_dispute'], ['en', 'where do i watch news', 'where:newstv|news'], ['en', 'show me the theme park', 'where:joyland|what:joyland'],
   ['rur', 'mujhe naukri chahiye', 'jobs'], ['rur', 'meri id card kaise banegi', 'id_card'], ['rur', 'barish kaise karun', 'weather'], ['rur', 'bacha khel sakta hai kya', 'kids_mode|age_rules'],
   ['rur', 'flying car kahan milegi', 'where:skyport|vehicles'], ['rur', 'kitne log online hain abhi', 'online_now'], ['rur', 'mera balance batao', 'my_balance'], ['rur', 'shukriya bhai', 'thanks'],
-  ['rur', 'ludo khelna hai', 'games'], ['rur', 'password bhool gaya hoon', 'account'], ['rur', 'kapre kaise badlun', 'avatar'], ['rur', 'allah hafiz', 'bye'],
+  ['rur', 'ludo khelna hai', 'games|game:Ludo 2040'], ['rur', 'password bhool gaya hoon', 'account'], ['rur', 'kapre kaise badlun', 'avatar'], ['rur', 'allah hafiz', 'bye'],
   ['ur', 'نوکری چاہیے', 'jobs'], ['ur', 'شکریہ', 'thanks'], ['ur', 'زمین کیسے خریدوں', 'land'], ['ur', 'پاسپورٹ کیسے بنے گا', 'passport'],
   ['hi', 'नौकरी चाहिए', 'jobs'], ['hi', 'धन्यवाद', 'thanks'], ['hi', 'पासपोर्ट कैसे बनेगा', 'passport'], ['hi', 'लूडो खेलना है', 'games'],
   ['ar', 'أريد وظيفة', 'jobs'], ['ar', 'شكرا لك', 'thanks'], ['ar', 'كيف أحصل على جواز سفر', 'passport'], ['ar', 'أين الشاطئ', 'where:coast'],
+  ['en', 'who is aisha', 'npc:aisha'], ['rur', 'maya kahan milegi', 'npc:maya'], ['en', 'how do i play carrom', 'game:Carrom Club'], ['rur', 'ludo kaise khelte hain', 'game:Ludo 2040|games'],
+  ['en', 'how much is the sky penthouse', 'home:Sky Penthouse|homes'], ['en', 'give me some advice', 'role_tip'], ['rur', 'koi acha mashwara do', 'role_tip'], ['en', 'how can i write a good resume', 'cv_interview'],
+  ['en', 'eid mubarak', 'eid'], ['rur', 'aap ke shauq kya hain', 'hobbies'], ['en', 'where do you come from', 'where_from'], ['ar', 'كيف أبدأ مشروعي', 'start_business'],
+  ['hi', 'वजन कैसे कम करें', 'fitness_general'], ['ur', 'امتحان کی تیاری کیسے کروں', 'study_tips'], ['en', 'what courses can i take', 'courses_list|education'], ['rur', 'vector bay mein kya kya hai', 'vb_things|what:vector-bay|where:vector-bay'],
+  ['en', 'take me there', 'take_there'], ['rur', 'wahan le chalo', 'take_there'],
   ['en', 'qwertyuiop asdf', '__none__']
 ];
 // force-load KB without fetch
 ctx.fetch = () => Promise.resolve({ json: () => Promise.resolve(JSON.parse(fs.readFileSync(kbPath, 'utf8'))) });
 await B.load();
 let ok = 0; const bad = [];
+if (process.argv[4]) { const m = await import(process.argv[4]); T.length = 0; T.push(...m.FRESH); }
 for (const [l, q, want] of T) {
   const r = B.ask(q, { dry: true });
   const good = want === '__none__' ? !r.intent : want.split('|').includes(r.intent);

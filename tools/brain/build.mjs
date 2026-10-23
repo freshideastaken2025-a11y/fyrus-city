@@ -10,6 +10,8 @@ import { PLACES, DISTRICTS, PROVINCES } from './places.mjs';
 import { HELP } from './intents-help.mjs';
 import { TALK, WORDS, ENTITY } from './intents-talk.mjs';
 import { KW, TAKE } from './keywords.mjs';
+import { MORE, NPCS, NPC_TPL, GAME_INFO, GAME_TPL, GAME_ALIAS, HOME_INFO, HOME_TPL } from './intents-more.mjs';
+import { ROLE_GROUP, TIPS, ROLE_INTENTS } from './roles.mjs';
 
 const LANGS = ['en', 'rur', 'ur', 'hi', 'ar'];
 const pub = process.argv[2] || 'public';
@@ -26,7 +28,7 @@ function add(it, questions) {
   LANGS.forEach((l) => (questions[l] || []).forEach((q) => qs[l].push([i, q])));
   return i;
 }
-[...HELP, ...TALK].forEach((x) => add({ id: x.id, a: x.a, live: x.live || undefined }, x.q));
+[...HELP, ...TALK, ...MORE, ...ROLE_INTENTS].forEach((x) => add({ id: x.id, a: x.a, live: x.live || undefined }, x.q));
 
 const names = (e) => [e.name, ...(e.alias || [])];
 const scriptOf = (s) => (/[؀-ۿ]/.test(s) ? 'arab' : /[ऀ-ॿ]/.test(s) ? 'deva' : 'latn');
@@ -55,13 +57,34 @@ PROVINCES.forEach((pr) => {
   add({ id: 'prov:' + pr.id, a }, entityQs(ENTITY.provQ, { name: pr.name, alias: [pr.house, pr.seat] }));
 });
 
+const placeName = (id) => ([...PLACES, ...DISTRICTS].find((p) => p.id === id) || {}).name || id;
+NPCS.forEach((n) => {
+  const a = {};
+  LANGS.forEach((l) => (a[l] = fill(NPC_TPL[l], { n: n.name, r: n.role[l], p: placeName(n.at) })));
+  const q = {};
+  LANGS.forEach((l) => (q[l] = []));
+  const who = { en: ['who is {x}', 'where is {x}', 'where can i find {x}', 'tell me about {x}'], rur: ['{x} kaun hai', '{x} kahan hai', '{x} kahan milegi', '{x} ke bare mein batao'], ur: ['{x} کون ہے', '{x} کہاں ہے'], hi: ['{x} कौन है', '{x} कहाँ है'], ar: ['من هو {x}', 'أين {x}'] };
+  const nm = { ur: { Maya: 'مایا', Zoe: 'زوئی', Ravi: 'روی', Marco: 'مارکو', Hiro: 'ہیرو', Kai: 'کائی', Aisha: 'عائشہ', Dana: 'دانا', 'DJ Lumen': 'ڈی جے لومن', Sam: 'سام' }, hi: { Maya: 'माया', Zoe: 'ज़ोई', Ravi: 'रवि', Marco: 'मार्को', Hiro: 'हीरो', Kai: 'काई', Aisha: 'आयशा', Dana: 'दाना', 'DJ Lumen': 'डीजे ल्यूमेन', Sam: 'सैम' }, ar: { Maya: 'مايا', Zoe: 'زوي', Ravi: 'رافي', Marco: 'ماركو', Hiro: 'هيرو', Kai: 'كاي', Aisha: 'عائشة', Dana: 'دانا', 'DJ Lumen': 'دي جي لومن', Sam: 'سام' } };
+  LANGS.forEach((l) => { const names2 = [n.name, ...(nm[l] && nm[l][n.name] ? [nm[l][n.name]] : [])]; names2.forEach((x) => who[l].forEach((t) => q[l].push(fill(t, { x })))); });
+  add({ id: 'npc:' + n.id, a, place: n.at }, q);
+});
+Object.entries(GAME_INFO).forEach(([g, d]) => {
+  const a = {};
+  LANGS.forEach((l) => (a[l] = fill(GAME_TPL.a[l], { x: g, d: d[l] })));
+  add({ id: 'game:' + g, a, place: 'arcade-hall' }, entityQs(GAME_TPL.q, { name: g, alias: GAME_ALIAS[g] || [] }));
+});
+Object.entries(HOME_INFO).forEach(([h, [price, d]]) => {
+  const a = {};
+  LANGS.forEach((l) => (a[l] = fill(HOME_TPL.a[l], { x: h, d: d[l], p: price ? price.toLocaleString('en') : (l === 'en' ? 'free' : '0') })));
+  add({ id: 'home:' + h, a, place: 'home-showroom' }, entityQs(HOME_TPL.q, { name: h }));
+});
 /* ---------- places table for "take me" ---------- */
 const placeTable = Object.fromEntries([...PLACES, ...DISTRICTS].map((p) => [p.id, { n: p.name, x: p.x, z: p.z, vb: p.vb ? 1 : undefined, open: p.open, adult: p.adult ? 1 : undefined }]));
 
 /* ---------- client bundle ---------- */
 // dedupe questions per language
 LANGS.forEach((l) => { const seen = new Set(); qs[l] = qs[l].filter(([i, q]) => { const k = i + '|' + q.toLowerCase(); if (seen.has(k)) return false; seen.add(k); return true; }); });
-const bundle = { v: 1, built: new Date().toISOString().slice(0, 10), langs: LANGS, intents, q: qs, places: placeTable, words: WORDS, kw: KW, take: TAKE };
+const bundle = { v: 1, built: new Date().toISOString().slice(0, 10), langs: LANGS, intents, q: qs, places: placeTable, words: WORDS, kw: KW, take: TAKE, roleGroup: ROLE_GROUP, tips: TIPS };
 fs.mkdirSync(path.join(pub, 'brain'), { recursive: true });
 fs.writeFileSync(path.join(pub, 'brain', 'fyrus-brain.json'), JSON.stringify(bundle));
 const baseCount = LANGS.reduce((s, l) => s + qs[l].length, 0);
@@ -125,7 +148,11 @@ if (dsDir) {
   PLACES.forEach((p) => md.push(`- **${p.name}** — ${p.d.en}`));
   md.push('', '## Districts'); DISTRICTS.forEach((d) => md.push(`- **${d.name}** — ${d.what.en}`));
   md.push('', '## Provinces'); PROVINCES.forEach((p) => md.push(`- **${p.name}** (seat ${p.seat}; ${p.house}, "${p.motto}") — ${p.purpose.en}`));
-  md.push('', '## How-to and facts'); HELP.forEach((h) => md.push(`### ${h.q.en[0]}`, arr(h.a.en)[0], ''));
+  md.push('', '## How-to and facts'); [...HELP, ...MORE.filter((h) => !h.live), ...ROLE_INTENTS.filter((h) => !h.live)].forEach((h) => md.push(`### ${h.q.en[0]}`, arr(h.a.en)[0], ''));
+  md.push('', '## Residents you can meet'); NPCS.forEach((n) => md.push(`- **${n.name}** — ${n.role.en} (at ${placeName(n.at)})`));
+  md.push('', '## Games (Arcade Hall)'); Object.entries(GAME_INFO).forEach(([g, d]) => md.push(`- **${g}** — ${d.en}`));
+  md.push('', '## Homes (Luxury → Dream Life)'); Object.entries(HOME_INFO).forEach(([h, [p, d]]) => md.push(`- **${h}** — ${d.en}, ${p ? p.toLocaleString('en') + ' FYC' : 'free'}`));
+  md.push('', '## Tips residents share, by kind of work'); Object.entries(TIPS).forEach(([g, t]) => md.push(`- **${g}**: ${t.en.join(' ')}`));
   fs.writeFileSync(path.join(dsDir, 'fyrus-knowledge.md'), md.join('\n'));
   fs.writeFileSync(path.join(dsDir, 'README.md'), [
     '# Fyrus Brain datasets', '',
