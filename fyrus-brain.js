@@ -6,7 +6,7 @@
   'use strict';
   var W = root;
   if (W.__fyrusBrain) return;
-  var API = W.__fyrusBrain = { version: '1.2.1', ready: false };
+  var API = W.__fyrusBrain = { version: '1.3.0', ready: false };
   var KB = null, IDX = {}, loading = null;
   var LS = { get: function (k) { try { return localStorage.getItem(k); } catch (e) { return null; } }, set: function (k, v) { try { localStorage.setItem(k, v); } catch (e) {} } };
 
@@ -101,7 +101,7 @@
 
   /* ---------------- answers ---------------- */
   function pick(a, k) { if (Array.isArray(a)) return a[(k == null ? Math.floor(Math.random() * a.length) : k) % a.length]; return a; }
-  var fill = function (s, o) { return String(s).replace(/\{(\w+)\}/g, function (m, k) { return o[k] != null && o[k] !== '' ? o[k] : (k === 'bio' ? '' : m); }).replace(/\s+([.,!?])/g, '$1').trim(); };
+  var fill = function (s, o) { return String(s).replace(/\{(\w+)\}/g, function (m, k) { return o[k] != null ? o[k] : (k === 'bio' ? '' : m); }).replace(/\s+([.,!?])/g, '$1').trim(); };
   function S() { try { return W.__fyrus.getState(); } catch (e) { return null; } }
   function live(kind, lang, npc) {
     var s = S() || {}, w = KB.words, o = {};
@@ -148,7 +148,43 @@
       } catch (e) {}
     }, 1300);
   }
-  API.kbv = '2.0.0';
+  API.kbv = '3.0.0';
+  /* live maths and unit conversion (exact answers, no list needed) */
+  function evalMath(src) {
+    var t = src.replace(/\s+/g, '').replace(/[x×]/g, '*').replace(/÷/g, '/').replace(/,/g, '');
+    if (!/^[\d.+\-*/()^%]+$/.test(t) || !/\d/.test(t) || !/[+\-*/^%]/.test(t.replace(/^-/, ''))) return null;
+    var i = 0;
+    function num() { var m = /^\d+(\.\d+)?/.exec(t.slice(i)); if (!m) throw 0; i += m[0].length; return parseFloat(m[0]); }
+    function atom() { if (t[i] === '-') { i++; return -atom(); } if (t[i] === '(') { i++; var v = add(); if (t[i] !== ')') throw 0; i++; return v; } var n = num(); if (t[i] === '%') { i++; n = n / 100; } return n; }
+    function pow() { var b = atom(); if (t[i] === '^') { i++; return Math.pow(b, pow()); } return b; }
+    function mul() { var v = pow(); while (t[i] === '*' || t[i] === '/') { var o = t[i++], r = pow(); v = o === '*' ? v * r : v / r; } return v; }
+    function add() { var v = mul(); while (t[i] === '+' || t[i] === '-') { var o = t[i++], r = mul(); v = o === '+' ? v + r : v - r; } return v; }
+    try { var v = add(); if (i !== t.length || !isFinite(v)) return null; return Math.round(v * 1e6) / 1e6; } catch (e) { return null; }
+  }
+  var UNITS = { km: ['km', 1000, 'm'], kilometer: ['km', 1000, 'm'], kilometers: ['km', 1000, 'm'], mile: ['mi', 1609.344, 'm'], miles: ['mi', 1609.344, 'm'], mi: ['mi', 1609.344, 'm'], m: ['m', 1, 'm'], meter: ['m', 1, 'm'], meters: ['m', 1, 'm'], metre: ['m', 1, 'm'], ft: ['ft', 0.3048, 'm'], feet: ['ft', 0.3048, 'm'], foot: ['ft', 0.3048, 'm'], cm: ['cm', 0.01, 'm'], inch: ['in', 0.0254, 'm'], inches: ['in', 0.0254, 'm'], in: ['in', 0.0254, 'm'],
+    kg: ['kg', 1, 'kg'], kilo: ['kg', 1, 'kg'], kilogram: ['kg', 1, 'kg'], lb: ['lb', 0.45359237, 'kg'], lbs: ['lb', 0.45359237, 'kg'], pound: ['lb', 0.45359237, 'kg'], pounds: ['lb', 0.45359237, 'kg'], g: ['g', 0.001, 'kg'], gram: ['g', 0.001, 'kg'],
+    l: ['L', 1, 'l'], liter: ['L', 1, 'l'], litre: ['L', 1, 'l'], liters: ['L', 1, 'l'], gallon: ['gal', 3.785411784, 'l'], gallons: ['gal', 3.785411784, 'l'], c: ['°C', 0, 't'], celsius: ['°C', 0, 't'], f: ['°F', 0, 't'], fahrenheit: ['°F', 0, 't'] };
+  var DEFAULT_TO = { km: 'mile', mi: 'km', m: 'feet', ft: 'm', cm: 'inch', in: 'cm', kg: 'pound', lb: 'kg', g: 'pound', L: 'gallon', gal: 'liter', '°C': 'fahrenheit', '°F': 'celsius' };
+  function convert(text) {
+    var m = /(-?\d+(?:\.\d+)?)\s*([a-z°]+)\b(?:.*?\b(?:to|in|into|mein|me|ko|में|میں)\s+([a-z°]+))?/i.exec(String(text).toLowerCase().replace('°', ''));
+    if (!m) return null;
+    var a = UNITS[m[2]]; if (!a) return null;
+    var bKey = m[3] && UNITS[m[3]] ? m[3] : DEFAULT_TO[a[0]]; var b = UNITS[bKey]; if (!b || b[2] !== a[2] || b[0] === a[0]) return null;
+    var v = +m[1], out;
+    if (a[2] === 't') out = a[0] === '°C' ? v * 9 / 5 + 32 : (v - 32) * 5 / 9;
+    else out = v * a[1] / b[1];
+    out = Math.round(out * 100) / 100;
+    return [v + ' ' + a[0], out + ' ' + b[0]];
+  }
+  function liveCalc(text, lang) {
+    if (!KB.calc) return null;
+    var c = /\d/.test(text) && /\b(km|kilomet|mile|mi|meter|metre|feet|foot|ft|cm|inch|kg|kilo|pound|lb|gram|liter|litre|gallon|celsius|fahrenheit)\w*\b|\d\s*[cf]\b|°/i.test(text) ? convert(text) : null;
+    if (c) return fill(KB.calc.conv[lang] || KB.calc.conv.en, { a: c[0], b: c[1] });
+    var e = String(text).toLowerCase().replace(/\b(times|into|multiplied by|guna|zarb)\b/g, '*').replace(/\b(plus|jama|aur)\b/g, '+').replace(/\b(minus|nafi)\b/g, '-').replace(/\b(divided by|over|taqseem)\b/g, '/').replace(/what is|what's|calculate|how much is|solve|kitna hai|kitne hain|kya hai|kitna|batao|کتنا ہے|کتنے ہیں|कितना है|कितने हैं|=|\?|؟/g, ' ').trim();
+    var v = evalMath(e);
+    if (v === null) return null;
+    return fill(KB.calc.result[lang] || KB.calc.result.en, { expr: e.replace(/\s+/g, ' '), val: v.toLocaleString('en', { maximumFractionDigits: 6 }) });
+  }
   var memo = { last: null }, idIdx = null;
   function intentIndex(id) { if (!idIdx) { idIdx = {}; KB.intents.forEach(function (it, i) { idIdx[it.id] = i; }); } return id in idIdx ? idIdx[id] : -1; }
   API.ask = function (text, opt) {
@@ -156,6 +192,8 @@
     if (!KB) return null;
     var pref = opt.pref || '', lang = opt.lang || detect(text, pref);
     if (lang === 'other') lang = 'en';
+    var lc = liveCalc(text, lang === 'ar' ? 'en' : lang);
+    if (lc) return { text: lc, lang: lang, intent: 'calc', score: 1, hints: [] };
     var res = search(text, lang), top = res[0];
     // fall back: try the other Latin language
     if ((!top || top.s < 0.34) && (lang === 'en' || lang === 'rur')) {

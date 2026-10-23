@@ -12,6 +12,9 @@ import { TALK, WORDS, ENTITY } from './intents-talk.mjs';
 import { KW, TAKE } from './keywords.mjs';
 import { MORE, NPCS, NPC_TPL, GAME_INFO, GAME_TPL, GAME_ALIAS, HOME_INFO, HOME_TPL } from './intents-more.mjs';
 import { ROLE_GROUP, TIPS, ROLE_INTENTS } from './roles.mjs';
+import { LIFE, EVENTS, EVENT_TPL, EVENT_PLACE, CALC } from './intents-life.mjs';
+import { paraphrases } from './paraphrase.mjs';
+import zlib from 'node:zlib';
 
 const LANGS = ['en', 'rur', 'ur', 'hi', 'ar'];
 const pub = process.argv[2] || 'public';
@@ -28,7 +31,7 @@ function add(it, questions) {
   LANGS.forEach((l) => (questions[l] || []).forEach((q) => qs[l].push([i, q])));
   return i;
 }
-[...HELP, ...TALK, ...MORE, ...ROLE_INTENTS].forEach((x) => add({ id: x.id, a: x.a, live: x.live || undefined }, x.q));
+[...HELP, ...TALK, ...MORE, ...ROLE_INTENTS, ...LIFE].forEach((x) => add({ id: x.id, a: x.a, live: x.live || undefined }, x.q));
 
 const names = (e) => [e.name, ...(e.alias || [])];
 const scriptOf = (s) => (/[؀-ۿ]/.test(s) ? 'arab' : /[ऀ-ॿ]/.test(s) ? 'deva' : 'latn');
@@ -78,13 +81,18 @@ Object.entries(HOME_INFO).forEach(([h, [price, d]]) => {
   LANGS.forEach((l) => (a[l] = fill(HOME_TPL.a[l], { x: h, d: d[l], p: price ? price.toLocaleString('en') : (l === 'en' ? 'free' : '0') })));
   add({ id: 'home:' + h, a, place: 'home-showroom' }, entityQs(HOME_TPL.q, { name: h }));
 });
+EVENTS.forEach((e) => {
+  const a = {};
+  ['en', 'rur', 'ur', 'hi'].forEach((l) => (a[l] = fill(EVENT_TPL.a[l], { x: e.title, h: e.h, at: e.at, d: e.d[l] })));
+  add({ id: 'ev:' + e.k, a, place: EVENT_PLACE[e.k] }, entityQs({ ...EVENT_TPL.q, ar: [] }, { name: e.title, alias: e.alias }));
+});
 /* ---------- places table for "take me" ---------- */
 const placeTable = Object.fromEntries([...PLACES, ...DISTRICTS].map((p) => [p.id, { n: p.name, x: p.x, z: p.z, vb: p.vb ? 1 : undefined, open: p.open, adult: p.adult ? 1 : undefined }]));
 
 /* ---------- client bundle ---------- */
 // dedupe questions per language
 LANGS.forEach((l) => { const seen = new Set(); qs[l] = qs[l].filter(([i, q]) => { const k = i + '|' + q.toLowerCase(); if (seen.has(k)) return false; seen.add(k); return true; }); });
-const bundle = { v: 1, built: new Date().toISOString().slice(0, 10), langs: LANGS, intents, q: qs, places: placeTable, words: WORDS, kw: KW, take: TAKE, roleGroup: ROLE_GROUP, tips: TIPS };
+const bundle = { v: 1, built: new Date().toISOString().slice(0, 10), langs: LANGS, intents, q: qs, places: placeTable, words: WORDS, kw: KW, take: TAKE, roleGroup: ROLE_GROUP, tips: TIPS, calc: CALC };
 fs.mkdirSync(path.join(pub, 'brain'), { recursive: true });
 fs.writeFileSync(path.join(pub, 'brain', 'fyrus-brain.json'), JSON.stringify(bundle));
 const baseCount = LANGS.reduce((s, l) => s + qs[l].length, 0);
@@ -148,7 +156,8 @@ if (dsDir) {
   PLACES.forEach((p) => md.push(`- **${p.name}** — ${p.d.en}`));
   md.push('', '## Districts'); DISTRICTS.forEach((d) => md.push(`- **${d.name}** — ${d.what.en}`));
   md.push('', '## Provinces'); PROVINCES.forEach((p) => md.push(`- **${p.name}** (seat ${p.seat}; ${p.house}, "${p.motto}") — ${p.purpose.en}`));
-  md.push('', '## How-to and facts'); [...HELP, ...MORE.filter((h) => !h.live), ...ROLE_INTENTS.filter((h) => !h.live)].forEach((h) => md.push(`### ${h.q.en[0]}`, arr(h.a.en)[0], ''));
+  md.push('', '## How-to and facts'); [...HELP, ...MORE.filter((h) => !h.live), ...ROLE_INTENTS.filter((h) => !h.live), ...LIFE].forEach((h) => md.push(`### ${h.q.en[0]}`, arr(h.a.en)[0], ''));
+  md.push('', '## Daily programme'); EVENTS.forEach((e) => md.push(`- **${e.title}** — ${e.h}:00 local time at ${e.at}: ${e.d.en}`));
   md.push('', '## Residents you can meet'); NPCS.forEach((n) => md.push(`- **${n.name}** — ${n.role.en} (at ${placeName(n.at)})`));
   md.push('', '## Games (Arcade Hall)'); Object.entries(GAME_INFO).forEach(([g, d]) => md.push(`- **${g}** — ${d.en}`));
   md.push('', '## Homes (Luxury → Dream Life)'); Object.entries(HOME_INFO).forEach(([h, [p, d]]) => md.push(`- **${h}** — ${d.en}, ${p ? p.toLocaleString('en') + ' FYC' : 'free'}`));
@@ -166,6 +175,24 @@ if (dsDir) {
     'The simplest way to make a local Ollama agent "know" Fyrus is to put fyrus-knowledge.md in its system prompt; fine-tuning is optional.',
     'Live questions (where am I, my balance, who is online) are answered in the browser and are not in these files.'
   ].join('\n') + '\n');
+}
+if (dsDir) {
+  const BIG = ['en', 'rur', 'ur', 'hi'];
+  const persona2 = { name: 'Maya', role: 'city tour guide', bio: '', user: '', city: 'Fyrus Core Plaza' };
+  BIG.forEach((l) => {
+    const seen = new Set(), lines = [];
+    qs[l].forEach(([i, q], k) => {
+      const it = intents[i];
+      if (it.live && it.live !== 'roletip') return;
+      let a;
+      if (it.live === 'roletip') a = arr(TIPS.guide[l] || TIPS.guide.en)[k % 2];
+      else if (it.act === 'go') a = fill(WORDS.marked[l] || WORDS.marked.en, { place: placeTable[it.place].n });
+      else a = fill(arr(it.a[l] || it.a.en)[k % arr(it.a[l] || it.a.en).length], persona2);
+      paraphrases(l, q, 60).forEach((v) => { const key = v.toLowerCase(); if (seen.has(key)) return; seen.add(key); lines.push(JSON.stringify({ q: v, a, topic: it.id })); });
+    });
+    fs.writeFileSync(path.join(dsDir, `fyrus-qa-${l}.jsonl.gz`), zlib.gzipSync(lines.join('\n') + '\n', { level: 9 }));
+    stats['questions_' + l] = lines.length;
+  });
 }
 fs.writeFileSync(path.join(pub, 'brain', 'stats.json'), JSON.stringify(stats, null, 1));
 console.log(JSON.stringify(stats));

@@ -30,6 +30,12 @@ export const KW = {
   map: ['map', 'naksha', 'نقشہ', 'नक्शा', 'خريطة'],
   weather: ['change weather', 'badal', 'badalna', 'بدلنا', 'بدل', 'बदलना', 'बदल', 'غيّر', 'تغيير'],
   'where:faith': ['mosque', 'mosques', 'masjid', 'church', 'churches', 'temple', 'temples', 'mandir', 'gurdwara', 'synagogue', 'مسجد', 'مساجد', 'مندر', 'گرجا', 'मस्जिद', 'मंदिर', 'गुरुद्वारा', 'मंदिरों', 'المسجد', 'مسجد', 'كنيسة', 'معبد'],
+  is_free: ['free', 'muft', 'muft hai', 'مفت', 'मुफ़्त', 'मुफ्त', 'subscription', 'cost money'],
+  groups: ['group', 'groups', 'گروپ', 'ग्रुप', 'مجموعة'],
+  who_made: ['who made', 'who built', 'who created', 'founder', 'owner of fyrus', 'kis ne banaya', 'kisne banaya', 'بنایا', 'बनाया', 'मालिक'],
+  ban_appeal: ['banned', 'got banned', 'suspended', 'unban', 'ban ho', 'بین', 'معطل', 'बैन', 'सस्पेंड'],
+  password_safety: ['asked for my password', 'asks for my password', 'password mang', 'password maang', 'password manga', 'پاس ورڈ مانگ', 'पासवर्ड माँग', 'पासवर्ड मांग'],
+  install_app: ['an app', 'the app', 'app store', 'download', 'install', 'play store', 'ایپ', 'ڈاؤن لوڈ', 'ऐप', 'डाउनलोड'],
   translation: ['language', 'urdu', 'hindi', 'arabic', 'english', 'zaban', 'زبان', 'भाषा', 'لغة'],
   joke: ['joke', 'funny', 'latifa', 'لطیفہ', 'चुटकुला', 'نكتة'],
   are_you_ai: ['bot', 'robot', 'ai', 'chatgpt', 'human', 'insan', 'روبوٹ', 'انسان', 'रोबोट', 'इंसान', 'روبوت', 'إنسان']

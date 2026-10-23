@@ -1,15 +1,19 @@
 {
- "intents": 237,
- "baseQuestions": 17022,
+ "intents": 272,
+ "baseQuestions": 17750,
  "perLanguage": {
-  "en": 4057,
-  "rur": 3598,
-  "ur": 3272,
-  "hi": 2830,
+  "en": 4280,
+  "rur": 3805,
+  "ur": 3418,
+  "hi": 2982,
   "ar": 3265
  },
- "withVariants": 485697,
+ "withVariants": 509531,
  "dataset_10k": 10000,
  "dataset_20k": 20000,
- "dataset_50k": 50000
+ "dataset_50k": 50000,
+ "questions_en": 254813,
+ "questions_rur": 226176,
+ "questions_ur": 203810,
+ "questions_hi": 177649
 }
