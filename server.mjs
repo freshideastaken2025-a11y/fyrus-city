@@ -7623,7 +7623,19 @@ import path from "node:path";
 import zlib from "node:zlib";
 var XP_DAILY = +(process.env.XP_DAILY_CAP || 3e3);
 var XP_IMPORT_CAP = 2e4;
-var KEEP_BACKUPS = 14;
+// 31.1 backup retention: the daily pruner only touches its OWN daily files (fyrus-YYYY-MM-DD.json.gz). It used to
+// match every "fyrus-*" name in /data/backups, so each day it wiped the 10-minute rolling crash copies
+// (fyrus-<ms>.json sort first) and later the oldest historical dailies. KEEP_DAILY_BACKUPS=0 (default) keeps every
+// daily (~110 KB each, ~40 MB a year); a positive number keeps that many newest dailies, and BACKUP_PROTECT_BEFORE
+// (default 2026-10-31) shields older dailies (the v52 history) from pruning in any case.
+var KEEP_DAILY = Math.max(0, Number(process.env.KEEP_DAILY_BACKUPS || 0) | 0);
+var PROTECT_BEFORE = String(process.env.BACKUP_PROTECT_BEFORE || "2026-10-31");
+var DAILY_RE = /^fyrus-(\d{4}-\d{2}-\d{2})\.json\.gz$/;
+var pruneDaily = (names) => {
+  if (!KEEP_DAILY) return [];
+  const daily = names.filter((x) => DAILY_RE.test(x)).sort();
+  return daily.slice(0, Math.max(0, daily.length - KEEP_DAILY)).filter((x) => x.match(DAILY_RE)[1] >= PROTECT_BEFORE);
+};
 var day2 = () => (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
 var EVENTS = /^(goal:[a-z]+|tour|now_open|ride:[a-z]+|drive|fly|signup_prompt|lite_on)$/;
 function createOps(d) {
@@ -7651,8 +7663,7 @@ function createOps(d) {
       fs.mkdirSync(bdir, { recursive: true });
       const f = path.join(bdir, `fyrus-${day2()}.json.gz`);
       fs.writeFileSync(f, zlib.gzipSync(fs.readFileSync(d.dbFile())));
-      const all = fs.readdirSync(bdir).filter((x) => x.startsWith("fyrus-")).sort();
-      all.slice(0, Math.max(0, all.length - KEEP_BACKUPS)).forEach((x) => fs.unlinkSync(path.join(bdir, x)));
+      pruneDaily(fs.readdirSync(bdir)).forEach((x) => fs.unlinkSync(path.join(bdir, x)));
       return f;
     } catch (e) {
       console.error("backup failed", e);
@@ -7885,7 +7896,7 @@ function createOps(d) {
     }
     return true;
   }
-  return { onMessage: onMessage2, http: http2, bump, track, backupNow, xpMsg };
+  return { onMessage: onMessage2, http: http2, bump, track, backupNow, xpMsg, pruneDaily };
 }
 
 // server/legal.ts

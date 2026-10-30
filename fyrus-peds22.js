@@ -85,11 +85,20 @@
     for (var i = 0; i < N; i++) {
       var nm = NAMES[(i * 5 + 1) % NAMES.length], base = '/assets/characters/fyrus20/' + nm;
       try {
-        var g = await Promise.all([parse(base + '.glb'), parse(base + '-a2.glb'), parse(base + '-a3.glb')]);
-        var grp = new T.Group(), tiers = { a1: g[0].scene, a2: g[1].scene, a3: g[2].scene };
-        Object.keys(tiers).forEach(function (k) { tiers[k].traverse(function (o) { if (o.isMesh) { o.castShadow = k === 'a1'; o.userData.noBatch = o.userData.noInstance = true; } }); grp.add(tiers[k]); });
+        var grp = null, lod = null, H32 = window.__fyrusHuman32;
+        if (H32) {   // 32.1: procedural human citizens (varied face, body, hair, clothes)
+          var look = H32.lookFromOutfit({ gender: i % 2 ? 'f' : 'm' }, 'ped' + i); look.outfit = ['base', 'formal', 'sport', 'base'][(i * 7 + 3) % 4];
+          var inst = await H32.create(look).catch(function () { return null; });   // 32.11: fall back to fyrus20 if human32 fails
+          if (inst) { grp = inst.group; lod = inst.lod; }
+        }
+        if (!grp) {
+          var g = await Promise.all([parse(base + '.glb'), parse(base + '-a2.glb'), parse(base + '-a3.glb')]);
+          var tiers = { a1: g[0].scene, a2: g[1].scene, a3: g[2].scene }; grp = new T.Group();
+          Object.keys(tiers).forEach(function (k) { tiers[k].traverse(function (o) { if (o.isMesh) { o.castShadow = k === 'a1'; o.userData.noBatch = o.userData.noInstance = true; } }); grp.add(tiers[k]); });
+          lod = window.__fyrusLoco20.lodGroup(tiers, g[0].animations);
+        }
         group.add(grp);
-        var w = { grp: grp, lod: window.__fyrusLoco20.lodGroup(tiers, g[0].animations), pos: grp.position, v: 1.15 + Math.random() * 0.45, spd: 0, yaw: 0, at: null, next: null, cross: null, waitT: 0, live: false };
+        var w = { grp: grp, lod: lod, pos: grp.position, v: 1.15 + Math.random() * 0.45, spd: 0, yaw: 0, at: null, next: null, cross: null, waitT: 0, live: false };
         peds.push(w); S.spawned++;
       } catch (e) { S.errors++; S.lastError = String(e && e.message || e); }
       await new Promise(function (r) { setTimeout(r, 30); });   // spread GLB parsing over frames

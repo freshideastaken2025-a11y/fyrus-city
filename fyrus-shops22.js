@@ -143,6 +143,12 @@
       if (!T.GLTFLoader) await vload('/fyrus-gltf-loader.js?v=1.0.0');
       if (!window.__fyrusLoco20) await vload('/fyrus-avatar20.js?v=20.16');
       for (var i = 0; i < VNAMES.length; i++) {
+        var H32 = window.__fyrusHuman32;
+        if (H32) {   // 32.1: procedural human vendors
+          var lk = H32.lookFromOutfit({ gender: i % 2 ? 'f' : 'm' }, 'vendor' + i); lk.outfit = ['formal', 'sport', 'base', 'formal'][i % 4];
+          var inst = await H32.create(lk).catch(function () { return null; });   // 32.11: fall back to fyrus20 if human32 fails
+          if (inst) { inst.group.name = 'p23-vendor'; vendors.push({ grp: inst.group, lod: inst.lod, st: null, yaw: 0 }); S.vendors++; continue; }
+        }
         var b = '/assets/characters/fyrus20/' + VNAMES[i], g = await Promise.all([vparse(b + '.glb'), vparse(b + '-a2.glb'), vparse(b + '-a3.glb')]);
         var grp = new T.Group(), tiers = { a1: g[0].scene, a2: g[1].scene, a3: g[2].scene }; grp.name = 'p23-vendor';
         Object.keys(tiers).forEach(function (k) { tiers[k].traverse(function (o) { if (o.isMesh) { o.castShadow = k === 'a1'; o.userData.noBatch = o.userData.noInstance = true; } }); grp.add(tiers[k]); });

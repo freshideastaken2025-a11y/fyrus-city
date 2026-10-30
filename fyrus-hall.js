@@ -267,7 +267,12 @@
     var me = { x: 0, z: Z0 - 4.5, yaw: Math.PI, face: Math.PI, moving: false, ph: 0 }, avatar, legs = [], arms = [];
     (function makeAvatar() {
       var Wd = window.__fyrusW, P = Wd && Wd.player;
-      if (P && P.root) {
+      // 32.11: with procedural humans the player's body is a skinned mesh bound to the city skeleton; a scene-graph clone
+      // would keep deforming with the city bones, so the hall gets its own instance of the same look (old body kept as fallback)
+      if (P && P.h32 && P.h32.inst && window.__fyrusHuman32) {
+        avatar = new T.Group(); avatar.name = 'hall-me';
+        window.__fyrusHuman32.create(Object.assign({}, P.h32.inst.look, { hide: 1e9, near: 30, player: true, noCull: true })).then(function (inst) { if (!avatar) return; inst.group.traverse(function (o) { o.userData.__shared = true; }); avatar.add(inst.group); avatar.userData.h32 = inst; }).catch(function () {});
+      } else if (P && P.root) {
         try {
           var c = P.root.clone(true); c.position.set(0, 0, 0); c.rotation.set(0, 0, 0); c.scale.set(1, 1, 1); c.visible = true;
           var path = function (o) { var p = []; while (o && o !== P.root) { p.unshift(o.parent.children.indexOf(o)); o = o.parent; } return o === P.root ? p : null; };
@@ -364,6 +369,7 @@
       avatar.rotation.y += ((me.yaw - avatar.rotation.y + Math.PI * 3) % (Math.PI * 2) - Math.PI) * Math.min(1, dt * 10);
       var standing = atCab();
       pose(legs, arms, me.ph, me.moving ? .5 : 0, !me.moving && standing && cabs[sel].game.ready);
+      if (avatar.userData.h32) avatar.userData.h32.lod.update(dt, camera.position, 0, me.moving ? (keys.shift ? 6 : 3.4) : 0, 0);
       you.position.set(me.x, .03, me.z);
       var nc = nearCab(); if (nc >= 0 && nc !== sel) select(nc, true);
       updatePlay();
@@ -407,7 +413,7 @@
       if (!running) return; running = false; cancelAnimationFrame(raf);
       removeEventListener('resize', size); removeEventListener('keydown', onKey, true); removeEventListener('keyup', onKeyUp, true);
       try { if (music) { clearInterval(music.iv); music.master.disconnect(); } } catch (e) {}
-      try { scene.remove(avatar); scene.traverse(function (o) { if (o.userData && o.userData.__shared) return; if (o.geometry) o.geometry.dispose(); if (o.material) { if (o.material.map) o.material.map.dispose(); o.material.dispose(); } }); renderer.dispose(); renderer.forceContextLoss && renderer.forceContextLoss(); } catch (e) {}
+      try { if (avatar && avatar.userData.h32) { avatar.userData.h32.dispose(); avatar.userData.h32 = null; } scene.remove(avatar); scene.traverse(function (o) { if (o.userData && o.userData.__shared) return; if (o.geometry) o.geometry.dispose(); if (o.material) { if (o.material.map) o.material.map.dispose(); o.material.dispose(); } }); renderer.dispose(); renderer.forceContextLoss && renderer.forceContextLoss(); } catch (e) {}
       root.remove();
       if (thenPlay) { try { var s = S(); window.__fyrus.setState({ activeGame: thenPlay, hud: Object.assign({}, s && s.hud, { open: false }) }); } catch (e) {} }
     }

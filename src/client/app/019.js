@@ -83,6 +83,9 @@ var c7 = (t, e) => {
         (this.label.position.y = 2.25),
         this.root.add(this.body, this.ring, this.label),
         this.applyStyle(this.style));
+      // 32.1 human avatars: hand every avatar to the procedural human layer (fyrus-human32.js); it hides this.body once loaded
+      (window.__fyrusAvatarQ = window.__fyrusAvatarQ || []).push([this, o]);
+      window.__fyrusAvatarHook && window.__fyrusAvatarHook(this, o);
     }
     setMask(e) {
       if (((this.maskOn = e), e && !this.mask)) {
@@ -396,6 +399,7 @@ var c7 = (t, e) => {
         [a.gender, a.topStyle, a.bottomStyle, a.hair, a.face, a.brows, a.beard, a.glasses, a.height].join(
           "|",
         ) !== this.shapeSig && this.buildBody());
+      this.h32 && this.h32.restyle && this.h32.restyle(this.outfit);
     }
     applyStyle(e) {
       ((this.style = e), e.outfit && this.setOutfit(e.outfit), this.acc.clear());
@@ -589,6 +593,7 @@ var c7 = (t, e) => {
             c.opacity <= 0 && (l.visible = !1));
         });
       }
+      this.h32 && this.h32.update && this.h32.update(e, a);
     }
     setPhoto(e) {
       if (
@@ -620,6 +625,7 @@ var c7 = (t, e) => {
         (a.src = e));
     }
     dispose() {
+      this.h32 && this.h32.dispose && this.h32.dispose();
       (this.trail.forEach((e) => e.parent?.remove(e)),
         this.root.traverse((e) => {
           e.material?.map && e.material.map.dispose();
