@@ -4,7 +4,19 @@ function W9() {
     a = t.jobsMe,
     [r, o] = (0, pf.useState)(""),
     [n, i] = (0, pf.useState)(""),
-    [s, l] = (0, pf.useState)(0);
+    [s, l] = (0, pf.useState)(0),
+    [aq, saq] = (0, pf.useState)(""),
+    [aa, saa] = (0, pf.useState)(null);
+  // 27.8 shop assistant: answers about this shop's items, prices, stock, returns and jobs (server rules + local LLM)
+  (0, pf.useEffect)(() => {
+    saa(null);
+    let off = O.on("npc_reply", (x) => x.npc === "shop:" + t.svcCard && saa({ text: x.text, source: x.source }));
+    return off;
+  }, [t.svcCard]);
+  // 26.4: ask for this shop's stock when its card opens
+  (0, pf.useEffect)(() => {
+    e?.items?.length && O.status === "online" && O.send({ t: "shop_stock", svc: e.id });
+  }, [t.svcCard]);
   if (!e) return null;
   let c = () => C({ svcCard: null }),
     d = a?.shift?.svc === e.id,
@@ -47,12 +59,17 @@ function W9() {
                 (0, Ot.jsx)("div", {
                   className: "grid grid-cols-2 gap-1.5",
                   children: e.items.map((p) => {
-                    let v = Fi[p];
+                    let v = Fi[p],
+                      sk = t.shopStock?.[e.id]?.stock?.[p],
+                      out = sk === 0;
                     return (0, Ot.jsxs)(
                       "button",
                       {
                         "data-buy": p,
-                        className: "card p-2 text-left card-hover",
+                        "data-stock": sk ?? "",
+                        disabled: out,
+                        "aria-disabled": out,
+                        className: `card p-2 text-left card-hover${out ? " opacity-50" : ""}`,
                         onClick: () => OM(e.id, p),
                         children: [
                           (0, Ot.jsxs)("div", {
@@ -62,7 +79,11 @@ function W9() {
                           (0, Ot.jsxs)("div", {
                             className: "text-[11px] tabular",
                             style: Hu,
-                            children: [q(v.price), a?.bag?.[p] ? ` \xB7 you have ${a.bag[p]}` : ""],
+                            children: [
+                              q(v.price),
+                              sk != null ? (out ? " \xB7 sold out" : sk <= 3 ? ` \xB7 only ${sk} left` : ` \xB7 ${sk} in stock`) : "",
+                              a?.bag?.[p] ? ` \xB7 you have ${a.bag[p]}` : "",
+                            ],
                           }),
                         ],
                       },
@@ -70,6 +91,58 @@ function W9() {
                     );
                   }),
                 }),
+                // 27.8 ask the shop assistant
+                !AIOFF27 &&
+                  O.status === "online" &&
+                  (0, Ot.jsxs)("form", {
+                    className: "mt-2 flex gap-1.5",
+                    "data-shop-ask": e.id,
+                    onSubmit: (ev) => {
+                      (ev.preventDefault(), aq.trim() && (O.send({ t: "npc_say", npc: "shop:" + e.id, text: aq.trim() }), saa({ text: "\u2026", source: "wait" }), saq("")));
+                    },
+                    children: [
+                      (0, Ot.jsx)("input", { className: "field py-1 text-sm flex-1", "aria-label": "Ask the shop assistant", placeholder: "Ask the assistant: what's good under 100?", value: aq, maxLength: 200, onChange: (ev) => saq(ev.target.value) }),
+                      (0, Ot.jsx)("button", { className: "btn btn-ghost btn-sm", children: "Ask" }),
+                    ],
+                  }),
+                aa && (0, Ot.jsx)("div", { className: "text-[12px] mt-1", role: "status", "data-shop-answer": aa.source, children: aa.text }),
+                // 26.5 recent purchases at this shop, with returns within the window
+                (() => {
+                  let rc = (a?.receipts || []).filter((r) => r.svc === e.id).slice(0, 4);
+                  return rc.length
+                    ? (0, Ot.jsxs)("div", {
+                        className: "mt-2 space-y-1",
+                        "data-receipts": rc.length,
+                        children: [
+                          (0, Ot.jsx)("div", { className: "text-[11px] font-bold", style: Hu, children: "YOUR RECEIPTS" }),
+                          ...rc.map((r) =>
+                            (0, Ot.jsxs)(
+                              "div",
+                              {
+                                className: "flex items-center gap-2 text-[12px]",
+                                "data-receipt": r.id,
+                                children: [
+                                  (0, Ot.jsx)("span", { className: "flex-1 truncate", children: `#${r.id} \xB7 ${r.q} \xD7 ${Fi[r.item]?.name || r.item} \xB7 ${q(r.price)}` }),
+                                  r.refunded
+                                    ? (0, Ot.jsx)("span", { style: Hu, children: "refunded" })
+                                    : r.refundable
+                                      ? (0, Ot.jsx)("button", {
+                                          className: "btn btn-ghost btn-xs",
+                                          "data-refund": r.id,
+                                          title: `Return within ${Math.max(1, Math.ceil(r.left / 6e4))} min`,
+                                          onClick: () => O.send({ t: "shop_refund", receipt: r.id }),
+                                          children: "Return",
+                                        })
+                                      : (0, Ot.jsx)("span", { style: Hu, children: "final" }),
+                                ],
+                              },
+                              r.id,
+                            ),
+                          ),
+                        ],
+                      })
+                    : null;
+                })(),
               ],
             })
           : null,
@@ -113,6 +186,14 @@ function W9() {
                     ],
                   }),
                   j9[p].map((v, g) => (0, Ot.jsxs)("div", { children: ["\u2022 ", v] }, g)),
+                  p === "checkup" &&
+                    typeof window !== "undefined" && window.__fyrusClinic28 && !window.__fyrusClinic28.off &&
+                    (0, Ot.jsx)("button", {
+                      className: "btn btn-primary btn-xs mt-1",
+                      "data-clinic-start": !0,
+                      onClick: () => window.__fyrusClinic28.open(),
+                      children: "Start a roleplay check-up",
+                    }),
                   p === "report" &&
                     (0, Ot.jsx)("button", {
                       className: "btn btn-ghost btn-xs mt-1",
@@ -364,11 +445,26 @@ var St = P(ct(), 1),
         ),
       ),
     });
+// 25.9 people inside this home (from presence: same "house:<key>" scene), refreshed every second while inside
+var VOFF25 = typeof location !== "undefined" && /(^|,)(visit|all)(,|$)/.test(new URLSearchParams(location.search).get("p25off") || "");
+function HV25(key) {
+  let out = [];
+  try {
+    O.peers.forEach((p, id) => (p.sc || p.scene) === "house:" + key && out.push({ id, name: p.name }));
+  } catch {}
+  return out;
+}
 function G9() {
   let t = Y(),
     e = t.house,
     [a, r] = (0, Nu.useState)("Living"),
-    [o, n] = (0, Nu.useState)("add");
+    [o, n] = (0, Nu.useState)("add"),
+    [, vt] = (0, Nu.useState)(0);
+  (0, Nu.useEffect)(() => {
+    if (VOFF25 || t.scene.mode !== "house") return;
+    let iv = setInterval(() => vt((x) => x + 1), 1e3);
+    return () => clearInterval(iv);
+  }, [t.scene.mode]);
   if (
     ((0, Nu.useEffect)(() => {
       if (!t.decorating) return;
@@ -376,13 +472,25 @@ function G9() {
         let d = c.target;
         if (d && (d.tagName === "INPUT" || d.tagName === "TEXTAREA")) return;
         let h = c.key.toLowerCase();
+        // 25.6: Ctrl/Cmd+Z undo; arrow keys nudge the selected piece (Shift = fine 5 cm steps)
+        if (!DOFF25 && h === "z" && (c.ctrlKey || c.metaKey)) {
+          (UZ25(), c.preventDefault());
+          return;
+        }
+        if (!DOFF25 && V.decorSel !== null && h.startsWith("arrow")) {
+          let st = c.shiftKey ? 0.05 : 0.25;
+          (Y2(h === "arrowleft" ? -st : h === "arrowright" ? st : 0, h === "arrowup" ? -st : h === "arrowdown" ? st : 0),
+            c.preventDefault(),
+            c.stopImmediatePropagation());
+          return;
+        }
         h === "r"
           ? Av(45)
           : (h === "delete" || h === "backspace") && lA()
             ? (zv(), c.preventDefault())
             : h === "escape" && Ih(null);
       };
-      return (window.addEventListener("keydown", l), () => window.removeEventListener("keydown", l));
+      return (window.addEventListener("keydown", l, !0), () => window.removeEventListener("keydown", l, !0));
     }, [t.decorating]),
     t.scene.mode !== "house" || !e)
   )
@@ -397,8 +505,45 @@ function G9() {
         "data-house-bar": !0,
         children: [
           (0, St.jsx)(Wo, { style: { color: "var(--accent)" } }),
-          (0, St.jsx)("b", { children: e.canEdit ? "Your home" : `${e.residentName}'s home` }),
+          (0, St.jsx)("b", { children: e.role === "decorator" ? `Decorating ${e.residentName}'s home` : e.canEdit ? "Your home" : `${e.residentName}'s home` }),
           (0, St.jsxs)("span", { className: "hidden sm:inline", style: Cd, children: ["\xB7 ", e.label] }),
+          !VOFF25 &&
+            (() => {
+              let vs = HV25(e.key);
+              return vs.length
+                ? (0, St.jsxs)("span", {
+                    className: "flex items-center gap-1 text-[12px]",
+                    "data-visitors": vs.length,
+                    "aria-label": `${vs.length} other ${vs.length === 1 ? "person" : "people"} here`,
+                    children: [
+                      (0, St.jsx)("span", { style: Cd, children: "\xB7 here:" }),
+                      ...vs.slice(0, 4).map((v) =>
+                        (0, St.jsxs)(
+                          "span",
+                          {
+                            className: "chip",
+                            "data-visitor": v.id,
+                            children: [
+                              v.name,
+                              e.role === "resident" &&
+                                (0, St.jsx)("button", {
+                                  className: "ml-1",
+                                  "data-kick": v.id,
+                                  "aria-label": `Ask ${v.name} to leave`,
+                                  title: "Ask to leave",
+                                  onClick: () => O.send({ t: "home_kick", key: e.key, id: v.id }),
+                                  children: "\xD7",
+                                }),
+                            ],
+                          },
+                          v.id,
+                        ),
+                      ),
+                      vs.length > 4 && (0, St.jsxs)("span", { style: Cd, children: ["+", vs.length - 4] }),
+                    ],
+                  })
+                : null;
+            })(),
           e.canEdit &&
             (0, St.jsx)("button", {
               id: "decor-toggle",
@@ -407,6 +552,18 @@ function G9() {
               children: t.decorating
                 ? (0, St.jsxs)(St.Fragment, { children: [(0, St.jsx)(_e, {}), " Done"] })
                 : (0, St.jsxs)(St.Fragment, { children: [(0, St.jsx)(iu, {}), " Decorate"] }),
+            }),
+          e.canEdit &&
+            t.decorating &&
+            !DOFF25 &&
+            (0, St.jsx)("button", {
+              id: "decor-undo",
+              className: "btn btn-ghost btn-xs",
+              disabled: !UH25.length,
+              "aria-label": "Undo last change",
+              title: "Undo (Ctrl+Z)",
+              onClick: () => UZ25(),
+              children: "Undo",
             }),
           e.canEdit &&
             e.dirty &&
@@ -437,12 +594,74 @@ function G9() {
             "fixed bottom-20 left-1/2 -translate-x-1/2 z-[45] glass rounded-xl p-3 w-[min(680px,calc(100vw-24px))] space-y-2",
           "data-decor": !0,
           children: [
+            // 25.7 saved layouts: 3 slots (load for resident / decorator; save and clear for the resident) + reset
+            (0, St.jsxs)("div", {
+              className: "flex items-center gap-1.5 flex-wrap text-[12px]",
+              "data-layouts": !0,
+              role: "group",
+              "aria-label": "Saved layouts",
+              children: [
+                (0, St.jsx)("span", { style: Cd, children: "Layouts:" }),
+                ...(e.layouts || [null, null, null]).map((L, k) =>
+                  (0, St.jsxs)(
+                    "span",
+                    {
+                      className: "chip",
+                      "data-layout-slot": k,
+                      children: [
+                        L
+                          ? (0, St.jsx)("button", {
+                              "data-layout-load": k,
+                              title: `Restore "${L.name}" (${L.n} pieces)`,
+                              onClick: () => {
+                                (DOFF25 || UH25.push(e.int), O.send({ t: "home_layout_load", key: e.key, slot: k }));
+                              },
+                              children: L.name,
+                            })
+                          : (0, St.jsxs)("span", { style: Cd, children: ["Slot ", k + 1] }),
+                        e.role !== "decorator" &&
+                          (0, St.jsx)("button", {
+                            className: "ml-1",
+                            "data-layout-save": k,
+                            "aria-label": `Save the current layout in slot ${k + 1}`,
+                            title: "Save the current layout here",
+                            onClick: () => {
+                              (e.dirty && Wp(!0),
+                                O.send({ t: "home_layout_save", key: e.key, slot: k, name: L?.name || `Layout ${k + 1}` }));
+                            },
+                            children: "\u2193",
+                          }),
+                      ],
+                    },
+                    k,
+                  ),
+                ),
+                (0, St.jsx)("button", {
+                  className: "btn btn-ghost btn-xs",
+                  "data-layout-reset": !0,
+                  onClick: () => (DOFF25 || UH25.push(e.int), O.send({ t: "home_reset", key: e.key })),
+                  children: "Reset furnishing",
+                }),
+              ],
+            }),
             i && s
               ? (0, St.jsxs)("div", {
                   className: "flex items-center gap-2 flex-wrap",
                   "data-decor-sel": i.k,
                   children: [
                     (0, St.jsx)("b", { className: "text-sm", children: s.name }),
+                    (() => {
+                      let ov = OV25();
+                      return ov.length
+                        ? (0, St.jsx)("span", {
+                            className: "text-[11px]",
+                            role: "status",
+                            "data-overlap": ov.length,
+                            style: { color: "var(--ember-hi)" },
+                            children: `Overlaps ${ov.slice(0, 2).map((x) => x.name).join(", ")}${ov.length > 2 ? ` +${ov.length - 2}` : ""}`,
+                          })
+                        : null;
+                    })(),
                     (0, St.jsx)("button", {
                       className: "btn btn-ghost btn-xs",
                       "aria-label": "Move left",
@@ -1315,11 +1534,33 @@ function hA() {
         (0, D.jsx)("div", {
           className: "absolute inset-0 grid place-items-center p-6 text-center",
           children: (0, D.jsxs)("div", {
-            className: "glass rounded-xl p-6 max-w-sm",
+            className: "glass rounded-xl p-6 max-w-sm space-y-3",
+            "data-no3d": !0,
             children: [
-              "The 3D city could not load: ",
-              e,
-              ". Everything else still works from the menu (Tab).",
+              (0, D.jsx)("div", { className: "font-bold", children: "The 3D city could not start on this device" }),
+              (0, D.jsx)("div", { className: "text-[13px]", style: { opacity: 0.8 }, children: e }),
+              (0, D.jsx)("div", {
+                className: "text-[13px]",
+                children: "You can still use Fyrus without 3D: your passport, bank and FYC, land and homes, shops, jobs list, courses, elections, events and chat all work from the menu.",
+              }),
+              // 29.13 unsupported-device fallback: touch-friendly actions instead of "press Tab"
+              (0, D.jsxs)("div", {
+                className: "flex gap-2 flex-wrap justify-center",
+                children: [
+                  (0, D.jsx)("button", { className: "btn btn-primary", "data-no3d-menu": !0, onClick: () => C({ hud: { ...ot().hud, open: !0 } }), children: "Open the menu" }),
+                  (0, D.jsx)("button", {
+                    className: "btn btn-ghost",
+                    "data-no3d-lite": !0,
+                    onClick: () => {
+                      try { localStorage.setItem("fyrus.quality16", "lite"); localStorage.setItem("fyrus.quality16.manual", "1"); } catch {}
+                      let q = new URLSearchParams(location.search);
+                      (q.set("quality", "lite"), (location.search = q.toString()));
+                    },
+                    children: "Try again in Lite",
+                  }),
+                ],
+              }),
+              (0, D.jsx)("div", { className: "text-[11px]", style: { opacity: 0.6 }, children: "Tip: turn on hardware acceleration in your browser settings, or update the browser." }),
             ],
           }),
         }),

@@ -1,5 +1,9 @@
 // server/market.ts
-var TYPES2 = ["skill", "course", "digital", "physical", "brand"];
+// 26.8: FYC are non-redeemable in-game credits, so the market sells in-game work and content only. Physical goods
+// shipped to real addresses (types "physical" / "brand") would make FYC redeemable for real-world goods and collect
+// home addresses; they are off (MARKET_PHYSICAL=on is for a separately approved test only).
+var PHYSICAL_ON = String(process.env.MARKET_PHYSICAL || "off") === "on";
+var TYPES2 = PHYSICAL_ON ? ["skill", "course", "digital", "physical", "brand"] : ["skill", "course", "digital"];
 var H = 36e5;
 var INSPECT_MS = +(process.env.INSPECT_MS || 72 * H);
 var RESPOND_MS = +(process.env.RESPOND_MS || 48 * H);
@@ -9,10 +13,12 @@ var FEE = 0.05;
 var BOND_LIMIT = 1e3;
 var bondNeeded = (price) => price > BOND_LIMIT ? Math.max(500, Math.round(price * 0.1)) : 0;
 var BANNED_GOODS = /\b(gun|guns|pistol|rifle|ammo|ammunition|explosive|grenade|cocaine|heroin|meth|weed|cannabis|marijuana|opioid|fentanyl|steroid|counterfeit|replica|fake id|fake passport|stolen|hacked account|credit card dump|cvv|malware|ransomware|keylogger|botnet|ddos|escort|adult content|porn)\b/i;
+var REDEEM_WORDS = /\b(licen[cs]e key|activation (code|key)|steam key|cd ?key|product key|gift ?code|voucher|top-?up code|redeem code|real money|cash ?out|paypal|bank transfer|iban)\b/i;
 var SCAM_WORDS = /\b(pay outside|outside fyrus|whatsapp me|telegram me|western union|gift ?card|bitcoin|crypto wallet|usdt|send your password|verify your account|seed phrase|private key|guaranteed profit|double your money)\b/i;
 var BAD_LINK = /(https?:\/\/)?(bit\.ly|tinyurl\.com|t\.co|goo\.gl|ow\.ly|is\.gd|cutt\.ly|rb\.gy|grabify|iplogger)\b|http:\/\/|\.(exe|scr|bat|cmd|msi|apk|jar|vbs|ps1)(\?|\b)/i;
 function sentinel(text, price, type) {
   if (BANNED_GOODS.test(text)) return "Sentinel blocked this listing: prohibited goods or services.";
+  if (REDEEM_WORDS.test(text)) return "Sentinel blocked this listing: FYC can't buy real-world value (keys, codes, vouchers, money).";
   if (SCAM_WORDS.test(text)) return "Sentinel blocked this listing: it asks for payment or contact outside Fyrus, or for secrets.";
   if (BAD_LINK.test(text)) return "Sentinel blocked a link: use https links to normal sites, no link shorteners or program files.";
   if (!(price >= 1) || price > 1e6) return "Sentinel: price must be between 1 and 1,000,000 FYC.";
@@ -25,6 +31,19 @@ function createMarket(d) {
     d.save();
   }
   const K = d.db.market;
+  // 26.8: pause active physical / brand listings while physical goods are off (bids returned; orders in flight settle)
+  if (!PHYSICAL_ON) {
+    let paused = 0;
+    Object.values(K.listings).forEach((l) => {
+      if (l.status === "active" && (l.type === "physical" || l.type === "brand")) {
+        const top = l.bids?.length ? l.bids[l.bids.length - 1] : void 0;
+        if (top) d.bank.transfer("escrow", top.user, top.amount, `Bid returned (listing paused): ${l.title}`);
+        l.status = "paused";
+        paused++;
+      }
+    });
+    if (paused) d.save();
+  }
   const bank2 = d.bank;
   const note = (id, text) => {
     const l = d.liveOf(id);
@@ -240,7 +259,7 @@ function createMarket(d) {
         return true;
       }
       case "mk_remove": {
-        const l = K.listings[m.id];
+        const l = own(K.listings, m.id);
         if (!l || l.seller !== u.id) return true;
         if (l.mode === "auction" && l.bids?.length) {
           err("An auction with bids cannot be removed.");
@@ -252,7 +271,7 @@ function createMarket(d) {
         return true;
       }
       case "mk_buy": {
-        const l = K.listings[m.id];
+        const l = own(K.listings, m.id);
         if (!l || l.status !== "active" || l.mode !== "fixed") {
           err("This item is not for sale any more.");
           return true;
@@ -281,7 +300,7 @@ function createMarket(d) {
         return true;
       }
       case "mk_bid": {
-        const l = K.listings[m.id];
+        const l = own(K.listings, m.id);
         const amount = Math.round(+m.amount || 0);
         if (!l || l.status !== "active" || l.mode !== "auction") {
           err("This auction is closed.");
@@ -411,7 +430,7 @@ function createMarket(d) {
           err("Only Fyrus Court judges can rule.");
           return true;
         }
-        const o = K.orders[m.order];
+        const o = own(K.orders, m.order);
         if (!o || !["disputed", "review"].includes(o.status) || !o.dispute) return true;
         o.dispute.ruling = d.clean(m.note, 400) || (m.refund ? "Refund to the buyer." : "Payment to the seller.");
         o.dispute.ruledBy = `Judge ${u.name}`;

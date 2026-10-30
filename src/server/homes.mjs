@@ -30,6 +30,8 @@ function createHomes(d) {
         r.keys = [];
         r.passes = {};
         r.lock = "private";
+        // 25.7: saved layouts belong to the person, not the house (the current interior stays with the house)
+        delete r.saved;
       }
       r.res = res;
       d.save();
@@ -57,6 +59,17 @@ function createHomes(d) {
     if (lock === "keys" && r?.keys.some((k) => k.id === uid)) return { ok: true };
     return { ok: false, why: lock === "keys" ? "Locked. Only people with a key can go in." : "This home is private." };
   }
+  // 25.3: a key can carry the "decorate" right (edit the interior). Exterior, lock and keys stay with the resident.
+  const isDecorator = (key, uid) => {
+    const o = residentOf(key);
+    if (!o || o.resident === uid) return false;
+    sync(key);
+    return !!H5[key]?.keys.some((k) => k.id === uid && k.edit);
+  };
+  const layoutsOf = (r) => [0, 1, 2].map((i) => {
+    const s = r?.saved?.[i];
+    return s ? { name: s.name, at: s.at, n: s.int.items.length } : null;
+  });
   const extAll = () => Object.fromEntries(Object.entries(H5).filter(([, r]) => r.ext).map(([k, r]) => [k, r.ext]));
   const pubLock = () => Object.fromEntries(Object.entries(H5).map(([k, r]) => [k, r.lock]));
   function mine(uid) {
@@ -79,7 +92,7 @@ function createHomes(d) {
       return o && o.resident !== uid && (r.keys.some((x) => x.id === uid) || (fresh(r).passes?.[uid] || 0) > Date.now());
     }).map(([k, r]) => {
       const o = residentOf(k);
-      return { key: k, label: o.label, residentName: d.shown(o.resident), kind: r.keys.some((x) => x.id === uid) ? "key" : "pass", until: r.passes?.[uid] || 0 };
+      return { key: k, label: o.label, residentName: d.shown(o.resident), kind: r.keys.some((x) => x.id === uid) ? "key" : "pass", edit: !!r.keys.find((x) => x.id === uid)?.edit, until: r.passes?.[uid] || 0 };
     });
     return { t: "home_mine", homes: list, held };
   }
@@ -88,6 +101,7 @@ function createHomes(d) {
     if (l) d.send(l.ws, mine(uid));
   };
   const knocks = /* @__PURE__ */ new Map();
+  const HSTAT = { conflicts: 0 };
   function onMessage2(me, m) {
     if (typeof m.t !== "string" || !m.t.startsWith("home_")) return false;
     const u = me.u;
@@ -126,7 +140,8 @@ function createHomes(d) {
           reply({ t: "home_access", key, ok: false, why: c.why, lock: r?.lock || "private", residentName: d.shown(o.resident), online: !!d.liveOf(o.resident) });
           return true;
         }
-        reply({ t: "home_access", key, ok: true, label: o.label, residentName: d.shown(o.resident), canEdit: isRes, int: r?.int || defaultInt(key), ext: r?.ext || null, lock: r?.lock || "private" });
+        const deco = !isRes && isDecorator(key, u.id);
+        reply({ t: "home_access", key, ok: true, label: o.label, residentName: d.shown(o.resident), canEdit: isRes || deco, role: isRes ? "resident" : deco ? "decorator" : "guest", layouts: isRes || deco ? (sync(key), layoutsOf(H5[key])) : void 0, v: r?.v || 0, int: r?.int || defaultInt(key), ext: r?.ext || null, lock: r?.lock || "private" });
         return true;
       }
       case "home_lock": {
@@ -141,7 +156,7 @@ function createHomes(d) {
       }
       case "home_key": {
         if (!mustRes()) return true;
-        const who = m.id ? d.db.users[String(m.id)] ? { id: String(m.id), name: d.shown(String(m.id)) } : void 0 : d.findByNumber(String(m.number || ""));
+        const who = m.id ? own(d.db.users, String(m.id)) ? { id: String(m.id), name: d.shown(String(m.id)) } : void 0 : d.findByNumber(String(m.number || ""));
         if (!who) {
           err("No citizen with that number.");
           return true;
@@ -223,14 +238,119 @@ function createHomes(d) {
         } else if (l) d.send(l.ws, { t: "note", text: `${d.shown(u.id)} can't open the door right now.` });
         return true;
       }
-      case "home_int": {
+      // 25.7 saved layouts: 3 named slots per home (resident saves / deletes; resident or decorator restores),
+      // and "reset to the default furnishing"
+      case "home_layout_save": {
         if (!mustRes()) return true;
         const r = rec(key);
+        const slot = Math.round(+m.slot);
+        if (!(slot >= 0 && slot < 3)) {
+          err("Pick slot 1, 2 or 3.");
+          return true;
+        }
+        (r.saved ||= [null, null, null])[slot] = { name: clean(m.name, 24) || `Layout ${slot + 1}`, at: Date.now(), int: cleanInt(r.int || defaultInt(key), key) };
+        d.save();
+        reply({ t: "home_layouts", key, layouts: layoutsOf(r) });
+        reply({ t: "ok", text: `Saved as "${r.saved[slot].name}".` });
+        return true;
+      }
+      case "home_layout_del": {
+        if (!mustRes()) return true;
+        const r = rec(key);
+        const slot = Math.round(+m.slot);
+        if (r.saved && slot >= 0 && slot < 3) r.saved[slot] = null;
+        d.save();
+        reply({ t: "home_layouts", key, layouts: layoutsOf(r) });
+        return true;
+      }
+      case "home_layout_load":
+      case "home_reset": {
+        if (!o) {
+          err("Nobody lives here yet.");
+          return true;
+        }
+        if (!isRes && !isDecorator(key, u.id)) {
+          err("Only the resident, or someone they let decorate, can change this.");
+          return true;
+        }
+        const r = rec(key);
+        let src;
+        if (m.t === "home_reset") src = defaultInt(key);
+        else {
+          const s = r.saved?.[Math.round(+m.slot)];
+          if (!s) {
+            err("That slot is empty.");
+            return true;
+          }
+          src = s.int;
+        }
+        r.int = cleanInt(JSON.parse(JSON.stringify(src)), key);
+        r.at = Date.now();
+        r.by = u.id;
+        r.v = (r.v || 0) + 1;
+        d.save();
+        reply({ t: "home_saved", key, int: r.int, v: r.v });
+        reply({ t: "ok", text: m.t === "home_reset" ? "Back to the original furnishing." : "Layout restored." });
+        d.toScene("house:" + key, { t: "home_int", key, int: r.int, v: r.v });
+        return true;
+      }
+      // 25.9: the resident can ask a visitor to leave (their timed pass is withdrawn; a key holder keeps the key)
+      case "home_kick": {
+        if (!mustRes()) return true;
+        const id = String(m.id || "");
+        const l = d.liveOf(id);
+        if (!l || l.scene !== "house:" + key || id === u.id) {
+          err("That visitor is not inside.");
+          return true;
+        }
+        const r = rec(key);
+        if (r.passes) delete r.passes[id];
+        d.save();
+        d.send(l.ws, { t: "home_kicked", key, label: o.label, by: d.shown(u.id) });
+        reply({ t: "ok", text: `${d.shown(id)} was asked to leave.` });
+        return true;
+      }
+      case "home_keyperm": {
+        if (!mustRes()) return true;
+        const r = rec(key);
+        const k = r.keys.find((x) => x.id === String(m.id || ""));
+        if (!k) {
+          err("Give them a key first.");
+          return true;
+        }
+        if (m.edit) k.edit = true;
+        else delete k.edit;
+        d.save();
+        reply({ t: "ok", text: m.edit ? `${k.name} can now decorate ${o.label}.` : `${k.name} can no longer decorate ${o.label}.` });
+        pushMine(u.id);
+        const l = d.liveOf(k.id);
+        if (l) d.send(l.ws, { t: "note", text: m.edit ? `${d.shown(u.id)} lets you decorate ${o.label}.` : `You can no longer decorate ${o.label}.` });
+        return true;
+      }
+      case "home_int": {
+        if (!o) {
+          err("Nobody lives here yet.");
+          return true;
+        }
+        if (!isRes && !isDecorator(key, u.id)) {
+          err("Only the resident, or someone they let decorate, can change this.");
+          return true;
+        }
+        const r = rec(key);
+        // 25.8: optimistic concurrency - a save based on an older version than the stored one is refused, and the
+        // editor gets the current interior (two editors no longer overwrite each other silently)
+        if (m.base != null && +m.base !== (r.v || 0)) {
+          HSTAT.conflicts++;
+          reply({ t: "home_conflict", key, int: r.int || defaultInt(key), v: r.v || 0, by: r.by ? d.shown(r.by) : null });
+          return true;
+        }
         r.int = cleanInt(m.int, key);
         r.at = Date.now();
+        r.by = u.id;
+        r.v = (r.v || 0) + 1;
         d.save();
-        reply({ t: "home_saved", key, int: r.int });
-        d.toScene("house:" + key, { t: "home_int", key, int: r.int });
+        reply({ t: "home_saved", key, int: r.int, v: r.v });
+        d.toScene("house:" + key, { t: "home_int", key, int: r.int, v: r.v });
         return true;
       }
       case "home_ext": {

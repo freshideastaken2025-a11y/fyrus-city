@@ -13,8 +13,22 @@
 <body>
 <title>Fyrus City</title>
 <meta name="description" content="Fyrus — an infinite 4D AI city: build your home, explore, play, buy and sell AI">
-<link rel="stylesheet" href="/fonts/fonts.css?v=1.0.0">
-<!-- Tailwind is compiled ahead of time into /fyrus-tw.css (no 300 KB compiler running on phones) -->
+<!-- PHASE 16: fonts bundled locally (@fontsource woff2, same families/weights as the Google Fonts link) -->
+<link rel="stylesheet" href="/vendor/fonts/fonts.css?v=16">
+<!-- PHASE 16: Tailwind 3.4.17 compiled ahead of time (tools/tw) instead of the in-browser play CDN -->
+<link rel="stylesheet" href="/vendor/tailwind/tailwind-3.4.17.local.css?v=16">
+<script>try{tailwind.config={theme:{
+    extend: {
+      fontFamily: {
+        display: ['Sora', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+        body: ['"Plus Jakarta Sans"', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+        mono: ['"JetBrains Mono"', 'ui-monospace', 'monospace'],
+      },
+      colors: {
+        night: '#040a1c', deep: '#081633', brand: '#2f6fe0', glow: '#4da3ff', sky: '#a8d8ff', ember: '#ff9a3c', mint: '#45e0ae',
+      },
+    },
+  }}}catch(e){}</script>
 <style>/* Fyrus brand system — royal blue + signal orange, "blue hour" world.
    Layout: full-bleed 3D world, glass HUD floating above it. */
 :root {
@@ -141,25 +155,69 @@ select.field { appearance: none; }
 @keyframes teleFlash { 0% { opacity: 0; } 30% { opacity: 1; } 100% { opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { .tele-flash { animation-duration: .2s; } }
 </style>
-<link rel="stylesheet" href="/fyrus-tw.css?v=1.0.0">
-<script src="/vendor/three-r149.min.js"></script>
-<script>if(!window.THREE){document.write('<script src="https://cdn.jsdelivr.net/npm/three@0.149.0/build/three.min.js"><\/script>')}</script>
+<!-- PHASE 16: three.js r149 served locally (npm three@0.149.0, same file as the jsDelivr URL) -->
+<script src="/vendor/three/three-0.149.0.min.js"></script>
+<script>if(!window.THREE){document.write('<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"><\/script>')}</script>
+<!-- PHASE 16: engine foundation layer (quality profiles, fog-aware culling, crowd LOD, shadows); must run before the bundle -->
+<script src="/fyrus-engine16.js?v=16.0.1"></script>
+<script src="/fyrus-engine17.js?v=17.0.0"></script>
+<script src="/fyrus-cinematic18.js?v=18.0.0"></script>
 <div id="root"></div>
 <script>/*__FYRUS_APP__*/</script>
-<script src="/fyrus-plus.js?v=1.4.1" defer></script>
+<script src="/fyrus-plus.js?v=1.4.0" defer></script>
 <script src="/fyrus-world.js?v=2.0.0" defer></script>
 <script src="/fyrus-intro.js?v=2.0.0" defer></script>
-<script src="/fyrus-country.js?v=1.4.0" defer></script>
-<script src="/fyrus-hall.js?v=3.1.0" defer></script>
+<script src="/fyrus-country.js?v=1.3.0" defer></script>
+<script src="/fyrus-hall.js?v=3.0.4" defer></script>
 <script src="/fyrus-home3d.js?v=1.1.0" defer></script>
 <script src="/fyrus-mall3d.js?v=1.0.4" defer></script>
-<script src="/fyrus-perf.js?v=1.0.0" defer></script>
-<script src="/fyrus-atmos.js?v=1.0.1" defer></script>
+<script src="/fyrus-perf.js?v=1.1.0-p16" defer></script>
+<script src="/fyrus-atmos.js?v=30.11" defer></script>
 <script src="/fyrus-hud.js?v=1.0.1" defer></script>
-<script src="/fyrus-vectorbay.js?v=1.1.0" defer></script>
-<script src="/fyrus-growth.js?v=1.1.0" defer></script>
-<script src="/fyrus-help.js?v=1.0.0" defer></script>
-<script src="/fyrus-pay.js?v=1.0.0" defer></script>
-<script src="/fyrus-brain.js?v=1.5.1" defer></script>
+<script src="/fyrus-vectorbay.js?v=1.0.2" defer></script>
+<!-- PHASE 20: camera collision for the city world (kill switch ?p20off=camcol) -->
+<script src="/fyrus-camera20.js?v=20.11" defer></script>
+<!-- PHASE 20: Phase 20 avatars for other players (feature flag ?f20net=1, default off; kill switch ?p20off=net) -->
+<script src="/fyrus-avatar20-net.js?v=20.16" defer></script>
+<!-- PHASE 21: street furniture & signage (kill switch ?p21off=all) -->
+<script src="/fyrus-city21.js?v=23.2" defer></script>
+<script src="/fyrus-peds22.js?v=23.7" defer></script>
+<script src="/fyrus-sched22.js?v=22.4" defer></script>
+<script src="/fyrus-shops22.js?v=23.11" defer></script>
+<script src="/fyrus-weather22.js?v=22.7" defer></script>
+<script src="/fyrus-ambience22.js?v=22.10" defer></script>
+<script src="/fyrus-pop22.js?v=22.12" defer></script>
+<script src="/fyrus-sit23.js?v=23.2" defer></script>
+<script src="/fyrus-doors23.js?v=23.11" defer></script>
+<script src="/fyrus-carry23.js?v=23.9" defer></script>
+<script src="/fyrus-social23.js?v=23.7" defer></script>
+<script src="/fyrus-context23.js?v=23.8c" defer></script>
+<script src="/fyrus-actsync23.js?v=23.9" defer></script>
+<script src="/fyrus-input23.js?v=23.10" defer></script>
+<!-- PHASE 25: property (kill switch ?p25off=<key>) -->
+<script src="/fyrus-plotsel25.js?v=25.2" defer></script>
+<!-- PHASE 27: AI citizens (kill switch ?p27off=<key>) -->
+<script src="/fyrus-npc27.js?v=27.2" defer></script>
+<script src="/fyrus-district28.js?v=28.1" defer></script>
+<script src="/fyrus-campus28.js?v=28.4" defer></script>
+<script src="/fyrus-civic28.js?v=28.5" defer></script>
+<script src="/fyrus-clinic28.js?v=28.8" defer></script>
+<script src="/fyrus-leisure28.js?v=28.9" defer></script>
+<script src="/fyrus-events28.js?v=28.10" defer></script>
+<script src="/fyrus-acts28.js?v=28.11" defer></script>
+<script src="/fyrus-rules28.js?v=28.12" defer></script>
+<script src="/fyrus-mobile29.js?v=30.9b" defer></script>
+<script src="/fyrus-touch29.js?v=29.2" defer></script>
+<script src="/fyrus-mem29.js?v=29.4" defer></script>
+<script src="/fyrus-xr29.js?v=29.7" defer></script>
+<script src="/fyrus-webxr29.js?v=29.8" defer></script>
+<script src="/fyrus-vrcontrols29.js?v=29.9" defer></script>
+<script src="/fyrus-vrteleport29.js?v=29.10" defer></script>
+<script src="/fyrus-vrcomfort29.js?v=29.11" defer></script>
+<script src="/fyrus-gltf-loader.js?v=1.0.0" defer></script>
+<!-- DEMO-ONLY (fyrus-city-avatar-local-demo): Phase 5.7 avatars for the local player; loads before fyrus-avatar.js so the old premium layer steps aside -->
+<!-- PHASE 16 DEV-ONLY: benchmark harness, inert unless the URL has ?bench=<run> -->
+<script src="/fyrus-avatar.js?v=1.0.0" defer></script>
+<script src="/fyrus-avatar-creator.js?v=1.0.0" defer></script>
 
 </body></html>

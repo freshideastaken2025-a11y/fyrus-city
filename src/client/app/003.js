@@ -671,6 +671,8 @@ var bh = "fyrus.net.token",
       } catch {}
     },
   },
+  MONEY26 = new Set(["bank_send", "tx_approve", "est_buy", "est_bid", "est_rent", "mk_buy", "mk_bid", "biz_buy", "shop_buy", "shop_refund", "home_layout_load", "biz_withdraw", "biz_deposit", "bond_stake"]),
+  DUP26 = (typeof window !== "undefined" && (window.__fyrusDup26 = { dropped: 0 })) || { dropped: 0 },
   rv = class {
     constructor() {
       this.ws = null;
@@ -735,6 +737,12 @@ var bh = "fyrus.net.token",
       });
     }
     connect() {
+      // 24.6 watchdog: the server sends at least one message a second while we are online; 15 s of silence means a
+      // half-open connection (sleep, Wi-Fi change), so close it and let the normal reconnect path run
+      this.watch ||
+        (this.watch = setInterval(() => {
+          this.ws && this.status === "online" && Date.now() - (this.lastMsg || Date.now()) > 15e3 && ((this.stale = (this.stale || 0) + 1), this.ws.close());
+        }, 5e3));
       if (!this.enabled || this.ws) return;
       let e = ot();
       if (!e.session) return;
@@ -748,24 +756,15 @@ var bh = "fyrus.net.token",
           r.send(
             JSON.stringify({
               t: "hello",
-              caps: ["peers2"],
               token: I2.get(bh),
               name: o?.name,
               color: o?.color,
               lang: ot().settings.lang || "en",
-              ref: (() => {
-                try {
-                  let q = new URLSearchParams(location.search).get("ref");
-                  q && !localStorage.getItem("fyrus.ref") && localStorage.setItem("fyrus.ref", q.slice(0, 24));
-                  return localStorage.getItem("fyrus.ref") || void 0;
-                } catch {
-                  return void 0;
-                }
-              })(),
             }),
           );
         }),
         (r.onmessage = (o) => {
+          this.lastMsg = Date.now();
           let n;
           try {
             n = JSON.parse(o.data);
@@ -785,7 +784,8 @@ var bh = "fyrus.net.token",
             ((this.manual = !1), this.bannedText || this.connect());
             return;
           }
-          let o = Math.min(3e4, 1e3 * 2 ** this.tries++);
+          // 24.6: exponential backoff with +-30 % jitter so many clients do not all reconnect in the same instant
+          let o = Math.min(3e4, 1e3 * 2 ** this.tries++) * (0.7 + Math.random() * 0.6);
           setTimeout(() => this.connect(), o);
         }),
         (r.onerror = () => {}));
@@ -793,6 +793,16 @@ var bh = "fyrus.net.token",
     handle(e) {
       switch (e.t) {
         case "welcome": {
+          // 26.7 businesses on plots
+          e.biz && C({ bizAll: e.biz });
+          // 24.7: the server keeps the outfit with the profile; a browser that has none (new device) takes it
+          try {
+            let st = ot(),
+              uid = st.session?.userId,
+              lu = st.users.find((x) => x.id === uid);
+            e.me && e.me.outfit && lu && !(lu.avatar && lu.avatar.outfit) &&
+              C((s2) => ({ users: s2.users.map((x) => (x.id === uid ? { ...x, avatar: { ...(x.avatar || {}), outfit: e.me.outfit } } : x)) }));
+          } catch {}
           ((this.tries = 0),
             (this.status = "online"),
             (this.meId = e.me.id),
@@ -852,23 +862,31 @@ var bh = "fyrus.net.token",
           C({ net: { ...ot().net, online: e.n } });
           break;
         case "peers": {
-          /* v46: "part" messages carry only the people near you; the full list arrives every 2 s.
-             Outfits come once and when they change, so keep the last one. */
-          let a = new Set();
+          // 24.4: with interest management (e.partial) the server lists far / other-scene players less often, so a
+          // peer is only dropped after 2.5 s without an update; compact entries keep the last full outfit / vehicle
+          let a = new Set(),
+            now = Date.now();
           (e.list.forEach((r) => {
             a.add(r.id);
             let o = this.peers.get(r.id);
-            this.peers.set(r.id, { ...r, ph: r.ph ?? o?.ph, o: r.o ?? o?.o });
+            this.peers.set(r.id, { ...(e.partial && o && r.o === void 0 && o.sc === r.sc ? { o: o.o, v: o.v } : {}), ...r, ph: r.ph ?? o?.ph, _seen: now });
           }),
-            e.part ||
-              this.peers.forEach((r, o) => {
-                a.has(o) || this.peers.delete(o);
-              }));
+            this.peers.forEach((r, o) => {
+              a.has(o) || (e.partial && now - (r._seen || 0) < 2500) || this.peers.delete(o);
+            }));
           break;
         }
         case "left":
           this.peers.delete(e.id);
           break;
+        case "corr": {
+          // 24.5 reconciliation: the server rejected or capped our movement (24.3); move back to its position
+          let W = typeof window !== "undefined" ? window.__fyrusW : null,
+            P = W && W.player && W.player.root.position;
+          if (P && !W.vehicle && Number.isFinite(e.x) && Number.isFinite(e.z) && Math.hypot(P.x - e.x, P.z - e.z) > 3)
+            (P.set(e.x, P.y, e.z), W.player.target = null, window.__fyrusInteract && (window.__fyrusInteract.net.corrections += 1));
+          break;
+        }
         case "plots": {
           let a = { ...ot().sharedPlots };
           (Object.entries(e.plots).forEach(([r, o]) => {
@@ -934,17 +952,17 @@ var bh = "fyrus.net.token",
           break;
         }
         case "bank_hist":
-          C({ bankHist: e.list });
+          C({ bankHist: e.before ? [...ot().bankHist, ...e.list.filter((x) => !ot().bankHist.some((y) => y.id === x.id))] : e.list, bankHistMore: !!e.more });
           break;
         case "est_state":
-          C({ estate: { plots: e.plots, studios: e.studios } });
+          C({ estate: { plots: e.plots, studios: e.studios, recent: e.recent || [] } });
           break;
         case "est_update": {
           let a = { ...(ot().estate?.plots || {}) };
           (Object.entries(e.plots).forEach(([r, o]) => {
             o ? (a[r] = o) : delete a[r];
           }),
-            C({ estate: { plots: a, studios: ot().estate?.studios || 0 } }));
+            C({ estate: { plots: a, studios: ot().estate?.studios || 0, recent: e.recent || ot().estate?.recent || [] } }));
           break;
         }
         case "est_mine": {
@@ -1006,13 +1024,31 @@ var bh = "fyrus.net.token",
               En("upcoming"));
           break;
         }
+        case "tx_confirm":
+          C({ txConfirm: { ...e, at: Date.now() } });
+          break;
+        case "biz_update":
+          C({ bizAll: Object.fromEntries(Object.entries({ ...(ot().bizAll || {}), ...e.biz }).filter(([, v]) => v)) });
+          break;
+        case "biz_state":
+          C({ bizMine: e.mine, bizHere: { plot: e.plot, biz: e.here, at: Date.now() } });
+          break;
+        case "shop_stock":
+          C({ shopStock: { ...(ot().shopStock || {}), [e.svc]: { stock: e.stock, max: e.max, nextIn: e.nextIn, at: Date.now() } } });
+          break;
         case "jobs_me": {
           let { t: a, ...r } = e;
           C({ jobsMe: r });
           break;
         }
         case "job_done": {
-          (F(`Shift done: ${e.title} \u2014 +${e.pay} FYC paid by the Treasury. Great work!`, "xp"),
+          (F(
+            `Shift done: ${e.title} \u2014 +${e.pay} FYC` +
+              (e.base != null && e.pay !== e.base ? ` (wage ${e.base}${e.streakPct ? ` + ${e.streakPct}% ${e.streakDays}-day streak` : ""}${e.cleanPct ? ` + ${e.cleanPct}% no mistakes` : ""}${e.careerPct ? ` + ${e.careerPct}% ${e.career}` : ""})` : "") +
+              (e.owed ? `. ${e.owed} FYC will follow when the treasury can pay.` : " paid by the Treasury. Great work!") +
+              (e.promoted ? ` Promoted: you are now a ${e.promoted}!` : ""),
+            "xp",
+          ),
             Ce(40, e.title));
           break;
         }
@@ -1073,13 +1109,36 @@ var bh = "fyrus.net.token",
           (F(`${e.by} opened the door of ${e.label}. Going in\u2026`, "ok"), Jn(e.key));
           break;
         case "home_int": {
+          // 25.8: co-editors without unsaved changes follow the other editor live (and take the new version)
           let a = ot().house;
-          a && a.key === e.key && !a.canEdit && C({ house: { ...a, int: e.int } });
+          a && a.key === e.key && (!a.canEdit || (!a.dirty && e.v != null && e.v > (a.v || 0))) && C({ house: { ...a, int: e.int, v: e.v ?? a.v } });
+          break;
+        }
+        case "home_kicked": {
+          let a = ot().house;
+          a && a.key === e.key && (Jr(), F(`${e.by} asked you to leave ${e.label}.`, "warn"));
+          break;
+        }
+        case "home_conflict": {
+          let a = ot().house;
+          a &&
+            a.key === e.key &&
+            (UH25.push(a.int),
+            C({ house: { ...a, int: e.int, v: e.v, dirty: !1 } }),
+            F(
+              `${e.by || "Someone"} changed this home while you were editing. Their version is shown \u2014 press Undo to bring yours back, then Save.`,
+              "warn",
+            ));
+          break;
+        }
+        case "home_layouts": {
+          let a = ot().house;
+          a && a.key === e.key && C({ house: { ...a, layouts: e.layouts } });
           break;
         }
         case "home_saved": {
           let a = ot().house;
-          a && a.key === e.key && C({ house: { ...a, int: e.int, dirty: !1 } });
+          a && a.key === e.key && C({ house: { ...a, int: e.int, dirty: !1, ...(e.v != null ? { v: e.v } : {}) } });
           break;
         }
         case "mk_list":
@@ -1104,6 +1163,12 @@ var bh = "fyrus.net.token",
       this.emit(e.t, e);
     }
     send(e) {
+      // 26.10: an identical money request within 1.5 s (double click / double tap) is sent once
+      if (e && MONEY26.has(e.t)) {
+        let k = JSON.stringify(e), now = Date.now();
+        if (this.lastMoney && this.lastMoney.k === k && now - this.lastMoney.at < 1500) return (DUP26.dropped++, !0);
+        this.lastMoney = { k, at: now };
+      }
       return this.ws?.readyState === 1 ? (this.ws.send(JSON.stringify(e)), !0) : !1;
     }
     pos(e) {
@@ -1134,6 +1199,7 @@ var bh = "fyrus.net.token",
     age18: !!t.age18,
   }),
   O = new rv();
+typeof window !== "undefined" && (window.__fyrusNetDebug = { net: () => O });   // 24.6 dev/bench access (status, reconnect tests)
 if (typeof window < "u") {
   let t = [],
     e = (a, r) => {

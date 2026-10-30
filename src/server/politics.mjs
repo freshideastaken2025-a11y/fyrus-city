@@ -49,6 +49,9 @@ function createPolitics(d) {
       phase: x.phase,
       until: x.until,
       end: x.end,
+      opens: P.cycle.start + Math.round(LEN() * 3 / 7),
+      opened: P.cycle.opened || null,
+      reminded: P.cycle.reminded || null,
       now: Date.now(),
       seats: SEATS,
       parties: Object.values(P.parties).filter((p) => !p.banned).map(pubParty),
@@ -128,10 +131,36 @@ function createPolitics(d) {
       changed();
     }
   }
-  setInterval(() => {
-    if (Date.now() >= P.cycle.start + LEN()) closeElection();
+  // 28.6 political simulation: the election calendar is announced once per cycle (polls open, last-call reminder) as city
+  // news + a note to everyone online. Flags live on P.cycle (saved), so restarts never repeat or skip them. Read-only:
+  // nothing here touches votes, candidates or results. Kill switch P28_OFF=polsim.
+  const POLSIM_OFF = () => /(^|,)(polsim|all)(,|$)/.test(process.env.P28_OFF || "");
+  const REMIND = () => +(process.env.POL_REMIND_MS || 36e5);
+  const polDur = (ms) => { const m = Math.max(1, Math.round(ms / 6e4)); return m < 120 ? `${m} min` : m < 2880 ? `${Math.round(m / 60)} h` : `${Math.round(m / 1440)} days`; };
+  function phaseEvents(now = Date.now()) {
+    if (POLSIM_OFF()) return;
+    const c = P.cycle, x = phaseAt(c.start, LEN(), now);
+    if (x.phase !== "voting" || now >= x.end) return;
+    if (!c.opened) {
+      c.opened = now;
+      const nc = P.cands.filter((k) => !k.dq).length, np = Object.values(P.parties).filter((p) => !p.banned).length;
+      d.news?.("politics", `Polls are open for Election ${c.n}: ${nc} candidate${nc === 1 ? "" : "s"} for Mayor and ${np} part${np === 1 ? "y" : "ies"} for Parliament. Voting closes in ${polDur(x.end - now)}.`);
+      d.broadcast({ t: "note", text: `Polls are open for Election ${c.n}. Vote at the Parliament of Fyrus or in HUD \u203A Politics.` });
+      changed();
+    }
+    if (!c.reminded && x.end - now <= REMIND()) {
+      c.reminded = now;
+      d.news?.("politics", `Last call: Election ${c.n} polls close in ${polDur(x.end - now)} \u00B7 ${Object.keys(P.votes).length} votes so far`);
+      d.broadcast({ t: "note", text: `Polls close in ${polDur(x.end - now)}. If you have not voted in Election ${c.n} yet, vote now.` });
+      changed();
+    }
+  }
+  function tick(now = Date.now()) {
+    if (now >= P.cycle.start + LEN()) closeElection();
+    phaseEvents(now);
     closeProposals();
-  }, +(process.env.POL_TICK_MS || 15e3));
+  }
+  setInterval(() => tick(), +(process.env.POL_TICK_MS || 15e3));
   function onMessage2(meL, m) {
     if (typeof m.t !== "string" || !m.t.startsWith("pol_")) return false;
     const u = meL.u;
@@ -204,7 +233,7 @@ function createPolitics(d) {
         const why = voterCheck(u.id);
         if (why) return err(why);
         if (partyOf(u.id)) return err("You are already in a party. Leave it first.");
-        const p = P.parties[String(m.party)];
+        const p = own(P.parties, String(m.party));
         if (!p || p.banned) return err("No such party.");
         if (P.cands.some((k) => k.id === u.id)) return err("Candidates cannot switch parties during an election.");
         p.members.push(u.id);
@@ -282,7 +311,7 @@ function createPolitics(d) {
         }
         if (m.party) {
           if (v.party) return err("You already voted for a party in this election.");
-          const p = P.parties[String(m.party)];
+          const p = own(P.parties, String(m.party));
           if (!p || p.banned) return err("No such party.");
           v.party = p.id;
         }
@@ -317,7 +346,7 @@ function createPolitics(d) {
       case "pol_pvote": {
         const why = voterCheck(u.id);
         if (why) return err(why);
-        const p = P.proposals[String(m.id)];
+        const p = own(P.proposals, String(m.id));
         if (!p || p.closed) return err("That proposal is closed.");
         if (p.yes.includes(u.id) || p.no.includes(u.id)) return err("You already voted on this proposal.");
         (m.yes ? p.yes : p.no).push(u.id);
@@ -340,7 +369,7 @@ function createPolitics(d) {
       }
       case "pol_party_ban": {
         if (!d.isAdmin(u.id)) return err("Judges only.");
-        const p = P.parties[String(m.id)];
+        const p = own(P.parties, String(m.id));
         if (!p) return err("No such party.");
         p.banned = d.clean(m.reason, 120) || "Breaking election rules";
         for (const v of Object.values(P.votes)) if (v.party === p.id) delete v.party;
@@ -364,6 +393,6 @@ function createPolitics(d) {
     if (city) return `Mayor of ${cityName(city)}`;
     return Object.values(r.mps || {}).some((l) => l.some((x) => x.id === id)) ? "Member of Parliament" : "";
   }
-  return { onMessage: onMessage2, state, titleOf, closeElection };
+  return { onMessage: onMessage2, state, titleOf, closeElection, tick };
 }
 

@@ -3996,7 +3996,7 @@ function createEdu(d) {
         return true;
       }
       case "edu_staff": {
-        const i = E2.inst[m.inst];
+        const i = own(E2.inst, m.inst);
         if (!i || i.owner !== u.id) {
           err("Only the owner can add teachers.");
           return true;
@@ -4035,7 +4035,7 @@ function createEdu(d) {
           err("A course needs a title and at least one lesson.");
           return true;
         }
-        const old = m.id ? E2.courses[m.id] : void 0;
+        const old = m.id ? own(E2.courses, m.id) : void 0;
         if (old && old.teacher !== u.id) {
           err("That is not your course.");
           return true;
@@ -4050,7 +4050,7 @@ function createEdu(d) {
         return true;
       }
       case "edu_enroll": {
-        const c = E2.courses[m.course];
+        const c = own(E2.courses, m.course);
         if (!c) {
           err("No such course.");
           return true;
@@ -4085,7 +4085,7 @@ function createEdu(d) {
         return true;
       }
       case "edu_done": {
-        const c = E2.courses[m.course];
+        const c = own(E2.courses, m.course);
         const en = c && E2.enr[c.id + "|" + u.id];
         const i = Math.round(+m.lesson);
         if (!c || !en || !(i >= 0 && i < c.lessons.length)) {
@@ -4169,9 +4169,17 @@ var MAX_REWARD_PER_OP = +(process.env.MAX_REWARD_PER_OP || 1500);
 // Money the client may ask the bank to create. Everything else (sales, commissions, refunds) is either
 // done by the server itself (land, market, jobs, courses) or was demo-only and is refused.
 var WELCOME_GRANT = +(process.env.WELCOME_GRANT || 2500);
-var BETA_TEST_CREDIT = String(process.env.BETA_TEST_CREDIT || "on") !== "off";
+// 26.11: the economic simulation showed beta test credit dominating the economy (claimers 17x richer than workers,
+// supply +3 %/day), so it is on by default only outside production
+var BETA_TEST_CREDIT = String(process.env.BETA_TEST_CREDIT || (process.env.NODE_ENV === "production" ? "off" : "on")) !== "off";
 var mintKind = (label) => /^Welcome grant/i.test(label) ? "welcome" : /demo checkout/i.test(label) ? "test" : "";
 var SPECIAL = /* @__PURE__ */ new Set(["treasury", "escrow"]);
+// 26.2 currency rules (see docs/phase26/26.2-currency-rules.md). FYC are non-redeemable in-game credits.
+// Server-wide daily mint caps per source; "fallback" = wages / buy-backs when the treasury is empty.
+var MINT_CAP = {
+  beta: +(process.env.MINT_CAP_BETA || 25e4),
+  fallback: +(process.env.MINT_CAP_FALLBACK || 1e5)
+};
 var r2 = (n) => Math.round(n * 100) / 100;
 function createBank(d) {
   if (!d.db.bank) {
@@ -4179,7 +4187,54 @@ function createBank(d) {
     d.save();
   }
   const B = d.db.bank;
+  // 26.1 money-supply counters: every FYC that exists was minted and not yet burned, so
+  //   sum(all balances, incl. treasury and escrow) === minted - burned   (audit().drift must stay 0)
+  // Older databases start counting from their current total.
+  if (B.minted == null) {
+    B.minted = r2(Object.values(B.acct).reduce((s, a) => s + (a.bal || 0), 0));
+    B.burned = 0;
+    B.auditFrom = Date.now();
+  }
   const today = () => (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+  B.owed ||= [];
+  const mintDay = () => {
+    if (!B.mintDay || B.mintDay.day !== today()) B.mintDay = { day: today(), by: {} };
+    return B.mintDay;
+  };
+  // capped mint for a source; returns the amount actually created (0..amount)
+  function mint(kind, to, amount, memo) {
+    const md = mintDay(), cap = MINT_CAP[kind] ?? Infinity, room = Math.max(0, cap - (md.by[kind] || 0)), n = r2(Math.min(room, amount));
+    if (!(n > 0) || !transfer("mint", to, n, memo)) return 0;
+    md.by[kind] = r2((md.by[kind] || 0) + n);
+    return n;
+  }
+  // pay from the treasury; if it is short, mint within the daily fallback cap; anything left is owed and paid
+  // first thing whenever money reaches the treasury
+  function payFromTreasury(to, amount, memo) {
+    amount = r2(amount);
+    if (!(amount > 0)) return { paid: 0, owed: 0 };
+    if (transfer("treasury", to, amount, memo)) return { paid: amount, owed: 0 };
+    const t = Math.min(bal("treasury"), amount), fromT = t > 0 && transfer("treasury", to, t, memo) ? t : 0;
+    const m = mint("fallback", to, r2(amount - fromT), memo + " (Central Bank)");
+    const owed = r2(amount - fromT - m);
+    if (owed > 0) B.owed.push({ to, amount: owed, memo, at: Date.now() });
+    return { paid: r2(fromT + m), owed };
+  }
+  let settling = false;
+  function settleOwed() {
+    if (settling || !B.owed.length) return;
+    settling = true;
+    try {
+      while (B.owed.length && bal("treasury") > 0) {
+        const o = B.owed[0], n = r2(Math.min(o.amount, bal("treasury")));
+        if (!transfer("treasury", o.to, n, o.memo + " (paid late)")) break;
+        o.amount = r2(o.amount - n);
+        if (o.amount <= 0) B.owed.shift();
+      }
+    } finally {
+      settling = false;
+    }
+  }
   const acct = (id) => B.acct[id] ||= { bal: 0, opened: Date.now(), day: today(), dayIn: 0, bond: 0, strikes: 0, sales: 0, bought: 0 };
   const has = (id) => !!B.acct[id];
   const bal = (id) => B.acct[id] ? B.acct[id].bal : 0;
@@ -4190,9 +4245,52 @@ function createBank(d) {
     if (l && a) d.send(l.ws, { t: "bank", bal: a.bal, bond: a.bond, held: heldFor(id), strikes: a.strikes, banned: !!a.banned, sales: a.sales });
   };
   let heldFor = () => 0;
+  // 26.3 append-only, hash-chained ledger file (ledger.jsonl next to the DB). The DB keeps the latest 20 000 entries
+  // for statements; the file keeps everything. Line 1 is a genesis entry with every balance at the moment the file
+  // was started, so tools/net/ledger-verify.mjs can replay the file and must arrive at the DB's balances.
+  const LF = d.ledgerFile && d.fs ? d.ledgerFile : null, LED = { file: LF, lines: 0, lastHash: "", errors: 0 };
+  const hashOf = (prev, e) => d.crypto.createHash("sha256").update(prev + JSON.stringify(e)).digest("hex");
+  function lfAppend(e) {
+    if (!LF) return;
+    try {
+      const h = hashOf(LED.lastHash, e);
+      d.fs.appendFileSync(LF, JSON.stringify({ ...e, prev: LED.lastHash, h }) + "\n");
+      LED.lastHash = h;
+      LED.lines++;
+    } catch (x) {
+      LED.errors++;
+    }
+  }
+  if (LF) {
+    try {
+      if (d.fs.existsSync(LF)) {
+        const txt = d.fs.readFileSync(LF, "utf8").trimEnd().split("\n");
+        const last = JSON.parse(txt[txt.length - 1]);
+        LED.lastHash = last.h;
+        LED.lines = txt.length;
+        // the file is written at once, the DB at most every 1.5 s: after a crash the file can hold transfers the DB
+        // never saved (their effects elsewhere - a plot title, an order - were lost too, so they are NOT replayed).
+        // Keep them for review and mark the point where the chain continues from the DB's balances.
+        const lost = [];
+        for (const ln of txt) {
+          const o = JSON.parse(ln);
+          if (o.id != null && o.id >= B.seq) lost.push(o);
+        }
+        if (lost.length) {
+          d.fs.writeFileSync(LF.replace(/\.jsonl$/, "") + "-lost-" + Date.now() + ".jsonl", lost.map((o) => JSON.stringify(o)).join("\n") + "\n");
+          LED.lostOnStart = lost.length;
+          lfAppend({ kind: "resync", at: Date.now(), seq: B.seq, lost: lost.length, lostIds: [lost[0].id, lost[lost.length - 1].id], balances: Object.fromEntries(Object.entries(B.acct).map(([k, a]) => [k, a.bal || 0])), minted: B.minted, burned: B.burned });
+        }
+      } else lfAppend({ kind: "genesis", at: Date.now(), seq: B.seq, minted: B.minted ?? null, burned: B.burned ?? null, balances: Object.fromEntries(Object.entries(B.acct).map(([k, a]) => [k, a.bal || 0])) });
+    } catch (x) {
+      LED.errors++;
+    }
+  }
   function log(from, to, amount, memo) {
-    B.ledger.push({ id: B.seq++, at: Date.now(), from, to, amount: r2(amount), memo: memo.slice(0, 120) });
+    const e = { id: B.seq++, at: Date.now(), from, to, amount: r2(amount), memo: memo.slice(0, 120) };
+    B.ledger.push(e);
     if (B.ledger.length > 2e4) B.ledger.splice(0, B.ledger.length - 2e4);
+    lfAppend(e);
   }
   function transfer(from, to, amount, memo) {
     amount = r2(amount);
@@ -4201,27 +4299,30 @@ function createBank(d) {
       const a = acct(from);
       if (a.bal + 1e-9 < amount) return false;
       a.bal = r2(a.bal - amount);
-    }
+    } else B.minted = r2(B.minted + amount);
     if (to !== "burn") {
       const b = acct(to);
       b.bal = r2(b.bal + amount);
-    }
+    } else B.burned = r2(B.burned + amount);
     log(from, to, amount, memo);
-    d.save();
+    d.save(true);
+    watch(from, to, amount);
     notify(from);
     notify(to);
+    to === "treasury" && B.owed?.length && settleOwed();
     return true;
   }
-  function history(id, n = 60) {
+  function history(id, n = 60, before = Infinity) {
     const out = [];
     for (let i = B.ledger.length - 1; i >= 0 && out.length < n; i--) {
       const t = B.ledger[i];
+      if (t.id >= before) continue;
       if (t.from === id || t.to === id) out.push({ ...t, dir: t.to === id ? "in" : "out", other: t.to === id ? t.from : t.to, otherName: d.nameOf(t.to === id ? t.from : t.to) });
     }
     return out;
   }
   function onMessage2(me, m) {
-    if (typeof m.t !== "string" || !(m.t.startsWith("bank_") || m.t.startsWith("bond_"))) return false;
+    if (typeof m.t !== "string" || !(m.t.startsWith("bank_") || m.t.startsWith("bond_") || m.t.startsWith("tx_"))) return false;
     const u = me.u;
     const reply = (x) => d.send(me.ws, x);
     const err = (text) => reply({ t: "err", text });
@@ -4274,10 +4375,10 @@ function createBank(d) {
           a.dayIn = 0;
         }
         const room = Math.max(0, DAILY_GAME_CAP - a.dayIn);
-        const ok = Math.min(room, amt, MAX_REWARD_PER_OP);
+        let ok = Math.min(room, amt, MAX_REWARD_PER_OP);
         if (ok > 0) {
+          ok = mint("beta", u.id, ok, label);
           a.dayIn += ok;
-          transfer("mint", u.id, ok, label);
         }
         if (ok < amt) {
           notify(u.id);
@@ -4285,10 +4386,25 @@ function createBank(d) {
         }
         return true;
       }
-      case "bank_send": {
-        const to = d.findByNumber(String(m.to || ""));
-        const amt = r2(+m.amount || 0);
-        const note = d.clean(m.note, 80);
+      case "bank_send":
+      case "tx_approve": {
+        // 26.9 authorization: transfers of TX_CONFIRM_MIN FYC or more need a second, explicit approval from the same
+        // signed-in session within 60 s (tx_confirm -> tx_approve); one use, bound to the user and the connection
+        let to, amt, note;
+        if (m.t === "tx_approve") {
+          const p = TXP.get(String(m.id || ""));
+          if (!p || p.uid !== u.id || p.ws !== me.ws) return err("That confirmation is not valid."), true;
+          TXP.delete(p.id);
+          if (Date.now() > p.exp) return err("That confirmation expired. Send again."), true;
+          to = d.findByNumber(p.to);
+          amt = p.amt;
+          note = p.note;
+          TXS.approved++;
+        } else {
+          to = d.findByNumber(String(m.to || ""));
+          amt = r2(+m.amount || 0);
+          note = d.clean(m.note, 80);
+        }
         if (!to) {
           err("No citizen has that number.");
           return true;
@@ -4305,19 +4421,54 @@ function createBank(d) {
           err("This account is suspended by the Fyrus Court.");
           return true;
         }
+        // 24.9: accounts younger than a day can send at most NEW_ACCT_SEND_CAP FYC in total (stops farming the
+        // opening / welcome grants with throw-away accounts)
+        if (Date.now() - (u.joined || 0) < 864e5) {
+          const a0 = acct(u.id), cap = +(process.env.NEW_ACCT_SEND_CAP || 500);
+          if ((a0.newOut || 0) + amt > cap) {
+            err(`New accounts can send up to ${cap} FYC in their first day.`);
+            return true;
+          }
+        }
+        // 26.9: daily outgoing limit for citizen-to-citizen transfers
+        const a1 = acct(u.id);
+        if (a1.outDay !== today()) (a1.outDay = today()), (a1.outToday = 0);
+        if ((a1.outToday || 0) + amt > TX_DAILY_OUT()) {
+          err(`Daily transfer limit is ${TX_DAILY_OUT().toLocaleString("en-US")} FYC (${Math.max(0, TX_DAILY_OUT() - (a1.outToday || 0)).toLocaleString("en-US")} left today).`);
+          return true;
+        }
+        if (m.t === "bank_send" && amt >= TX_CONFIRM_MIN()) {
+          if (a1.bal + 1e-9 < amt) return err("Not enough FYC."), true;
+          for (const [k, p] of TXP) if (p.uid === u.id || Date.now() > p.exp) TXP.delete(k);
+          const id = d.crypto ? d.crypto.randomBytes(9).toString("base64url") : String(Math.random()).slice(2);
+          TXP.set(id, { id, uid: u.id, ws: me.ws, to: to.number, amt, note, exp: Date.now() + +(process.env.TX_CONFIRM_MS || 6e4) });
+          TXS.asked++;
+          reply({ t: "tx_confirm", id, kind: "send", amount: amt, toName: to.name, toNumber: to.number, note, expiresIn: +(process.env.TX_CONFIRM_MS || 6e4) });
+          return true;
+        }
         if (!transfer(u.id, to.id, amt, `FyrusPay ${note ? "\xB7 " + note : ""}`.trim())) {
           err("Not enough FYC.");
           return true;
         }
+        a1.outToday = r2((a1.outToday || 0) + amt);
+        Date.now() - (u.joined || 0) < 864e5 && (acct(u.id).newOut = (acct(u.id).newOut || 0) + amt);
         reply({ t: "ok", text: `Sent ${amt.toLocaleString("en-US")} FYC to ${to.name} (${to.number}).` });
         const l = d.liveOf(to.id);
         if (l) d.send(l.ws, { t: "note", text: `${u.name} sent you ${amt.toLocaleString("en-US")} FYC${note ? `: "${note}"` : ""}.` });
         reply({ t: "bank_hist", list: history(u.id) });
         return true;
       }
-      case "bank_hist":
-        reply({ t: "bank_hist", list: history(u.id) });
+      case "tx_cancel": {
+        const p = TXP.get(String(m.id || ""));
+        if (p && p.uid === u.id) TXP.delete(p.id);
         return true;
+      }
+      case "bank_hist": {
+        // 26.3: paging - "before" = the oldest id the client already has
+        const before = Math.round(+m.before) || Infinity, list = history(u.id, 60, before);
+        reply({ t: "bank_hist", list, before: before === Infinity ? void 0 : before, more: list.length === 60 });
+        return true;
+      }
       case "bond_stake": {
         const amt = Math.round(+m.amount || 0);
         if (amt < 100) {
@@ -4351,7 +4502,45 @@ function createBank(d) {
     return true;
   }
   let busy = () => false;
-  return { onMessage: onMessage2, transfer, bal, acct, notify, history, setHeld: (f) => {
+  // 26.10 farming watch: an account that receives transfers from 5+ different accounts that are less than a day old,
+  // within 24 h, is flagged for the Fyrus Court (grant farming with throw-away accounts). Flags never move money.
+  B.flags ||= {};
+  const recv = /* @__PURE__ */ new Map();
+  function watch(from, to, amount) {
+    if (!d.isNew || SPECIAL.has(from) || SPECIAL.has(to) || from === "mint" || to === "burn" || String(to).startsWith("biz:")) return;
+    if (!d.isNew(from)) return;
+    const now = Date.now(), r = recv.get(to) || [];
+    const keep = r.filter((x) => now - x.at < 864e5);
+    keep.push({ from, at: now, amount });
+    recv.set(to, keep);
+    const senders = new Set(keep.map((x) => x.from));
+    if (senders.size >= 5 && !B.flags[to]) {
+      B.flags[to] = { at: now, why: `received from ${senders.size} new accounts in 24 h`, total: r2(keep.reduce((s, x) => s + x.amount, 0)), senders: [...senders].slice(0, 20) };
+      d.save();
+      d.onFlag?.(to, B.flags[to]);
+    }
+  }
+  // 26.9 pending confirmations and limits
+  const TXP = /* @__PURE__ */ new Map(), TXS = { asked: 0, approved: 0 };
+  const TX_CONFIRM_MIN = () => +(process.env.TX_CONFIRM_MIN || 5e3), TX_DAILY_OUT = () => +(process.env.TX_DAILY_OUT || 1e5);
+  function audit() {
+    let total = 0, negative = 0, n = 0;
+    for (const a of Object.values(B.acct)) {
+      total += a.bal || 0;
+      n++;
+      if ((a.bal || 0) < -1e-9) negative++;
+    }
+    total = r2(total);
+    const bySource = {};
+    for (const t of B.ledger) if (t.from === "mint") {
+      const k = String(t.memo).replace(/[:·(].*$/, "").trim().slice(0, 40);
+      bySource[k] = r2((bySource[k] || 0) + t.amount);
+    }
+    return { flags: Object.keys(B.flags || {}).length, tx: { ...TXS, pending: TXP.size }, ledgerFile: { lines: LED.lines, errors: LED.errors, enabled: !!LF, lostOnStart: LED.lostOnStart || 0 }, accounts: n, total, minted: B.minted, burned: B.burned, drift: r2(total - (B.minted - B.burned)), negative, mintToday: mintDay(), mintCap: MINT_CAP, owed: r2(B.owed.reduce((s, o) => s + o.amount, 0)), owedCount: B.owed.length, treasury: bal("treasury"), escrow: bal("escrow"), ledger: B.ledger.length, mintedBySourceInLedger: bySource, auditFrom: B.auditFrom || null };
+  }
+  // dev / test hook (read-only); the demo server exposes it on loopback at /__bench/bank
+  globalThis.__fyrusBankAudit = audit;
+  return { onMessage: onMessage2, transfer, bal, acct, notify, history, audit, mint, payFromTreasury, setHeld: (f) => {
     heldFor = f;
   }, setBusy: (f) => {
     busy = f;
@@ -4359,7 +4548,11 @@ function createBank(d) {
 }
 
 // server/market.ts
-var TYPES2 = ["skill", "course", "digital", "physical", "brand"];
+// 26.8: FYC are non-redeemable in-game credits, so the market sells in-game work and content only. Physical goods
+// shipped to real addresses (types "physical" / "brand") would make FYC redeemable for real-world goods and collect
+// home addresses; they are off (MARKET_PHYSICAL=on is for a separately approved test only).
+var PHYSICAL_ON = String(process.env.MARKET_PHYSICAL || "off") === "on";
+var TYPES2 = PHYSICAL_ON ? ["skill", "course", "digital", "physical", "brand"] : ["skill", "course", "digital"];
 var H = 36e5;
 var INSPECT_MS = +(process.env.INSPECT_MS || 72 * H);
 var RESPOND_MS = +(process.env.RESPOND_MS || 48 * H);
@@ -4369,10 +4562,12 @@ var FEE = 0.05;
 var BOND_LIMIT = 1e3;
 var bondNeeded = (price) => price > BOND_LIMIT ? Math.max(500, Math.round(price * 0.1)) : 0;
 var BANNED_GOODS = /\b(gun|guns|pistol|rifle|ammo|ammunition|explosive|grenade|cocaine|heroin|meth|weed|cannabis|marijuana|opioid|fentanyl|steroid|counterfeit|replica|fake id|fake passport|stolen|hacked account|credit card dump|cvv|malware|ransomware|keylogger|botnet|ddos|escort|adult content|porn)\b/i;
+var REDEEM_WORDS = /\b(licen[cs]e key|activation (code|key)|steam key|cd ?key|product key|gift ?code|voucher|top-?up code|redeem code|real money|cash ?out|paypal|bank transfer|iban)\b/i;
 var SCAM_WORDS = /\b(pay outside|outside fyrus|whatsapp me|telegram me|western union|gift ?card|bitcoin|crypto wallet|usdt|send your password|verify your account|seed phrase|private key|guaranteed profit|double your money)\b/i;
 var BAD_LINK = /(https?:\/\/)?(bit\.ly|tinyurl\.com|t\.co|goo\.gl|ow\.ly|is\.gd|cutt\.ly|rb\.gy|grabify|iplogger)\b|http:\/\/|\.(exe|scr|bat|cmd|msi|apk|jar|vbs|ps1)(\?|\b)/i;
 function sentinel(text, price, type) {
   if (BANNED_GOODS.test(text)) return "Sentinel blocked this listing: prohibited goods or services.";
+  if (REDEEM_WORDS.test(text)) return "Sentinel blocked this listing: FYC can't buy real-world value (keys, codes, vouchers, money).";
   if (SCAM_WORDS.test(text)) return "Sentinel blocked this listing: it asks for payment or contact outside Fyrus, or for secrets.";
   if (BAD_LINK.test(text)) return "Sentinel blocked a link: use https links to normal sites, no link shorteners or program files.";
   if (!(price >= 1) || price > 1e6) return "Sentinel: price must be between 1 and 1,000,000 FYC.";
@@ -4385,6 +4580,19 @@ function createMarket(d) {
     d.save();
   }
   const K = d.db.market;
+  // 26.8: pause active physical / brand listings while physical goods are off (bids returned; orders in flight settle)
+  if (!PHYSICAL_ON) {
+    let paused = 0;
+    Object.values(K.listings).forEach((l) => {
+      if (l.status === "active" && (l.type === "physical" || l.type === "brand")) {
+        const top = l.bids?.length ? l.bids[l.bids.length - 1] : void 0;
+        if (top) d.bank.transfer("escrow", top.user, top.amount, `Bid returned (listing paused): ${l.title}`);
+        l.status = "paused";
+        paused++;
+      }
+    });
+    if (paused) d.save();
+  }
   const bank2 = d.bank;
   const note = (id, text) => {
     const l = d.liveOf(id);
@@ -4600,7 +4808,7 @@ function createMarket(d) {
         return true;
       }
       case "mk_remove": {
-        const l = K.listings[m.id];
+        const l = own(K.listings, m.id);
         if (!l || l.seller !== u.id) return true;
         if (l.mode === "auction" && l.bids?.length) {
           err("An auction with bids cannot be removed.");
@@ -4612,7 +4820,7 @@ function createMarket(d) {
         return true;
       }
       case "mk_buy": {
-        const l = K.listings[m.id];
+        const l = own(K.listings, m.id);
         if (!l || l.status !== "active" || l.mode !== "fixed") {
           err("This item is not for sale any more.");
           return true;
@@ -4641,7 +4849,7 @@ function createMarket(d) {
         return true;
       }
       case "mk_bid": {
-        const l = K.listings[m.id];
+        const l = own(K.listings, m.id);
         const amount = Math.round(+m.amount || 0);
         if (!l || l.status !== "active" || l.mode !== "auction") {
           err("This auction is closed.");
@@ -4771,7 +4979,7 @@ function createMarket(d) {
           err("Only Fyrus Court judges can rule.");
           return true;
         }
-        const o = K.orders[m.order];
+        const o = own(K.orders, m.order);
         if (!o || !["disputed", "review"].includes(o.status) || !o.dispute) return true;
         o.dispute.ruling = d.clean(m.note, 400) || (m.refund ? "Refund to the buyer." : "Payment to the seller.");
         o.dispute.ruledBy = `Judge ${u.name}`;
@@ -4865,10 +5073,17 @@ function createEstate(d) {
     if (l) d.send(l.ws, { t: "note", text });
   };
   const pub2 = (id, p) => ({ id, owner: p.owner, ownerName: p.ownerName, style: p.style, sign: p.sign, sale: p.sale, rent: p.rent ? { price: p.rent.price, tenantName: p.rent.tenantName, tenant: p.rent.tenant, paidUntil: p.rent.paidUntil, ending: p.rent.ending } : void 0, auction: p.auction ? { endsAt: p.auction.endsAt, start: p.auction.start, reserve: !!p.auction.reserve, top: p.auction.bids.at(-1)?.amount, topName: p.auction.bids.at(-1)?.name, bids: p.auction.bids.length } : void 0 });
-  const state = () => ({ t: "est_state", plots: Object.fromEntries(Object.entries(E2.plots).map(([k, v]) => [k, pub2(k, v)])), studios: Object.keys(E2.studios).length, now: Date.now() });
+  // 25.10 market: the last 40 completed sales (Land Office, resale, auction) for the marketplace view
+  E2.sales ||= [];
+  const logSale = (id, price, kind) => {
+    E2.sales.push({ id, price, kind, at: Date.now() });
+    if (E2.sales.length > 40) E2.sales.splice(0, E2.sales.length - 40);
+  };
+  const recent = () => E2.sales.slice(-20).reverse();
+  const state = () => ({ t: "est_state", plots: Object.fromEntries(Object.entries(E2.plots).map(([k, v]) => [k, pub2(k, v)])), studios: Object.keys(E2.studios).length, recent: recent(), now: Date.now() });
   const changed = (ids) => {
     d.save();
-    d.broadcast({ t: "est_update", plots: Object.fromEntries(ids.map((k) => [k, E2.plots[k] ? pub2(k, E2.plots[k]) : null])) });
+    d.broadcast({ t: "est_update", plots: Object.fromEntries(ids.map((k) => [k, E2.plots[k] ? pub2(k, E2.plots[k]) : null])), recent: recent() });
   };
   const mine = (uid) => ({ t: "est_mine", owned: Object.entries(E2.plots).filter(([, p]) => p.owner === uid).map(([k, p]) => pub2(k, p)), renting: Object.entries(E2.plots).filter(([, p]) => p.rent?.tenant === uid).map(([k, p]) => pub2(k, p)), studio: E2.studios[uid] || null, passes: (E2.passes[uid] || []).filter((p) => p.until > Date.now()), passport: isPassport(uid) });
   const pushMine = (uid) => {
@@ -4904,6 +5119,7 @@ function createEstate(d) {
     bank2.transfer("escrow", seller, top.amount - tax, `Plot ${id} sold at auction`);
     if (tax) bank2.transfer("escrow", "treasury", tax, `Land transfer tax 5%: ${id}`);
     transferPlot(id, { id: top.user, name: top.name }, top.amount);
+    logSale(id, top.amount, "auction");
     note(top.user, `You won plot ${id} for ${top.amount.toLocaleString("en-US")} FYC. The title is yours.`);
     note(seller, `Plot ${id} sold at auction for ${top.amount.toLocaleString("en-US")} FYC.`);
     changed([id]);
@@ -4966,9 +5182,15 @@ function createEstate(d) {
           err(`${soc.name} is for Fyrus passport holders.`);
           return true;
         }
+        // 25.4: the client sends the total it showed (m.max); never charge more than the buyer confirmed
+        const max = m.max == null ? Infinity : +m.max;
         if (!rec) {
           if (!plot.empty) {
             err("A resident lives here. It is not for sale.");
+            return true;
+          }
+          if (!(plot.price <= max)) {
+            err(`The price is ${plot.price.toLocaleString("en-US")} FYC. Check and confirm again.`);
             return true;
           }
           if (!bank2.transfer(u.id, "treasury", plot.price, `Plot ${plot.id} in ${soc.name} (Land Office)`)) {
@@ -4976,6 +5198,7 @@ function createEstate(d) {
             return true;
           }
           transferPlot(plot.id, u, plot.price);
+          logSale(plot.id, plot.price, "land");
           changed([plot.id]);
           reply({ t: "ok", text: `Plot ${plot.id} in ${soc.name} is yours.` });
           d.news?.("property", `Land Office sold plot ${plot.id} in ${soc.name} for ${plot.price.toLocaleString("en-US")} FYC`);
@@ -4992,6 +5215,15 @@ function createEstate(d) {
         const price = rec.sale;
         const tax = isPassport(u.id) ? 0 : Math.round(price * TAX);
         const seller = rec.owner;
+        if (!(price + tax <= max)) {
+          err(`The price changed to ${(price + tax).toLocaleString("en-US")} FYC. Check and confirm again.`);
+          reply(state());
+          return true;
+        }
+        if ((bank2.acct(u.id).bal || 0) < price + tax) {
+          err(`You need ${(price + tax).toLocaleString("en-US")} FYC (price + ${tax.toLocaleString("en-US")} FYC transfer tax).`);
+          return true;
+        }
         if (!bank2.transfer(u.id, seller, price, `Plot ${plot.id} bought from ${rec.ownerName}`)) {
           err(`You need ${price.toLocaleString("en-US")} FYC.`);
           return true;
@@ -4999,6 +5231,7 @@ function createEstate(d) {
         if (tax && !bank2.transfer(u.id, "treasury", tax, `Land transfer tax 5%: ${plot.id}`)) {
         }
         transferPlot(plot.id, u, price);
+        logSale(plot.id, price, "sale");
         note(seller, `Plot ${plot.id} sold to ${u.name} for ${price.toLocaleString("en-US")} FYC.`);
         changed([plot.id]);
         d.news?.("property", `Plot ${plot.id} in ${soc.name} changed hands for ${price.toLocaleString("en-US")} FYC`);
@@ -5568,6 +5801,14 @@ function createHalls(d) {
   setInterval(() => {
     const now = Date.now();
     for (const e of upcoming()) {
+      // 28.10 social events: one "starting soon" note to the host and ticket holders HALL_SOON_MS (10 min) before the start;
+      // flag saved on the event so restarts never repeat it. Kill switch P28_OFF=events.
+      if (!e.started && !e.soon && e.start > now && e.start - now <= +(process.env.HALL_SOON_MS || 6e5) && !/(^|,)(events|all)(,|$)/.test(process.env.P28_OFF || "")) {
+        e.soon = now;
+        d.save();
+        const h = hallById(e.hall), mins = Math.max(1, Math.round((e.start - now) / 6e4));
+        [e.host, ...e.tickets].forEach((t) => note(t, `"${e.title}" starts in ${mins} min in the ${h?.name}. Open Events to go in.`));
+      }
       if (!e.started && e.start <= now) {
         e.started = true;
         d.save();
@@ -5594,7 +5835,7 @@ function createHalls(d) {
     const u = me.u;
     const reply = (x) => d.send(me.ws, x);
     const err = (text) => reply({ t: "err", text });
-    const ev = m.event ? K.events[String(m.event)] : void 0;
+    const ev = m.event ? own(K.events, String(m.event)) : void 0;
     switch (m.t) {
       case "hall_list":
         reply(list(u.id));
@@ -5759,6 +6000,8 @@ var FLOORS = [
 ];
 var FENCES = [{ id: "none", name: "No fence" }, { id: "hedge", name: "Hedge" }, { id: "picket", name: "White picket" }, { id: "iron", name: "Black iron" }, { id: "wall", name: "Low wall" }];
 var GARDENS = [{ id: "lawn", name: "Lawn" }, { id: "flowers", name: "Flower beds" }, { id: "stone", name: "Stone patio" }, { id: "trees", name: "Fruit trees" }];
+// 25.5 outdoor lights and a mailbox
+var LIGHTS = [{ id: "none", name: "No lights" }, { id: "lanterns", name: "Gate lanterns" }, { id: "lamps", name: "Path lamps" }, { id: "string", name: "String lights" }];
 var MAX_ITEMS = 120;
 var PASS_MS = 2 * 36e5;
 var homeKind = (key) => /^(EX|MB|RS)-\d{4}$/.test(key) ? "house" : key.startsWith("studio:") ? "studio" : key.startsWith("home:") ? "home" : "";
@@ -5773,7 +6016,7 @@ var num = (v, lim) => {
 var DEFAULT_EXT = { wall: "#ffffff", roof: "#5a3f35", trim: "#ffffff", fence: "hedge", garden: "lawn" };
 function cleanExt(e) {
   e = e || {};
-  return { wall: hex(e.wall, DEFAULT_EXT.wall), roof: hex(e.roof, DEFAULT_EXT.roof), trim: hex(e.trim, DEFAULT_EXT.trim), fence: pick(e.fence, FENCES, "hedge"), garden: pick(e.garden, GARDENS, "lawn") };
+  return { wall: hex(e.wall, DEFAULT_EXT.wall), roof: hex(e.roof, DEFAULT_EXT.roof), trim: hex(e.trim, DEFAULT_EXT.trim), fence: pick(e.fence, FENCES, "hedge"), garden: pick(e.garden, GARDENS, "lawn"), lights: pick(e.lights, LIGHTS, "none"), mailbox: e.mailbox === true };
 }
 function cleanInt(v, key) {
   v = v || {};
@@ -5847,6 +6090,8 @@ function createHomes(d) {
         r.keys = [];
         r.passes = {};
         r.lock = "private";
+        // 25.7: saved layouts belong to the person, not the house (the current interior stays with the house)
+        delete r.saved;
       }
       r.res = res;
       d.save();
@@ -5874,6 +6119,17 @@ function createHomes(d) {
     if (lock === "keys" && r?.keys.some((k) => k.id === uid)) return { ok: true };
     return { ok: false, why: lock === "keys" ? "Locked. Only people with a key can go in." : "This home is private." };
   }
+  // 25.3: a key can carry the "decorate" right (edit the interior). Exterior, lock and keys stay with the resident.
+  const isDecorator = (key, uid) => {
+    const o = residentOf(key);
+    if (!o || o.resident === uid) return false;
+    sync(key);
+    return !!H5[key]?.keys.some((k) => k.id === uid && k.edit);
+  };
+  const layoutsOf = (r) => [0, 1, 2].map((i) => {
+    const s = r?.saved?.[i];
+    return s ? { name: s.name, at: s.at, n: s.int.items.length } : null;
+  });
   const extAll = () => Object.fromEntries(Object.entries(H5).filter(([, r]) => r.ext).map(([k, r]) => [k, r.ext]));
   const pubLock = () => Object.fromEntries(Object.entries(H5).map(([k, r]) => [k, r.lock]));
   function mine(uid) {
@@ -5896,7 +6152,7 @@ function createHomes(d) {
       return o && o.resident !== uid && (r.keys.some((x) => x.id === uid) || (fresh(r).passes?.[uid] || 0) > Date.now());
     }).map(([k, r]) => {
       const o = residentOf(k);
-      return { key: k, label: o.label, residentName: d.shown(o.resident), kind: r.keys.some((x) => x.id === uid) ? "key" : "pass", until: r.passes?.[uid] || 0 };
+      return { key: k, label: o.label, residentName: d.shown(o.resident), kind: r.keys.some((x) => x.id === uid) ? "key" : "pass", edit: !!r.keys.find((x) => x.id === uid)?.edit, until: r.passes?.[uid] || 0 };
     });
     return { t: "home_mine", homes: list, held };
   }
@@ -5905,6 +6161,7 @@ function createHomes(d) {
     if (l) d.send(l.ws, mine(uid));
   };
   const knocks = /* @__PURE__ */ new Map();
+  const HSTAT = { conflicts: 0 };
   function onMessage2(me, m) {
     if (typeof m.t !== "string" || !m.t.startsWith("home_")) return false;
     const u = me.u;
@@ -5943,7 +6200,8 @@ function createHomes(d) {
           reply({ t: "home_access", key, ok: false, why: c.why, lock: r?.lock || "private", residentName: d.shown(o.resident), online: !!d.liveOf(o.resident) });
           return true;
         }
-        reply({ t: "home_access", key, ok: true, label: o.label, residentName: d.shown(o.resident), canEdit: isRes, int: r?.int || defaultInt(key), ext: r?.ext || null, lock: r?.lock || "private" });
+        const deco = !isRes && isDecorator(key, u.id);
+        reply({ t: "home_access", key, ok: true, label: o.label, residentName: d.shown(o.resident), canEdit: isRes || deco, role: isRes ? "resident" : deco ? "decorator" : "guest", layouts: isRes || deco ? (sync(key), layoutsOf(H5[key])) : void 0, v: r?.v || 0, int: r?.int || defaultInt(key), ext: r?.ext || null, lock: r?.lock || "private" });
         return true;
       }
       case "home_lock": {
@@ -5958,7 +6216,7 @@ function createHomes(d) {
       }
       case "home_key": {
         if (!mustRes()) return true;
-        const who = m.id ? d.db.users[String(m.id)] ? { id: String(m.id), name: d.shown(String(m.id)) } : void 0 : d.findByNumber(String(m.number || ""));
+        const who = m.id ? own(d.db.users, String(m.id)) ? { id: String(m.id), name: d.shown(String(m.id)) } : void 0 : d.findByNumber(String(m.number || ""));
         if (!who) {
           err("No citizen with that number.");
           return true;
@@ -6040,14 +6298,119 @@ function createHomes(d) {
         } else if (l) d.send(l.ws, { t: "note", text: `${d.shown(u.id)} can't open the door right now.` });
         return true;
       }
-      case "home_int": {
+      // 25.7 saved layouts: 3 named slots per home (resident saves / deletes; resident or decorator restores),
+      // and "reset to the default furnishing"
+      case "home_layout_save": {
         if (!mustRes()) return true;
         const r = rec(key);
+        const slot = Math.round(+m.slot);
+        if (!(slot >= 0 && slot < 3)) {
+          err("Pick slot 1, 2 or 3.");
+          return true;
+        }
+        (r.saved ||= [null, null, null])[slot] = { name: clean(m.name, 24) || `Layout ${slot + 1}`, at: Date.now(), int: cleanInt(r.int || defaultInt(key), key) };
+        d.save();
+        reply({ t: "home_layouts", key, layouts: layoutsOf(r) });
+        reply({ t: "ok", text: `Saved as "${r.saved[slot].name}".` });
+        return true;
+      }
+      case "home_layout_del": {
+        if (!mustRes()) return true;
+        const r = rec(key);
+        const slot = Math.round(+m.slot);
+        if (r.saved && slot >= 0 && slot < 3) r.saved[slot] = null;
+        d.save();
+        reply({ t: "home_layouts", key, layouts: layoutsOf(r) });
+        return true;
+      }
+      case "home_layout_load":
+      case "home_reset": {
+        if (!o) {
+          err("Nobody lives here yet.");
+          return true;
+        }
+        if (!isRes && !isDecorator(key, u.id)) {
+          err("Only the resident, or someone they let decorate, can change this.");
+          return true;
+        }
+        const r = rec(key);
+        let src;
+        if (m.t === "home_reset") src = defaultInt(key);
+        else {
+          const s = r.saved?.[Math.round(+m.slot)];
+          if (!s) {
+            err("That slot is empty.");
+            return true;
+          }
+          src = s.int;
+        }
+        r.int = cleanInt(JSON.parse(JSON.stringify(src)), key);
+        r.at = Date.now();
+        r.by = u.id;
+        r.v = (r.v || 0) + 1;
+        d.save();
+        reply({ t: "home_saved", key, int: r.int, v: r.v });
+        reply({ t: "ok", text: m.t === "home_reset" ? "Back to the original furnishing." : "Layout restored." });
+        d.toScene("house:" + key, { t: "home_int", key, int: r.int, v: r.v });
+        return true;
+      }
+      // 25.9: the resident can ask a visitor to leave (their timed pass is withdrawn; a key holder keeps the key)
+      case "home_kick": {
+        if (!mustRes()) return true;
+        const id = String(m.id || "");
+        const l = d.liveOf(id);
+        if (!l || l.scene !== "house:" + key || id === u.id) {
+          err("That visitor is not inside.");
+          return true;
+        }
+        const r = rec(key);
+        if (r.passes) delete r.passes[id];
+        d.save();
+        d.send(l.ws, { t: "home_kicked", key, label: o.label, by: d.shown(u.id) });
+        reply({ t: "ok", text: `${d.shown(id)} was asked to leave.` });
+        return true;
+      }
+      case "home_keyperm": {
+        if (!mustRes()) return true;
+        const r = rec(key);
+        const k = r.keys.find((x) => x.id === String(m.id || ""));
+        if (!k) {
+          err("Give them a key first.");
+          return true;
+        }
+        if (m.edit) k.edit = true;
+        else delete k.edit;
+        d.save();
+        reply({ t: "ok", text: m.edit ? `${k.name} can now decorate ${o.label}.` : `${k.name} can no longer decorate ${o.label}.` });
+        pushMine(u.id);
+        const l = d.liveOf(k.id);
+        if (l) d.send(l.ws, { t: "note", text: m.edit ? `${d.shown(u.id)} lets you decorate ${o.label}.` : `You can no longer decorate ${o.label}.` });
+        return true;
+      }
+      case "home_int": {
+        if (!o) {
+          err("Nobody lives here yet.");
+          return true;
+        }
+        if (!isRes && !isDecorator(key, u.id)) {
+          err("Only the resident, or someone they let decorate, can change this.");
+          return true;
+        }
+        const r = rec(key);
+        // 25.8: optimistic concurrency - a save based on an older version than the stored one is refused, and the
+        // editor gets the current interior (two editors no longer overwrite each other silently)
+        if (m.base != null && +m.base !== (r.v || 0)) {
+          HSTAT.conflicts++;
+          reply({ t: "home_conflict", key, int: r.int || defaultInt(key), v: r.v || 0, by: r.by ? d.shown(r.by) : null });
+          return true;
+        }
         r.int = cleanInt(m.int, key);
         r.at = Date.now();
+        r.by = u.id;
+        r.v = (r.v || 0) + 1;
         d.save();
-        reply({ t: "home_saved", key, int: r.int });
-        d.toScene("house:" + key, { t: "home_int", key, int: r.int });
+        reply({ t: "home_saved", key, int: r.int, v: r.v });
+        d.toScene("house:" + key, { t: "home_int", key, int: r.int, v: r.v });
         return true;
       }
       case "home_ext": {
@@ -6223,6 +6586,9 @@ function createPolitics(d) {
       phase: x.phase,
       until: x.until,
       end: x.end,
+      opens: P.cycle.start + Math.round(LEN() * 3 / 7),
+      opened: P.cycle.opened || null,
+      reminded: P.cycle.reminded || null,
       now: Date.now(),
       seats: SEATS,
       parties: Object.values(P.parties).filter((p) => !p.banned).map(pubParty),
@@ -6302,10 +6668,36 @@ function createPolitics(d) {
       changed();
     }
   }
-  setInterval(() => {
-    if (Date.now() >= P.cycle.start + LEN()) closeElection();
+  // 28.6 political simulation: the election calendar is announced once per cycle (polls open, last-call reminder) as city
+  // news + a note to everyone online. Flags live on P.cycle (saved), so restarts never repeat or skip them. Read-only:
+  // nothing here touches votes, candidates or results. Kill switch P28_OFF=polsim.
+  const POLSIM_OFF = () => /(^|,)(polsim|all)(,|$)/.test(process.env.P28_OFF || "");
+  const REMIND = () => +(process.env.POL_REMIND_MS || 36e5);
+  const polDur = (ms) => { const m = Math.max(1, Math.round(ms / 6e4)); return m < 120 ? `${m} min` : m < 2880 ? `${Math.round(m / 60)} h` : `${Math.round(m / 1440)} days`; };
+  function phaseEvents(now = Date.now()) {
+    if (POLSIM_OFF()) return;
+    const c = P.cycle, x = phaseAt(c.start, LEN(), now);
+    if (x.phase !== "voting" || now >= x.end) return;
+    if (!c.opened) {
+      c.opened = now;
+      const nc = P.cands.filter((k) => !k.dq).length, np = Object.values(P.parties).filter((p) => !p.banned).length;
+      d.news?.("politics", `Polls are open for Election ${c.n}: ${nc} candidate${nc === 1 ? "" : "s"} for Mayor and ${np} part${np === 1 ? "y" : "ies"} for Parliament. Voting closes in ${polDur(x.end - now)}.`);
+      d.broadcast({ t: "note", text: `Polls are open for Election ${c.n}. Vote at the Parliament of Fyrus or in HUD \u203A Politics.` });
+      changed();
+    }
+    if (!c.reminded && x.end - now <= REMIND()) {
+      c.reminded = now;
+      d.news?.("politics", `Last call: Election ${c.n} polls close in ${polDur(x.end - now)} \u00B7 ${Object.keys(P.votes).length} votes so far`);
+      d.broadcast({ t: "note", text: `Polls close in ${polDur(x.end - now)}. If you have not voted in Election ${c.n} yet, vote now.` });
+      changed();
+    }
+  }
+  function tick(now = Date.now()) {
+    if (now >= P.cycle.start + LEN()) closeElection();
+    phaseEvents(now);
     closeProposals();
-  }, +(process.env.POL_TICK_MS || 15e3));
+  }
+  setInterval(() => tick(), +(process.env.POL_TICK_MS || 15e3));
   function onMessage2(meL, m) {
     if (typeof m.t !== "string" || !m.t.startsWith("pol_")) return false;
     const u = meL.u;
@@ -6378,7 +6770,7 @@ function createPolitics(d) {
         const why = voterCheck(u.id);
         if (why) return err(why);
         if (partyOf(u.id)) return err("You are already in a party. Leave it first.");
-        const p = P.parties[String(m.party)];
+        const p = own(P.parties, String(m.party));
         if (!p || p.banned) return err("No such party.");
         if (P.cands.some((k) => k.id === u.id)) return err("Candidates cannot switch parties during an election.");
         p.members.push(u.id);
@@ -6456,7 +6848,7 @@ function createPolitics(d) {
         }
         if (m.party) {
           if (v.party) return err("You already voted for a party in this election.");
-          const p = P.parties[String(m.party)];
+          const p = own(P.parties, String(m.party));
           if (!p || p.banned) return err("No such party.");
           v.party = p.id;
         }
@@ -6491,7 +6883,7 @@ function createPolitics(d) {
       case "pol_pvote": {
         const why = voterCheck(u.id);
         if (why) return err(why);
-        const p = P.proposals[String(m.id)];
+        const p = own(P.proposals, String(m.id));
         if (!p || p.closed) return err("That proposal is closed.");
         if (p.yes.includes(u.id) || p.no.includes(u.id)) return err("You already voted on this proposal.");
         (m.yes ? p.yes : p.no).push(u.id);
@@ -6514,7 +6906,7 @@ function createPolitics(d) {
       }
       case "pol_party_ban": {
         if (!d.isAdmin(u.id)) return err("Judges only.");
-        const p = P.parties[String(m.id)];
+        const p = own(P.parties, String(m.id));
         if (!p) return err("No such party.");
         p.banned = d.clean(m.reason, 120) || "Breaking election rules";
         for (const v of Object.values(P.votes)) if (v.party === p.id) delete v.party;
@@ -6538,7 +6930,7 @@ function createPolitics(d) {
     if (city) return `Mayor of ${cityName(city)}`;
     return Object.values(r.mps || {}).some((l) => l.some((x) => x.id === id)) ? "Member of Parliament" : "";
   }
-  return { onMessage: onMessage2, state, titleOf, closeElection };
+  return { onMessage: onMessage2, state, titleOf, closeElection, tick };
 }
 
 // src/data/services.ts
@@ -6737,6 +7129,13 @@ var day = () => (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
 var DAILY = () => +(process.env.JOB_DAILY || JOB_RULES.dailyShifts);
 var COOLDOWN = () => +(process.env.JOB_COOLDOWN_MS ?? JOB_RULES.cooldownMs);
 var MIN_TASK = () => +(process.env.JOB_MIN_TASK_MS ?? JOB_RULES.minTaskMs);
+// 28.7 career levels (shared with the AI citizens' answers)
+var CAREER_LEVELS = [
+  { id: "trainee", name: "Trainee", shifts: 0, certs: 0, pct: 0 },
+  { id: "junior", name: "Junior worker", shifts: 5, certs: 0, pct: 3 },
+  { id: "skilled", name: "Skilled worker", shifts: 15, certs: 1, pct: 6 },
+  { id: "senior", name: "Senior worker", shifts: 40, certs: 2, pct: 10 }
+];
 function createJobs(d) {
   if (!d.db.jobs) {
     d.db.jobs = { bag: {}, day: {}, mail: {}, totals: { shifts: 0, paid: 0, sold: 0 } };
@@ -6745,6 +7144,50 @@ function createJobs(d) {
   const J = d.db.jobs;
   const bank2 = d.bank;
   const shifts = /* @__PURE__ */ new Map();
+  // 26.4 shop inventory: each shop item has limited stock that is delivered back over time (one unit per item every
+  // RESTOCK_MS) and topped up when a citizen finishes a work shift at that shop. Computed lazily on access.
+  const RESTOCK_MS = () => +(process.env.RESTOCK_MS || 12e4);
+  const STOCK_MAX = { food: 40, item: 20, gadget: 5 };
+  const maxOf = (id) => STOCK_MAX[ITEMS[id]?.kind] ?? 15;
+  J.stock ||= {};
+  // 26.5 receipts and refunds: every shop purchase gets a receipt; unused goods can be returned at the same shop within
+  // REFUND_MS (default 10 min) for the full price; the units go back on the shelf
+  J.receipts ||= {};
+  J.streak ||= {};
+  J.rseq ||= 1;
+  // 28.7 career pathways: lifetime finished shifts + earned course certificates give a career level. Its bonus counts
+  // inside the existing 35 % bonus cap (streak 25 + steady hands 10), so the most one shift can pay never rises and the
+  // treasury mint caps (26.2) still apply. Promotions are computed on the server only. Kill switch P28_OFF=career.
+  J.career ||= {};
+  const CAREER = CAREER_LEVELS;
+  const BONUS_CAP = 35;
+  const CAREER_OFF = () => /(^|,)(career|all)(,|$)/.test(process.env.P28_OFF || "");
+  function careerOf(id) {
+    const c = J.career[id] || { shifts: 0 }, certs = d.certCount ? d.certCount(id) : 0;
+    let i = 0;
+    for (let k = CAREER.length - 1; k > 0; k--) if (c.shifts >= CAREER[k].shifts && certs >= CAREER[k].certs) { i = k; break; }
+    const lv = CAREER[i], nx = CAREER[i + 1] || null;
+    return { level: lv.id, name: lv.name, pct: CAREER_OFF() ? 0 : lv.pct, shifts: c.shifts, certs, off: CAREER_OFF(),
+      next: nx ? { name: nx.name, pct: nx.pct, needShifts: Math.max(0, nx.shifts - c.shifts), needCerts: Math.max(0, nx.certs - certs) } : null };
+  }
+  const REFUND_MS = () => +(process.env.REFUND_MS || 6e5);
+  function stockOf(svcId) {
+    const s = svcById(svcId);
+    if (!s) return null;
+    const now = Date.now(), st = J.stock[svcId] ||= { items: {}, at: now };
+    for (const id of s.items || []) if (st.items[id] == null) st.items[id] = maxOf(id);
+    const units = Math.floor((now - st.at) / RESTOCK_MS());
+    if (units > 0) {
+      for (const id of s.items || []) st.items[id] = Math.min(maxOf(id), st.items[id] + units);
+      st.at += units * RESTOCK_MS();
+    }
+    if ((s.items || []).every((id) => st.items[id] >= maxOf(id))) st.at = now;
+    return st;
+  }
+  const stockMsg = (svcId) => {
+    const st = stockOf(svcId);
+    return { t: "shop_stock", svc: svcId, stock: st ? { ...st.items } : {}, max: Object.fromEntries((svcById(svcId)?.items || []).map((id) => [id, maxOf(id)])), nextIn: st ? Math.max(0, st.at + RESTOCK_MS() - Date.now()) : 0 };
+  };
   const today = (id) => {
     const t = J.day[id];
     if (!t || t.day !== day()) J.day[id] = { day: day(), shifts: 0, earned: 0, last: t?.last || 0 };
@@ -6760,13 +7203,15 @@ function createJobs(d) {
   const me = (id) => {
     const t = today(id);
     const sh = shifts.get(id);
-    return { t: "jobs_me", bag: J.bag[id] || {}, shifts: t.shifts, earned: t.earned, cap: DAILY(), next: Math.max(0, (t.last || 0) + COOLDOWN() - Date.now()), shift: sh ? { svc: sh.svc, step: sh.step, total: sh.order.length, station: sh.order[sh.step] } : null, mail: (J.mail[id] || []).slice(-30).reverse() };
+    const rnow = Date.now();
+    return { t: "jobs_me", career: careerOf(id), receipts: (J.receipts[id] || []).slice(-12).reverse().map((r) => ({ ...r, refundable: !r.refunded && rnow - r.at <= REFUND_MS() && (J.bag[id]?.[r.item] || 0) >= r.q, left: Math.max(0, r.at + REFUND_MS() - rnow) })), bag: J.bag[id] || {}, shifts: t.shifts, earned: t.earned, cap: DAILY(), next: Math.max(0, (t.last || 0) + COOLDOWN() - Date.now()), shift: sh ? { svc: sh.svc, step: sh.step, total: sh.order.length, station: sh.order[sh.step] } : null, mail: (J.mail[id] || []).slice(-30).reverse() };
   };
   const push = (id) => {
     const l = d.liveOf(id);
     if (l) d.send(l.ws, me(id));
   };
-  const pay = (to, n, memo) => bank2.transfer("treasury", to, n, memo) || bank2.transfer("mint", to, n, memo);
+  // 26.2: wages come from the treasury; Central Bank fallback is capped per day, the rest is owed (paid late)
+  const pay = (to, n, memo) => bank2.payFromTreasury(to, n, memo);
   function onMessage2(L, m) {
     if (typeof m.t !== "string" || !(m.t.startsWith("job_") || m.t.startsWith("shop_") || m.t === "jobs_me" || m.t.startsWith("post_"))) return false;
     const u = L.u;
@@ -6809,7 +7254,10 @@ function createJobs(d) {
         if (!sh) return err("You are not on a shift.");
         const s = svcById(sh.svc);
         if (!atPlace(L, s.id)) return err(`You left ${s.name}. Go back to finish the shift.`);
-        if (+m.station !== sh.order[sh.step]) return err(`That's not your task. Now: ${s.job.stations[sh.order[sh.step]]}.`);
+        if (+m.station !== sh.order[sh.step]) {
+          sh.mistakes = (sh.mistakes || 0) + 1;
+          return err(`That's not your task. Now: ${s.job.stations[sh.order[sh.step]]}.`);
+        }
         if (Date.now() - sh.last < MIN_TASK()) return err("Take your time \u2014 do the task properly.");
         sh.step++;
         sh.last = Date.now();
@@ -6820,15 +7268,31 @@ function createJobs(d) {
         }
         shifts.delete(u.id);
         const t = today(u.id);
+        // 26.6 rewards, all computed here: base wage + work-streak bonus (+5 % per consecutive day, max +25 %)
+        // + steady-hands bonus (+10 % when no wrong-task mistakes in this shift). Paid from the treasury (26.2).
+        const sk = J.streak[u.id] ||= { day: "", n: 0 };
+        if (sk.day !== day()) {
+          const y = new Date(Date.now() - 864e5).toISOString().slice(0, 10);
+          sk.n = sk.day === y ? sk.n + 1 : 1;
+          sk.day = day();
+        }
+        const base = s.job.pay, streakPct = Math.min(25, (sk.n - 1) * 5), cleanPct = sh.mistakes ? 0 : 10;
+        const car0 = careerOf(u.id), careerPct = Math.max(0, Math.min(car0.pct, BONUS_CAP - streakPct - cleanPct));
+        const total = Math.round(base * (1 + (streakPct + cleanPct + careerPct) / 100));
+        if (!CAREER_OFF()) { const cr = J.career[u.id] ||= { shifts: 0, byPlace: {} }; cr.shifts++; cr.byPlace[s.id] = (cr.byPlace[s.id] || 0) + 1; }
+        const car1 = careerOf(u.id), promoted = car1.level !== car0.level ? car1.name : null;
         t.shifts++;
-        t.earned += s.job.pay;
+        t.earned += total;
         t.last = Date.now();
         J.totals.shifts++;
-        J.totals.paid += s.job.pay;
-        pay(u.id, s.job.pay, `${s.job.title} at ${s.name}`);
+        J.totals.paid += total;
+        const paid = pay(u.id, total, `${s.job.title} at ${s.name}${streakPct || cleanPct || careerPct ? ` (+${streakPct + cleanPct + careerPct}% bonus)` : ""}`);
+        // 26.4: a finished shift restocks the shop (+5 of every item, up to the shelf size)
+        const st5 = stockOf(s.id);
+        if (st5) for (const id of s.items || []) st5.items[id] = Math.min(maxOf(id), st5.items[id] + 5);
         d.xp?.(u.id, 40);
         d.save();
-        reply({ t: "job_done", svc: s.id, pay: s.job.pay, title: s.job.title });
+        reply({ t: "job_done", svc: s.id, pay: total, base, streakDays: sk.n, streakPct, cleanPct, careerPct, career: car1.off ? null : car1.name, promoted, owed: paid?.owed || 0, title: s.job.title });
         push(u.id);
         return true;
       }
@@ -6844,13 +7308,53 @@ function createJobs(d) {
         if (!s || !it || !(s.items || []).includes(id)) return err("That is not sold here.");
         if (!atPlace(L, s.id)) return err(`Visit ${s.name} to buy this.`);
         const q = Math.max(1, Math.min(10, Math.round(+m.qty || 1)));
+        const st = stockOf(s.id);
+        if (st.items[id] < q) {
+          reply(stockMsg(s.id));
+          return err(st.items[id] > 0 ? `Only ${st.items[id]} left.` : `${it.name} is sold out. Next delivery in about ${Math.max(1, Math.ceil((st.at + RESTOCK_MS() - Date.now()) / 6e4))} min.`);
+        }
         if (!bank2.transfer(u.id, "treasury", it.price * q, `${s.name}: ${q} \xD7 ${it.name}`)) return err(`You need ${it.price * q} FYC.`);
+        st.items[id] -= q;
+        st.at = Math.min(st.at, Date.now());
+        J.totals.units = (J.totals.units || 0) + q;
+        const rl = J.receipts[u.id] ||= [];
+        rl.push({ id: J.rseq++, svc: s.id, item: id, q, price: it.price * q, at: Date.now() });
+        if (rl.length > 30) rl.splice(0, rl.length - 30);
         const bag = J.bag[u.id] ||= {};
         bag[id] = Math.min(999, (bag[id] || 0) + q);
         J.totals.sold += it.price * q;
         d.save();
         ok(it.kind === "food" ? `${it.icon} ${it.name} \u2014 in your bag. Eat it any time.` : `${it.icon} ${it.name} is yours.`);
         push(u.id);
+        reply(stockMsg(s.id));
+        return true;
+      }
+      case "shop_refund": {
+        const rl = J.receipts[u.id] || [];
+        const r = rl.find((x) => x.id === Math.round(+m.receipt));
+        if (!r) return err("No such receipt.");
+        if (r.refunded) return err("This purchase was already refunded.");
+        if (Date.now() - r.at > REFUND_MS()) return err(`Returns are accepted within ${Math.max(1, Math.round(REFUND_MS() / 6e4))} minutes of purchase.`);
+        const s = svcById(r.svc);
+        if (!atPlace(L, r.svc)) return err(`Bring it back to ${s?.name || "the shop"}.`);
+        const bag = J.bag[u.id] || {};
+        if ((bag[r.item] || 0) < r.q) return err("You no longer have all of it (used or eaten items can't be returned).");
+        const paid = bank2.transfer("treasury", u.id, r.price, `Refund: ${r.q} \xD7 ${ITEMS[r.item]?.name || r.item} at ${s?.name || r.svc}`) ? r.price : bank2.payFromTreasury(u.id, r.price, `Refund: ${r.q} \xD7 ${ITEMS[r.item]?.name || r.item}`).paid;
+        bag[r.item] -= r.q;
+        if (!bag[r.item]) delete bag[r.item];
+        const st = stockOf(r.svc);
+        if (st) st.items[r.item] = Math.min(maxOf(r.item), st.items[r.item] + r.q);
+        r.refunded = Date.now();
+        J.totals.refunded = (J.totals.refunded || 0) + r.price;
+        d.save();
+        ok(paid >= r.price ? `Refunded ${r.price} FYC.` : `Refund of ${r.price} FYC: ${paid} paid now, the rest as soon as the treasury can.`);
+        push(u.id);
+        reply(stockMsg(r.svc));
+        return true;
+      }
+      case "shop_stock": {
+        const s = svcById(String(m.svc));
+        if (s) reply(stockMsg(s.id));
         return true;
       }
       case "shop_use": {
@@ -6904,7 +7408,7 @@ function createJobs(d) {
     }
     return true;
   }
-  return { onMessage: onMessage2, atPlace, me, services: SERVICES.length };
+  return { onMessage: onMessage2, atPlace, me, services: SERVICES.length, stockInfo: (svcId) => { const st = stockOf(svcId); return st ? { ...st.items } : null; } };
 }
 
 // server/accounts.ts
@@ -7162,58 +7666,38 @@ function createOps(d) {
       return [];
     }
   };
-  /* hourly snapshots (last 48 hours) so a bad hour never costs more than one hour of the city */
-  const hdir = path.join(bdir, "hourly");
-  const hour = () => (/* @__PURE__ */ new Date()).toISOString().slice(0, 13);
-  function snapshotNow() {
-    try {
-      fs.mkdirSync(hdir, { recursive: true });
-      const f = path.join(hdir, `fyrus-${hour()}.json.gz`);
-      if (fs.existsSync(f)) return f;
-      fs.writeFileSync(f, zlib.gzipSync(fs.readFileSync(d.dbFile())));
-      const all = fs.readdirSync(hdir).filter((x) => x.startsWith("fyrus-")).sort();
-      all.slice(0, Math.max(0, all.length - 48)).forEach((x) => fs.unlinkSync(path.join(hdir, x)));
-      return f;
-    } catch (e) {
-      console.error("snapshot failed", e);
-      return null;
-    }
-  }
-  /* off-site copy: once a day the newest backup is e-mailed to BACKUP_EMAIL (uses the same Resend account as password reset) */
-  const OFF = { to: String(process.env.BACKUP_EMAIL || "").trim(), key: process.env.RESEND_API_KEY || "", from: process.env.MAIL_FROM || "" };
-  async function offsiteNow(force) {
-    if (!OFF.to || !OFF.key || !OFF.from) return { ok: false, why: "BACKUP_EMAIL, RESEND_API_KEY or MAIL_FROM not set" };
-    O.offsite ||= {};
-    if (!force && O.offsite.day === day2()) return { ok: true, skipped: true };
-    const b = backups()[0];
-    if (!b) return { ok: false, why: "no backup yet" };
-    const f = path.join(bdir, b.file), size = fs.statSync(f).size;
-    if (size > 30 * 1024 * 1024) return { ok: false, why: "backup too large for e-mail (" + Math.round(size / 1048576) + " MB)" };
-    try {
-      const r = await fetch("https://api.resend.com/emails", { method: "POST", headers: { authorization: `Bearer ${OFF.key}`, "content-type": "application/json" }, body: JSON.stringify({ from: OFF.from, to: [OFF.to], subject: `Fyrus backup ${day2()}`, text: `Daily Fyrus city backup (${Math.round(size / 1024)} KB, gzip JSON). Keep this e-mail; to restore, put the unzipped file at /data/fyrus.json and restart the app.`, attachments: [{ filename: b.file, content: fs.readFileSync(f).toString("base64") }] }) });
-      if (!r.ok) throw new Error("resend " + r.status);
-      O.offsite = { day: day2(), at: Date.now(), file: b.file, size };
-      d.save();
-      return { ok: true };
-    } catch (e) {
-      O.offsite.lastError = String(e && e.message || e).slice(0, 200);
-      console.error("offsite backup failed", e);
-      return { ok: false, why: O.offsite.lastError };
-    }
-  }
-  const tick = () => {
+  setTimeout(() => {
     if (!backups().some((b) => b.file.includes(day2()))) backupNow();
-    snapshotNow();
-    offsiteNow(false).catch(() => {});
-  };
-  setTimeout(tick, 2e4);
-  setInterval(tick, 10 * 6e4);
+  }, 2e4);
+  setInterval(() => {
+    if (!backups().some((b) => b.file.includes(day2()))) backupNow();
+  }, 60 * 6e4);
   if (O.stats) {
     const keys = Object.keys(O.stats).sort();
     keys.slice(0, Math.max(0, keys.length - 90)).forEach((k) => delete O.stats[k]);
   }
   const errHits = /* @__PURE__ */ new Map();
-  let http2 = function (req, res, p, ip, auth) {
+  const devTelemetry = [];
+  const devErrors = [];
+  function http2(req, res, p, ip, auth) {
+    if (p === "/api/dev/errors" && (req.method === "POST" || req.method === "GET")) {
+      const local = ip === "127.0.0.1" || ip === "::1" || ip === "::ffff:127.0.0.1";
+      if (!local || req.headers["x-fyrus-dev-metrics"] !== "1") { res.writeHead(404); return res.end(); }
+      if (req.method === "GET") { res.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" }); return res.end(JSON.stringify({ errors: devErrors.slice(-100) })); }
+      let raw = "";
+      req.on("data", (c) => { raw += c; if (raw.length > 16384) req.destroy(); });
+      req.on("end", () => { try { const b = JSON.parse(raw || "{}"); devErrors.push({ at: Date.now(), kind: d.clean(b.kind, 40), message: d.clean(b.message, 500), stack: d.clean(b.stack, 1600), url: d.clean(b.url, 160) }); if (devErrors.length > 100) devErrors.splice(0, devErrors.length - 100); } catch {} res.writeHead(204); res.end(); });
+      return true;
+    }
+    if (p === "/api/dev/telemetry" && (req.method === "POST" || req.method === "GET")) {
+      const local = ip === "127.0.0.1" || ip === "::1" || ip === "::ffff:127.0.0.1";
+      if (!local || req.headers["x-fyrus-dev-metrics"] !== "1") { res.writeHead(404); return res.end(); }
+      if (req.method === "GET") { res.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" }); return res.end(JSON.stringify({ samples: devTelemetry.slice(-120) })); }
+      let raw = "";
+      req.on("data", (c) => { raw += c; if (raw.length > 32768) req.destroy(); });
+      req.on("end", () => { try { const b = JSON.parse(raw || "{}"); devTelemetry.push({ at: Date.now(), scene: d.clean(b.scene, 80), metrics: b.metrics || {}, loadMs: Number.isFinite(b.loadMs) ? b.loadMs : null, errors: Number.isFinite(b.errors) ? b.errors : 0 }); if (devTelemetry.length > 120) devTelemetry.splice(0, devTelemetry.length - 120); } catch {} res.writeHead(204); res.end(); });
+      return true;
+    }
     if (p === "/api/err" && req.method === "POST") {
       const now = Date.now();
       const a = (errHits.get(ip) || []).filter((t) => now - t < 6e4);
@@ -7306,24 +7790,33 @@ function createOps(d) {
       return true;
     }
     if (!m.t.startsWith("admin_")) return false;
-    const judge = d.isAdmin(u.id), mod = judge || (d.isMod && d.isMod(u.id));
-    const MOD_OK = /^admin_(stats|reports|report_done|find|mute|unmute|ban|modlog)$/;
-    if (!judge && !(mod && MOD_OK.test(m.t))) {
-      reply({ t: "err", text: mod ? "Judges only. Moderators can review reports, mute and give bans up to 72 hours." : "Admins only." });
+    if (!d.isAdmin(u.id)) {
+      reply({ t: "err", text: "Admins only." });
       return true;
     }
-    const target = m.id ? d.db.users[String(m.id)] : void 0;
-    if (/^admin_(report_done|mute|unmute|ban|unban)$/.test(m.t)) {
-      O.modlog ||= [];
-      O.modlog.push({ at: Date.now(), by: u.id, byName: d.shown(u.id), role: judge ? "judge" : "moderator", act: m.t.slice(6), target: target ? target.number : m.i != null ? "report #" + m.i : "", hours: +m.hours || 0, note: d.clean(m.reason || m.note || "", 80) });
-      if (O.modlog.length > 500) O.modlog.splice(0, O.modlog.length - 500);
-      d.save();
-    }
+    const target = m.id ? own(d.db.users, String(m.id)) : void 0;
     switch (m.t) {
+      // 26.12 economy audit for judges: money-supply audit, farming flags, biggest holders, large transfers, owed wages
+      case "admin_econ": {
+        const B = d.db.bank || { acct: {}, ledger: [] }, nm = (id) => (d.db.users[id] ? d.shown(id) : id);
+        const top = Object.entries(B.acct).map(([id, a]) => ({ id, name: nm(id), bal: a.bal || 0, banned: !!a.banned, strikes: a.strikes || 0 })).sort((x, y) => y.bal - x.bal).slice(0, 15);
+        const big = B.ledger.filter((t) => t.amount >= +(process.env.TX_CONFIRM_MIN || 5e3) && t.from !== "escrow" && t.to !== "escrow").slice(-25).reverse().map((t) => ({ ...t, fromName: nm(t.from), toName: nm(t.to) }));
+        const flags = Object.entries(B.flags || {}).map(([id, f]) => ({ id, name: nm(id), ...f, senders: (f.senders || []).map(nm) })).sort((x, y) => (x.resolved ? 1 : 0) - (y.resolved ? 1 : 0) || y.at - x.at);
+        reply({ t: "admin_econ", audit: globalThis.__fyrusBankAudit ? globalThis.__fyrusBankAudit() : null, top, big, flags, owed: (B.owed || []).slice(0, 25).map((o) => ({ ...o, name: nm(o.to) })) });
+        return true;
+      }
+      case "admin_flag_done": {
+        const f = d.db.bank?.flags && own(d.db.bank.flags, String(m.id)) ? d.db.bank.flags[String(m.id)] : null;
+        if (!f) return reply({ t: "err", text: "No such flag." }), true;
+        f.resolved = { by: d.shown(u.id), at: Date.now(), note: d.clean(m.note, 200) || "reviewed" };
+        d.save();
+        reply({ t: "ok", text: "Flag marked as reviewed." });
+        return true;
+      }
       case "admin_stats": {
         const days = Object.entries(O.stats).sort(([a], [b]) => b.localeCompare(a)).slice(0, 14).map(([k, v]) => ({ day: k, ...v }));
         const users = Object.values(d.db.users);
-        reply({ t: "admin_stats", users: users.length, withEmail: users.filter((x) => x.email || x.google).length, online: d.liveCount(), days, treasury: judge ? d.db.bank?.acct?.treasury?.bal ?? 0 : 0, adRevenue: judge ? d.db.ads?.revenue ?? 0 : 0, role: judge ? "judge" : "moderator", modlog: judge ? (O.modlog || []).slice(-8).reverse() : [], openReports: d.db.reports.filter((r) => !r.done).length, errors: O.errors.length, backups: backups(), storage: !judge ? null : Object.assign({}, d.dbInfo ? d.dbInfo() : {}, { hourly: (() => { try { return fs.readdirSync(hdir).length; } catch { return 0; } })(), offsite: O.offsite || null, offsiteTo: OFF.to ? OFF.to.replace(/^(.).*(@.*)$/, "$1***$2") : "" }), banned: users.filter((x) => x.banned && x.banned.until > Date.now()).length });
+        reply({ t: "admin_stats", users: users.length, withEmail: users.filter((x) => x.email || x.google).length, online: d.liveCount(), days, treasury: d.db.bank?.acct?.treasury?.bal ?? 0, adRevenue: d.db.ads?.revenue ?? 0, openReports: d.db.reports.filter((r) => !r.done).length, errors: O.errors.length, backups: backups(), banned: users.filter((x) => x.banned && x.banned.until > Date.now()).length });
         return true;
       }
       case "admin_reports":
@@ -7348,7 +7841,7 @@ function createOps(d) {
         return true;
       }
       case "admin_mute": {
-        if (!target || (!judge && d.isMod && d.isMod(target.id))) return true;
+        if (!target) return true;
         const h = Math.max(1, Math.min(24 * 30, +m.hours || 24));
         target.muteUntil = Date.now() + h * 36e5;
         d.save();
@@ -7365,12 +7858,8 @@ function createOps(d) {
         return true;
       }
       case "admin_ban": {
-        if (!target || d.isAdmin(target.id) || (!judge && d.isMod && d.isMod(target.id))) return true;
-        let h = +m.hours || 0;
-        if (!judge && (h <= 0 || h > 72)) {
-          h = 72;
-          reply({ t: "ok", text: "Moderators can ban for up to 72 hours. A judge can make it longer." });
-        }
+        if (!target || d.isAdmin(target.id)) return true;
+        const h = +m.hours || 0;
         target.banned = { until: h > 0 ? Date.now() + h * 36e5 : 9e15, reason: d.clean(m.reason, 200) || "Breaking the Fyrus rules" };
         d.save();
         kick(target, `This account is suspended: ${target.banned.reason}`);
@@ -7384,16 +7873,11 @@ function createOps(d) {
         reply({ t: "admin_users", list: [userInfo(target)] });
         return true;
       }
-      case "admin_modlog":
-        reply({ t: "admin_modlog", list: (O.modlog || []).slice(-100).reverse() });
-        return true;
       case "admin_errors":
         reply({ t: "admin_errors", list: O.errors.slice(-60).reverse() });
         return true;
       case "admin_backup": {
         const f = backupNow();
-        snapshotNow();
-        offsiteNow(true).then((r) => reply({ t: "ok", text: r.ok ? "Off-site copy e-mailed." : "Off-site copy not sent: " + r.why })).catch(() => {});
         reply({ t: "ok", text: f ? `Backup saved: ${path.basename(f)}` : "Backup failed \u2014 check the server log." });
         reply({ t: "admin_stats_backups", backups: backups() });
         return true;
@@ -7401,356 +7885,36 @@ function createOps(d) {
     }
     return true;
   }
-  /* ---------------- growth analytics + invite links (v43) ----------------
-     First-party only, no third-party trackers. Per citizen we keep the days they came (last 120) and the invite
-     code they arrived with; per day we keep minutes spent per area, where sessions ended, and session lengths. */
-  O.an ||= { days: {} };
-  O.invites ||= {};
-  const DAY_MS = 864e5;
-  const dayOf = (t) => new Date(t).toISOString().slice(0, 10);
-  const addDays = (d, n) => dayOf(Date.parse(d + "T00:00:00Z") + n * DAY_MS);
-  const anDay = (d) => {
-    const x = O.an.days[d || day2()] ||= { time: {}, exits: {}, sess: { m1: 0, m5: 0, m15: 0, m60: 0, more: 0 }, opens: {} };
-    return x;
-  };
-  function trimAn() {
-    const keys = Object.keys(O.an.days).sort();
-    keys.slice(0, Math.max(0, keys.length - 60)).forEach((k) => delete O.an.days[k]);
-  }
-  function seen(u) {
-    const today = day2();
-    u.days ||= [];
-    if (u.days[u.days.length - 1] !== today) {
-      u.days.push(today);
-      if (u.days.length > 120) u.days.splice(0, u.days.length - 120);
-      trimAn();
-    }
-  }
-  function joinedVia(u, code) {
-    const c = String(code || "").toLowerCase();
-    if (c && O.invites[c]) u.ref = c;
-  }
-  const areaKey = (a) => String(a || "").replace(/[\u0000-\u001f]/g, " ").trim().slice(0, 48) || "Unknown";
-  function left(u, ms) {
-    const t = anDay();
-    const a = u.anArea ? areaKey(u.anArea) : "Left in the first minute";
-    u.anArea = "";
-    if (Object.keys(t.exits).length < 200 || t.exits[a]) t.exits[a] = (t.exits[a] || 0) + 1;
-    const m = ms / 6e4;
-    t.sess[m < 1 ? "m1" : m < 5 ? "m5" : m < 15 ? "m15" : m < 60 ? "m60" : "more"]++;
-    d.save();
-  }
-  function readJson(req, max, cb) {
-    let raw = "";
-    req.on("data", (c) => {
-      raw += c;
-      if (raw.length > max) req.destroy();
-    });
-    req.on("end", () => {
-      let v = null;
-      try {
-        v = JSON.parse(raw || "{}");
-      } catch {
-      }
-      cb(v || {});
-    });
-  }
-  const json = (res, code, v) => {
-    res.writeHead(code, { "content-type": "application/json", "cache-control": "no-store" });
-    res.end(JSON.stringify(v));
-  };
-  function analytics() {
-    const users = Object.values(d.db.users);
-    const today = day2();
-    const days = [];
-    for (let i = 13; i >= 0; i--) days.push(addDays(today, -i));
-    const joinDay = (u) => dayOf(u.joined || 0);
-    const daily = days.map((dd) => {
-      const st = O.stats[dd] || {};
-      return { day: dd, newCitizens: users.filter((u) => joinDay(u) === dd).length, active: users.filter((u) => (u.days || []).includes(dd)).length, visits: st.visits || 0, peak: st.peak || 0 };
-    });
-    const cohorts = days.map((dd) => {
-      const c = users.filter((u) => joinDay(u) === dd);
-      const next = addDays(dd, 1);
-      const nextDay = next <= today ? c.filter((u) => (u.days || []).includes(next)).length : null;
-      const week = next <= today ? c.filter((u) => (u.days || []).some((x) => x > dd && x <= addDays(dd, 7))).length : null;
-      return { day: dd, joined: c.length, nextDay, week, partial: dd < (Object.keys(O.an.days).sort()[0] || today) };
-    }).filter((c) => c.joined > 0);
-    const last7 = days.slice(-7);
-    const sum = (k) => {
-      const out = {};
-      last7.forEach((dd) => {
-        const t = O.an.days[dd];
-        if (t) Object.entries(t[k] || {}).forEach(([a, n]) => out[a] = (out[a] || 0) + n);
-      });
-      return Object.entries(out).sort((a, b) => b[1] - a[1]);
-    };
-    const sess = { m1: 0, m5: 0, m15: 0, m60: 0, more: 0 };
-    last7.forEach((dd) => {
-      const t = O.an.days[dd];
-      if (t) Object.keys(sess).forEach((k) => sess[k] += t.sess[k] || 0);
-    });
-    const invites = Object.values(O.invites).sort((a, b) => b.at - a.at).map((iv) => {
-      const j = users.filter((u) => u.ref === iv.code);
-      let opens = 0;
-      Object.values(O.an.days).forEach((t) => opens += t.opens?.[iv.code] || 0);
-      return { code: iv.code, label: iv.label, at: iv.at, opens, joined: j.length, nextDay: j.filter((u) => (u.days || []).includes(addDays(joinDay(u), 1))).length, active7: j.filter((u) => (u.days || []).some((x) => last7.includes(x))).length };
-    });
-    const noRef = users.filter((u) => !u.ref);
-    const who = {};
-    last7.forEach((dd) => {
-      const t = O.an.days[dd];
-      if (t && t.who) Object.entries(t.who).forEach(([k, m]) => {
-        const o = who[k] ||= {};
-        Object.entries(m).forEach(([v, n]) => o[v] = (o[v] || 0) + n);
-      });
-    });
-    Object.keys(who).forEach((k) => who[k] = Object.entries(who[k]).sort((a, b) => b[1] - a[1]).slice(0, 10));
-    return { who, today, totalCitizens: users.length, daily, cohorts, areas: sum("time").slice(0, 20), exits: sum("exits").slice(0, 15), sess, invites, direct: { joined: noRef.length, active7: noRef.filter((u) => (u.days || []).some((x) => last7.includes(x))).length }, trackingSince: Object.keys(O.an.days).sort()[0] || today };
-  }
-  const prevHttp = http2;
-  http2 = function (req, res, p, ip, auth) {
-    if (p === "/api/an" && req.method === "POST") {
-      readJson(req, 2048, (b) => {
-        const u = auth(String(b.tok || ""));
-        if (u && !(u.anLast > Date.now() - 5e4)) {
-          u.anLast = Date.now();
-          const a = areaKey(b.a);
-          const t = anDay();
-          if (Object.keys(t.time).length < 200 || t.time[a]) t.time[a] = (t.time[a] || 0) + 1;
-          u.anArea = a;
-          seen(u);
-          d.save();
-        } else if (u) u.anArea = areaKey(b.a);
-        res.writeHead(204);
-        res.end();
-      });
-      return true;
-    }
-    if (p === "/api/an/visit" && req.method === "POST") {
-      readJson(req, 2048, (b) => {
-        const u = auth(String(b.tok || ""));
-        const today = day2();
-        if (u && u.anVisitDay !== today) {
-          u.anVisitDay = today;
-          const t = anDay();
-          t.who ||= {};
-          const bump2 = (k, v) => {
-            v = areaKey(v).slice(0, 40);
-            const m = t.who[k] ||= {};
-            if (Object.keys(m).length < 80 || m[v]) m[v] = (m[v] || 0) + 1;
-          };
-          bump2("device", b.dev);
-          bump2("os", b.os);
-          bump2("browser", b.br);
-          bump2("region", b.tz);
-          bump2("language", b.lang);
-          bump2("source", b.src);
-          bump2("quality", b.q);
-          const f = +b.fps || 0;
-          bump2("smoothness", !f ? "Unknown" : f < 20 ? "Slow (under 20 FPS)" : f < 30 ? "OK (20-30 FPS)" : f < 45 ? "Good (30-45 FPS)" : "Smooth (45+ FPS)");
-          d.save();
-        }
-        res.writeHead(204);
-        res.end();
-      });
-      return true;
-    }
-    if (p === "/api/ref" && req.method === "POST") {
-      readJson(req, 512, (b) => {
-        const c = String(b.c || "").toLowerCase().slice(0, 24);
-        if (O.invites[c]) {
-          const t = anDay();
-          t.opens[c] = (t.opens[c] || 0) + 1;
-          d.save();
-        }
-        res.writeHead(204);
-        res.end();
-      });
-      return true;
-    }
-    if (p === "/api/admin/analytics" || p === "/api/admin/invites") {
-      const u = auth(String(req.headers.authorization || "").replace(/^Bearer\s+/i, ""));
-      if (!u || !d.isAdmin(u.id)) return json(res, 403, { error: "Judges only" }), true;
-      if (p === "/api/admin/analytics") return json(res, 200, analytics()), true;
-      if (req.method !== "POST") return json(res, 405, { error: "POST" }), true;
-      readJson(req, 2048, (b) => {
-        if (b.del) {
-          delete O.invites[String(b.del).toLowerCase()];
-          d.save();
-          return json(res, 200, { ok: true });
-        }
-        const label = d.clean(b.label, 40);
-        if (!label) return json(res, 400, { error: "Give the invite a name, for example: Ali's friends" });
-        if (Object.keys(O.invites).length >= 300) return json(res, 400, { error: "Too many invite links" });
-        const slug = label.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 14) || "invite";
-        let code;
-        do code = slug + "-" + Math.random().toString(36).slice(2, 6); while (O.invites[code]);
-        O.invites[code] = { code, label, at: Date.now(), by: u.id };
-        d.save();
-        json(res, 200, { ok: true, code });
-      });
-      return true;
-    }
-    return prevHttp(req, res, p, ip, auth);
-  };
-  /* ---------------- help desk (v46): problems, ideas, questions from citizens ----------------
-     Tickets live in O.support (last 2,000). Judges and moderators answer them in Admin desk > Help desk;
-     the answer reaches the citizen in the city (live note) and by e-mail when they left one.
-     New tickets are e-mailed to SUPPORT_EMAIL (or BACKUP_EMAIL) when Resend is configured. */
-  O.support ||= [];
-  const SUP = { to: String(process.env.SUPPORT_EMAIL || process.env.BACKUP_EMAIL || "").trim() };
-  const KINDS = { problem: "Something is broken", idea: "Idea", question: "Question", safety: "Safety / someone is bothering me", payment: "Payment", other: "Other" };
-  const supHits = /* @__PURE__ */ new Map();
-  async function mail(to, subject, text) {
-    if (!to || !OFF.key || !OFF.from) return false;
-    try {
-      const r = await fetch("https://api.resend.com/emails", { method: "POST", headers: { authorization: `Bearer ${OFF.key}`, "content-type": "application/json" }, body: JSON.stringify({ from: OFF.from, to: [to], subject, text }) });
-      return r.ok;
-    } catch {
-      return false;
-    }
-  }
-  const longText = (v, n) => String(v ?? "").replace(/\r/g, "").replace(/[\u0000-\u0009\u000b-\u001f]/g, " ").replace(/\n{3,}/g, "\n\n").trim().slice(0, n);
-  const okEmail = (e) => /^[^\s@]{1,64}@[^\s@]{1,120}\.[a-z]{2,}$/i.test(e);
-  const ticketOut = (t, staff) => ({ id: t.id, at: t.at, kind: t.kind, kindLabel: KINDS[t.kind] || t.kind, text: t.text, status: t.status, replies: t.replies || [], ...(staff ? { name: t.name, number: t.number, email: t.email ? t.email.replace(/^(.).*(@.*)$/, "$1***$2") : "", area: t.area, device: t.device, lang: t.lang } : {}) });
-  const prevHttp2 = http2;
-  http2 = function (req, res, p, ip, auth) {
-    if (p === "/api/support" && req.method === "POST") {
-      readJson(req, 6144, (b) => {
-        const now = Date.now();
-        const hits = (supHits.get(ip) || []).filter((t) => now - t < 36e5);
-        if (supHits.size > 5e3) supHits.clear();
-        const u = b.tok ? auth(String(b.tok)) : null;
-        const text = longText(b.text, 2000);
-        const email = d.clean(b.email, 160).toLowerCase();
-        const kind = KINDS[b.kind] ? b.kind : "other";
-        if (text.length < 5) return json(res, 400, { error: "Please write a few words about it." });
-        if (!u && !okEmail(email)) return json(res, 400, { error: "Please add an e-mail so we can answer you." });
-        if (email && !okEmail(email)) return json(res, 400, { error: "That e-mail does not look right." });
-        if (hits.length >= 8) return json(res, 429, { error: "Too many messages from this connection. Please try again in an hour." });
-        if (u) {
-          const mine = O.support.filter((t) => t.uid === u.id && now - t.at < 864e5).length;
-          if (mine >= 6) return json(res, 429, { error: "You have sent 6 messages today. We will answer them first." });
-        }
-        hits.push(now);
-        supHits.set(ip, hits);
-        let id;
-        do id = "T" + Math.random().toString(36).slice(2, 8).toUpperCase(); while (O.support.some((t) => t.id === id));
-        const t = { id, at: now, kind, text, status: "open", uid: u ? u.id : "", name: u ? d.shown(u.id) : "Visitor", number: u ? u.number : "", email: email || (u && u.email) || "", area: d.clean(b.area, 60), device: d.clean(b.device, 120), lang: d.clean(b.lang, 20), replies: [] };
-        O.support.push(t);
-        if (O.support.length > 2e3) O.support.splice(0, O.support.length - 2e3);
-        d.save();
-        mail(SUP.to, `Fyrus help desk ${id}: ${KINDS[kind]}`, `${t.name}${t.number ? " (" + t.number + ")" : ""}${t.email ? " <" + t.email + ">" : ""}\nWhere: ${t.area || "-"}\nDevice: ${t.device || "-"}\n\n${text}\n\nAnswer it in fyrus.io > Admin desk > Help desk.`);
-        json(res, 200, { ok: true, id });
-      });
-      return true;
-    }
-    if (p === "/api/support/mine") {
-      const u = auth(String(req.headers.authorization || "").replace(/^Bearer\s+/i, ""));
-      if (!u) return json(res, 200, { list: [], unread: 0 }), true;
-      const list = O.support.filter((t) => t.uid === u.id).slice(-20).reverse().map((t) => ticketOut(t, false));
-      let changed = false;
-      if (/[?&]peek=1/.test(req.url || "")) return json(res, 200, { unread: O.support.filter((t) => t.uid === u.id && t.unread).length }), true;
-      O.support.forEach((t) => {
-        if (t.uid === u.id && t.unread) {
-          t.unread = false;
-          changed = true;
-        }
-      });
-      if (changed) d.save();
-      return json(res, 200, { list }), true;
-    }
-    if (p === "/api/admin/support") {
-      const u = auth(String(req.headers.authorization || "").replace(/^Bearer\s+/i, ""));
-      const judge = u && d.isAdmin(u.id), mod = u && (judge || (d.isMod && d.isMod(u.id)));
-      if (!mod) return json(res, 403, { error: "Judges and moderators only" }), true;
-      if (req.method !== "POST") {
-        const open = O.support.filter((t) => t.status !== "closed");
-        const closed = O.support.filter((t) => t.status === "closed").slice(-40);
-        const vis = (t) => judge || t.kind !== "payment";
-        return json(res, 200, { open: open.filter(vis).reverse().slice(0, 200).map((t) => ticketOut(t, true)), closed: closed.filter(vis).reverse().map((t) => ticketOut(t, true)), counts: Object.fromEntries(Object.keys(KINDS).map((k) => [k, open.filter((t) => t.kind === k).length])), mailTo: SUP.to ? SUP.to.replace(/^(.).*(@.*)$/, "$1***$2") : "" }), true;
-      }
-      readJson(req, 4096, (b) => {
-        const t = O.support.find((x) => x.id === String(b.id || ""));
-        if (!t) return json(res, 404, { error: "Not found" });
-        if (t.kind === "payment" && !judge) return json(res, 403, { error: "Payment questions are answered by a judge." });
-        const reply = longText(b.reply, 2000);
-        if (reply) {
-          t.replies ||= [];
-          t.replies.push({ at: Date.now(), by: d.shown(u.id), text: reply });
-          t.unread = true;
-          if (t.uid) {
-            const l = d.liveOf(t.uid);
-            if (l) d.send(l.ws, { t: "note", text: `Fyrus help desk answered your message ${t.id}: ${reply.slice(0, 160)}${reply.length > 160 ? "\u2026" : ""}` });
-          }
-          if (t.email) mail(t.email, `Fyrus help desk: answer to ${t.id}`, `Hello ${t.name},\n\nYou wrote: "${t.text.slice(0, 300)}"\n\nOur answer:\n${reply}\n\n— Fyrus help desk (https://fyrus.io)`);
-        }
-        if (b.status === "closed" || b.status === "open") t.status = b.status;
-        else if (reply) t.status = "answered";
-        O.modlog ||= [];
-        O.modlog.push({ at: Date.now(), by: u.id, byName: d.shown(u.id), role: judge ? "judge" : "moderator", act: "help " + (reply ? "answer" : t.status), target: t.id, hours: 0, note: reply.slice(0, 80) });
-        d.save();
-        json(res, 200, { ok: true, ticket: ticketOut(t, true) });
-      });
-      return true;
-    }
-    return prevHttp2(req, res, p, ip, auth);
-  };
-  return { onMessage: onMessage2, http: http2, bump, track, backupNow, xpMsg, seen, joinedVia, left };
+  return { onMessage: onMessage2, http: http2, bump, track, backupNow, xpMsg };
 }
 
 // server/legal.ts
-var UPDATED = "24 October 2026";
-var ORG = {
-  name: String(process.env.LEGAL_ENTITY || "").trim(),
-  address: String(process.env.LEGAL_ADDRESS || "").trim(),
-  email: String(process.env.SUPPORT_EMAIL || "").trim()
-};
-var escH = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
-var whoWeAre = () => `<p>Fyrus is operated by <b>${escH(ORG.name || "the Fyrus team")}</b>${ORG.address ? ", " + escH(ORG.address) : ""}.${ORG.email ? ` E-mail: <a href="mailto:${escH(ORG.email)}">${escH(ORG.email)}</a>.` : ""} In the city, open <b>\u2726 More \u2192 Help & feedback</b> to write to us.</p>`;
+var UPDATED = "20 October 2026";
 var shell = (title, body) => `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title} \xB7 Fyrus</title>
 <style>body{margin:0;background:#040a1c;color:#e6ecf7;font:16px/1.65 system-ui,-apple-system,Segoe UI,sans-serif}main{max-width:760px;margin:0 auto;padding:40px 18px 80px}h1{font-size:30px;margin:0 0 4px}h2{font-size:19px;margin:30px 0 6px;color:#ffc27a}p,li{color:#c5cee0}a{color:#7fb8ff}.note{background:#0b1430;border:1px solid #1d2c55;border-radius:12px;padding:12px 14px;font-size:14px}small{color:#8a96ad}</style></head>
-<body><main><a href="/">\u2190 Back to Fyrus</a><h1>${title}</h1><small>Last updated ${UPDATED} \xB7 Beta</small>${body}<p style="margin-top:40px"><small><a href="/terms">Terms</a> \xB7 <a href="/privacy">Privacy</a> \xB7 <a href="/refunds">Refunds</a> \xB7 <a href="/pricing">Pricing</a> \xB7 <a href="/contact">Contact</a></small></p></main></body></html>`;
+<body><main><a href="/">\u2190 Back to Fyrus</a><h1>${title}</h1><small>Last updated ${UPDATED} \xB7 Beta</small>${body}</main></body></html>`;
 var TERMS = `
 <p class="note">Fyrus is in beta. These terms are a plain-language draft and may change before the public launch. We will show a notice in the city when they do.</p>
 <h2>1. Who can use Fyrus</h2><p>You must be at least 13 years old. Voice chat is for people 18 and older. If you are under 18, use Fyrus with a parent or guardian's permission.</p>
 <h2>2. Your account</h2><p>Keep your password private. You are responsible for what happens on your account. Guest accounts live on one device until you add an email or sign in with Google.</p>
-<h2>3. Fyrus Coin (FYC) is play money</h2><p>FYC is an in-city credit for use inside Fyrus only. It is not real money, not a cryptocurrency and not an investment. It cannot be exchanged for cash, sent to other people for real money, or withdrawn, and its supply and prices can change. When FYC packs are sold, you buy a licence to use that FYC inside Fyrus; see <a href="/pricing">Pricing</a> and <a href="/refunds">Refunds</a>. Payments are handled by our payment partner, who is the seller of record and shows the final price with tax before you pay. Virtual land, homes, passports and items are game features with no real-world value. Nothing in Fyrus promises profit.</p>
+<h2>3. Fyrus Coin (FYC) is play money</h2><p>FYC is an in-city credit for use inside Fyrus only. It is not real money, not a cryptocurrency and not an investment. It cannot be exchanged for cash, and its supply and prices can change. Virtual land, homes, passports and items are game features with no real-world value. Nothing in Fyrus promises profit.</p>
 <h2>4. Rules of the city</h2><ul><li>No harassment, hate, threats, sexual content involving minors, or content that sexualises anyone without consent.</li><li>No scams, fake listings, asking for payment or contact outside Fyrus, or selling prohibited goods.</li><li>No impersonating real people, brands or officials; no real-world political parties or politicians in Fyrus elections.</li><li>No cheating, bots, exploiting bugs or making several accounts to vote or farm rewards.</li><li>Respect other people's work: upload only content you own or may use.</li></ul>
 <h2>5. Marketplace, escrow and the Fyrus Court</h2><p>Purchases go through Central Bank escrow and can be disputed. Fyrus judges decide disputes based on the evidence in Fyrus. Their decisions inside Fyrus are final for FYC, items and accounts.</p>
 <h2>6. Moderation</h2><p>We may remove content, mute, suspend or ban accounts that break these rules, and refund FYC where it is fair. You can report people and content from the city; we review reports as fast as we can.</p>
 <h2>7. AI in Fyrus</h2><p>AI residents, shopkeepers and translations are generated by AI and are labelled. They can be wrong. Do not rely on them for medical, legal or financial decisions.</p>
 <h2>8. News and links</h2><p>World headlines come from public news feeds and link to the publisher. Citizen reports are written by users and are not verified by Fyrus.</p>
 <h2>9. Changes and ending</h2><p>Fyrus is provided as it is during the beta. Features may change or stop. You can stop using Fyrus at any time and ask us to delete your account.</p>
-<h2>10. Contact</h2>${whoWeAre()}`;
+<h2>10. Contact</h2><p>Questions or problems: use Report in the city or the Help page.</p>`;
 var PRIVACY = `
 <p class="note">This explains what Fyrus stores, why, and your choices. Fyrus servers are in Germany (EU).</p>
-<h2>What we store</h2><ul><li><b>Account:</b> your display name, Fyrus number, email (if you add one), a scrambled (hashed) password, or your Google account id if you sign in with Google.</li><li><b>City data:</b> your FYC statement, properties, listings and orders, courses and certificates, events, messages you send (city chat, groups and DMs), reports, and your avatar settings and optional face photo.</li><li><b>Technical:</b> error reports from your browser (to fix bugs), simple daily counts of visits, and your IP address in short-lived rate limits and server logs.</li><li><b>Usage statistics (our own, no outside trackers):</b> the days you visit (last 120), which invite link you came from, and once a minute the area of Fyrus you are in (for example a district or a menu) so we can see which places people like and where they leave; once a day also the kind of device (phone, tablet or computer), operating system, browser, time zone, language, which site sent you (for example WhatsApp or Google) and how smoothly Fyrus runs on your device. Admins only see totals, not a timeline of a person.</li></ul>
-<h2>What we do not do</h2><ul><li>We do not sell your data.</li><li>We do not show third-party ads based on your data.</li><li>We do not ask for ID cards. Card and bank details for purchases are entered on our payment partner\u2019s page and never reach Fyrus servers; we only receive the order number and whether it was paid.</li></ul>
-<h2>Who else processes data</h2><ul><li><b>AI service provider</b> (an AI language model reached through an API provider) writes some replies of the AI residents and translates chat messages when translation is on. Only the text of that conversation is sent, never your name, number, e-mail or location; the provider may keep it for a short time under its own terms.</li><li><b>Google</b> confirms your sign-in if you use "Sign in with Google".</li><li><b>Email provider</b> sends password reset codes and answers from the help desk.</li><li><b>Payment partner</b> (when FYC packs are on sale, for example Paddle) processes your payment, your billing details and tax as the seller of record, under its own privacy policy.</li><li>Our hosting provider stores the server and its backups.</li></ul>
+<h2>What we store</h2><ul><li><b>Account:</b> your display name, Fyrus number, email (if you add one), a scrambled (hashed) password, or your Google account id if you sign in with Google.</li><li><b>City data:</b> your FYC statement, properties, listings and orders, courses and certificates, events, messages you send (city chat, groups and DMs), reports, and your avatar settings and optional face photo.</li><li><b>Technical:</b> error reports from your browser (to fix bugs), simple daily counts of visits, and your IP address in short-lived rate limits and server logs.</li></ul>
+<h2>What we do not do</h2><ul><li>We do not sell your data.</li><li>We do not show third-party ads based on your data.</li><li>We do not ask for ID cards, bank or card numbers in the beta.</li></ul>
+<h2>Who else processes data</h2><ul><li><b>Anthropic</b> translates chat messages when translation is on (the message text only).</li><li><b>Google</b> confirms your sign-in if you use "Sign in with Google".</li><li><b>Email provider</b> sends password reset codes.</li><li>Our hosting provider stores the server and its backups.</li></ul>
 <h2>Visibility</h2><p>Your name, colour, Fyrus number and avatar are visible to other people in the city. Stealth mode hides your name and photo behind an alias. Blocked people cannot message you.</p>
-<h2>How long</h2><p>Account and city data are kept while your account exists. Backups are kept for 14 days (hourly copies for 48 hours); if the owner turns it on, a daily copy is also e-mailed to the owner for safekeeping. Error reports are kept for the most recent 300.</p>
-<h2>Questions to AI residents</h2><p>Questions you ask the AI residents are saved without your name or number (only the text, the language and how often it was asked) so the team can add better answers; the most recent 20,000 are kept.</p><h2>Help desk messages</h2><p>Messages you send through Help & feedback are kept with the place in Fyrus and the type of device you were using, so the team can fix problems; the most recent 2,000 are kept.</p><h2>Your rights</h2><p>You can ask to see, correct, export or delete your data, and you can withdraw consent at any time. If you are in the EU you can also complain to your data protection authority. To ask, use Help & feedback in the city.</p><h2>Who we are</h2>${whoWeAre()}
+<h2>How long</h2><p>Account and city data are kept while your account exists. Daily backups are kept for 14 days. Error reports are kept for the most recent 300.</p>
+<h2>Your rights</h2><p>You can ask to see, correct, export or delete your data, and you can withdraw consent at any time. If you are in the EU you can also complain to your data protection authority. To ask, use the Help page or Report in the city.</p>
 <h2>Children</h2><p>Fyrus is not for children under 13. If you believe a child under 13 has an account, report it and we will remove it.</p>`;
-var REFUNDS = () => `
-<p class="note">Plain-language refund policy for FYC packs and other digital items bought with real money.</p>
-<h2>14-day refund</h2><p>You can ask for a full refund within 14 days of a purchase. If you are in the EU or UK, this is your legal right of withdrawal; we also give it to everyone else.</p>
-<h2>How to ask</h2><p>Open <b>\u2726 More \u2192 Help & feedback</b>, choose <b>Payment</b>, and write your order number (it is in the e-mail receipt from our payment partner). You can also reply to the receipt e-mail. We answer within 3 working days.</p>
-<h2>What happens</h2><p>The money goes back to the card or account you paid with, through our payment partner. The FYC from that purchase is removed from your wallet; if you already spent it, we may still refund you once, but repeated refunds of spent FYC can lead to a suspension.</p>
-<h2>Mistakes and problems</h2><p>If you were charged but did not get your FYC, or were charged twice, write to us and we fix it or refund it in full, also after 14 days.</p>
-<h2>Who we are</h2>${whoWeAre()}`;
-var PRICING = () => {
-  const packs = typeof pay !== "undefined" && pay ? pay.PACKS : [];
-  const on = typeof pay !== "undefined" && pay && pay.live();
-  return `<p class="note">${on ? "Prices below are what you pay before local sales tax or VAT, which our payment partner adds at checkout." : "FYC packs are not on sale yet. These are the planned prices."}</p>
-<h2>Entering Fyrus is free</h2><p>Citizenship, walking the city, chat, learning, events and the games are free. Every new citizen gets a free welcome grant of FYC.</p>
-<h2>FYC packs (optional)</h2><ul>${packs.map((p) => `<li><b>${escH(p.label)}</b> \u2014 ${p.fyc.toLocaleString("en")} FYC \u2014 ${escH(p.price)}</li>`).join("")}</ul>
-<p>FYC is play money for use inside Fyrus only. It cannot be withdrawn or exchanged for cash. See <a href="/refunds">Refunds</a>.</p>
-<h2>Who we are</h2>${whoWeAre()}`;
-};
-var CONTACT = () => `<h2>Write to us</h2>${whoWeAre()}<p>For anything about safety (someone bothering you, a child at risk), choose <b>Safety</b> in Help & feedback, or use Report on the person in the city. If someone is in danger in real life, call your local emergency number first.</p>`;
-var legalPage = (kind) => kind === "terms" ? shell("Terms of Use", TERMS) : kind === "refunds" ? shell("Refund Policy", REFUNDS()) : kind === "pricing" ? shell("Pricing", PRICING()) : kind === "contact" ? shell("Contact", CONTACT()) : shell("Privacy Policy", PRIVACY);
+var legalPage = (kind) => kind === "terms" ? shell("Terms of Use", TERMS) : shell("Privacy Policy", PRIVACY);
 
 // --- Education ladder (v32): Fyrus Public School -> Fyrus College -> University of Fyrus ---
 // Additive seed for Education City. Adds three verified institutions and nine free courses taught by the
@@ -7833,573 +7997,1079 @@ function seedLadder(d) {
   }
   if (changed) d.save();
 }
-
-// --- Payments (v46): one direction only — citizens buy FYC packs from Fyrus. Off until the owner adds merchant keys. ---
-// Provider: Paddle Billing (merchant of record). Set in Coolify:
-//   PAY_PROVIDER=paddle
-//   PADDLE_API_KEY=...            (Paddle > Developer tools > Authentication)
-//   PADDLE_WEBHOOK_SECRET=...     (Paddle > Developer tools > Notifications, destination https://fyrus.io/api/pay/paddle)
-//   PADDLE_ENV=sandbox | live     (start with sandbox keys to test, then live)
-//   PADDLE_PRICES=fyc_s:pri_...,fyc_m:pri_...,fyc_l:pri_...   (one Paddle price per pack)
-//   PADDLE_CLIENT_TOKEN=...       (Paddle > Developer tools > Authentication > client-side token; used by /pay.html)
-// In Paddle > Checkout settings set the default payment link to https://fyrus.io/pay.html and approve fyrus.io.
-// Optional: PAY_PACKS='[{"id":"fyc_s","fyc":5000,"label":"Starter","price":"$1.99"}, ...]' to change packs.
-// FYC is credited only by the signed webhook (never by the browser), once per Paddle transaction id.
-// No cash-out and no user-to-user real money. Other providers (JazzCash, Easypaisa, Safepay) plug in as another
-// entry in PROVIDERS with the same three functions: ready(), checkout(order), webhook(req, raw) -> {orderId, txn, paid}.
-var PAY_DEFAULT_PACKS = [
-  { id: "fyc_s", fyc: 5e3, label: "Starter pack", price: "$1.99" },
-  { id: "fyc_m", fyc: 15e3, label: "Citizen pack", price: "$4.99", best: true },
-  { id: "fyc_l", fyc: 4e4, label: "Grand pack", price: "$9.99" }
-];
-function createPayments(d) {
-  if (!d.db.pay) {
-    d.db.pay = { orders: {}, done: {} };
+// FYRUS 26.7 business ownership. A citizen who owns or rents a society plot can register one business there
+// (registration fee to the treasury). The business has its own bank account ("biz:<id>"): customers standing at the
+// plot buy from its menu (up to 8 offers, price 1..5 000 FYC), 5% sales tax goes to the treasury, the rest to the
+// business; the owner moves money between the business and their own account. Max 3 businesses per citizen.
+// A business closes (and pays its balance out to the owner) when the owner loses the plot.
+// 27.10 AI workforce: the owner can staff a business with one AI clerk (no wage, no money of its own). The clerk answers
+// customers from the menu (rules first, then the shared local-model queue), can keep opening hours (server clock), and
+// writes the owner a sales report (deterministic, no model). The clerk never moves money or changes prices.
+// 27.11 tool permissions: every clerk action goes through one table. "auto" runs at once, "approve" only creates a
+// proposal that the owner approves or rejects, "deny" never runs (money, discounts) whatever anyone asks.
+var AI_TOOLS = { "menu.read": "auto", "hours.keep": "auto", "report.write": "auto", "price.suggest": "approve", "money.move": "deny", "price.discount": "deny", "menu.delete": "deny" };
+var aiToolLevel = (tool) => Object.prototype.hasOwnProperty.call(AI_TOOLS, tool) ? AI_TOOLS[tool] : "deny";
+var BIZ_CLERKS_MAX = +(process.env.BIZ_CLERKS_MAX || 40);
+var BIZ_FEE = 500, BIZ_TAX = 0.05, BIZ_MAX = 3, BIZ_KINDS = ["cafe", "shop", "studio", "services", "food", "crafts"];
+function createBusinesses(d) {
+  if (!d.db.biz) {
+    d.db.biz = { list: {}, seq: 1 };
     d.save();
   }
-  const P = d.db.pay;
-  const env = process.env;
-  let PACKS = PAY_DEFAULT_PACKS;
-  try {
-    if (env.PAY_PACKS) PACKS = JSON.parse(env.PAY_PACKS).filter((p) => p && p.id && +p.fyc > 0).map((p) => ({ id: String(p.id), fyc: +p.fyc, label: String(p.label || p.id), price: String(p.price || ""), best: !!p.best }));
-  } catch {
-    console.error("PAY_PACKS is not valid JSON; using the default packs");
-  }
-  const prices = {};
-  String(env.PADDLE_PRICES || "").split(",").forEach((x) => {
-    const [k, v] = x.split(":").map((s) => (s || "").trim());
-    if (k && v) prices[k] = v;
-  });
-  const paddleBase = String(env.PADDLE_ENV || "sandbox").toLowerCase() === "live" ? "https://api.paddle.com" : "https://sandbox-api.paddle.com";
-  const PROVIDERS = {
-    paddle: {
-      ready: () => !!(env.PADDLE_API_KEY && env.PADDLE_WEBHOOK_SECRET && env.PADDLE_CLIENT_TOKEN && PACKS.some((p) => prices[p.id])),
-      async checkout(o) {
-        const r = await fetch(paddleBase + "/transactions", {
-          method: "POST",
-          headers: { authorization: `Bearer ${env.PADDLE_API_KEY}`, "content-type": "application/json" },
-          body: JSON.stringify({ items: [{ price_id: prices[o.pack], quantity: 1 }], custom_data: { fyrus_order: o.id, fyrus_user: o.uid }, collection_mode: "automatic" })
-        });
-        const j = await r.json().catch(() => ({}));
-        if (!r.ok) throw new Error("Paddle " + r.status + " " + (j.error?.detail || j.error?.code || ""));
-        o.txn = j.data?.id || "";
-        return { url: j.data?.checkout?.url || "", txn: o.txn, clientToken: env.PADDLE_CLIENT_TOKEN || "", env: paddleBase.includes("sandbox") ? "sandbox" : "production" };
-      },
-      webhook(req, raw) {
-        const sig = String(req.headers["paddle-signature"] || "");
-        const parts = Object.fromEntries(sig.split(";").map((kv) => kv.split("=")));
-        if (!parts.ts || !parts.h1) return null;
-        if (Math.abs(Date.now() / 1e3 - +parts.ts) > 600) return null;
-        const want = crypto3.createHmac("sha256", env.PADDLE_WEBHOOK_SECRET).update(parts.ts + ":" + raw).digest("hex");
-        const a = Buffer.from(want), b = Buffer.from(String(parts.h1));
-        if (a.length !== b.length || !crypto3.timingSafeEqual(a, b)) return null;
-        let ev;
-        try {
-          ev = JSON.parse(raw);
-        } catch {
-          return null;
-        }
-        const data = ev.data || {};
-        return { orderId: data.custom_data?.fyrus_order || "", txn: data.id || "", paid: ev.event_type === "transaction.completed" || ev.event_type === "transaction.paid", type: ev.event_type || "" };
-      }
+  const Z = d.db.biz, bank2 = d.bank;
+  const acctId = (b) => "biz:" + b.id;
+  const plotRec = (id) => d.db.estate?.plots?.[id];
+  const holderOf = (plotId) => {
+    const p = plotRec(plotId);
+    return p ? p.rent?.tenant || p.owner : null;
+  };
+  const hourNow = () => process.env.BIZ_HOUR != null ? +process.env.BIZ_HOUR : (/* @__PURE__ */ new Date()).getHours();
+  const inHours = (hs, h) => !hs || (hs.open < hs.close ? h >= hs.open && h < hs.close : h >= hs.open || h < hs.close);
+  const openNow = (b) => b.open !== false && !(b.clerk?.on && !inHours(b.clerk.hours, hourNow()));
+  const clerkPub = (b) => b.clerk?.on ? { name: b.clerk.name, hours: b.clerk.hours || null } : null;
+  const audit = (b, tool, result, detail) => { const a = (b.clerk.audit ||= []); a.push({ at: Date.now(), tool, level: aiToolLevel(tool), result, detail: String(detail || "").slice(0, 120) }); if (a.length > 20) a.splice(0, a.length - 20); };
+  // 27.11 the clerk wants to use a tool: denied tools are logged and refused; "approve" tools become pending proposals
+  function clerkTool(b, tool, args) {
+    const lv = aiToolLevel(tool);
+    if (lv === "deny") return audit(b, tool, "denied", args?.why), { ok: false, denied: true };
+    if (lv === "approve") {
+      const P = (b.clerk.pending ||= []).filter((x) => x.at > Date.now() - 864e5);
+      b.clerk.pending = P;
+      if (P.length >= 5 || P.some((x) => x.tool === tool && x.item === args.item)) return { ok: false, dup: true };
+      const pr = { pid: String((b.clerk.pseq = (b.clerk.pseq || 0) + 1)), tool, ...args, at: Date.now() };
+      P.push(pr);
+      audit(b, tool, "proposed", `${args.name}: ${args.from} -> ${args.to} FYC`);
+      return { ok: true, proposal: pr };
     }
-  };
-  const provName = String(env.PAY_PROVIDER || "").toLowerCase();
-  const prov = PROVIDERS[provName] || null;
-  const live = () => !!(prov && prov.ready());
-  const json = (res, code, v) => {
-    res.writeHead(code, { "content-type": "application/json", "cache-control": "no-store" });
-    res.end(JSON.stringify(v));
-  };
-  function readRaw(req, max, cb) {
-    let raw = "";
-    req.on("data", (c) => {
-      raw += c;
-      if (raw.length > max) req.destroy();
-    });
-    req.on("end", () => cb(raw));
+    audit(b, tool, "done", args?.why);
+    return { ok: true };
   }
-  function credit(o, txn, how) {
-    if (o.status === "paid") return false;
-    if (txn && P.done[txn]) return false;
-    const pack = PACKS.find((p) => p.id === o.pack);
-    if (!pack || !d.db.users[o.uid]) return false;
-    o.status = "paid";
-    o.paidAt = Date.now();
-    o.txn = txn || o.txn;
-    if (txn) P.done[txn] = o.id;
-    d.bank.transfer("mint", o.uid, pack.fyc, `Bought ${pack.label} (${pack.fyc.toLocaleString("en")} FYC) \xB7 ${how} ${o.txn || o.id}`);
-    const l = d.liveOf(o.uid);
-    if (l) d.send(l.ws, { t: "note", text: `Thank you! ${pack.fyc.toLocaleString("en")} FYC were added to your wallet.` });
+  // price ideas from this report's sales: a clear best-seller may go up 10%, an unsold item (when others sell) down 10%
+  function priceIdeas(b, rec, n) {
+    if (n < 3 || b.clerk.perms?.prices === "off") return;
+    const cnt = rec.reduce((o, x) => ((o[x.item] = (o[x.item] || 0) + 1), o), {});
+    const top = b.menu.filter((x) => (cnt[x.name] || 0) >= 3 && cnt[x.name] / n >= 0.5).sort((x, y) => cnt[y.name] - cnt[x.name])[0];
+    if (top) { const to = Math.min(5e3, Math.max(top.price + 1, Math.round(top.price * 1.1))); clerkTool(b, "price.suggest", { item: top.i, name: top.name, from: top.price, to, why: `${cnt[top.name]} of ${n} sales` }); }
+    const flop = b.menu.filter((x) => !cnt[x.name] && x.price > 1).sort((x, y) => y.price - x.price)[0];
+    if (flop) { const to = Math.max(1, Math.min(flop.price - 1, Math.round(flop.price * 0.9))); clerkTool(b, "price.suggest", { item: flop.i, name: flop.name, from: flop.price, to, why: `no sales while ${n} other sales` }); }
+  }
+  const pub = (b, full) => ({ id: b.id, name: b.name, kind: b.kind, plot: b.plot, owner: b.owner, ownerName: d.shown(b.owner), menu: b.menu, open: openNow(b), clerk: clerkPub(b), ...(full ? { reports: (b.clerk?.reports || []).slice(-5).reverse(), pending: (b.clerk?.pending || []).filter((x) => x.at > Date.now() - 864e5), audit: (b.clerk?.audit || []).slice(-8).reverse(), perms: { prices: b.clerk?.perms?.prices || "approve" } } : {}), ...(full ? { balance: bank2.bal(acctId(b)), sales: b.sales, revenue: b.revenue, recent: (b.recent || []).slice(-20).reverse() } : {}) });
+  const byPlot = (plotId) => Object.values(Z.list).find((b) => b.plot === plotId && !b.closed);
+  const mine = (uid) => Object.values(Z.list).filter((b) => b.owner === uid && !b.closed);
+  const near = (me, plotId) => {
+    const p = estatePlotById(String(plotId));
+    return !!p && (me.scene || "plaza") === "plaza" && Math.hypot((me.x || 0) - p.x, (me.z || 0) - p.z) < 16;
+  };
+  function close(b, why) {
+    const bal = bank2.bal(acctId(b));
+    if (bal > 0) bank2.transfer(acctId(b), b.owner, bal, `Business ${b.name} closed: balance paid out`);
+    b.closed = Date.now();
+    b.closedWhy = why;
     d.save();
-    return true;
+    d.broadcast({ t: "biz_update", biz: { [b.plot]: null } });
   }
-  const keepOrders = () => {
-    const ids = Object.keys(P.orders);
-    if (ids.length > 2e4) ids.sort((a, b) => P.orders[a].at - P.orders[b].at).slice(0, ids.length - 2e4).forEach((k) => delete P.orders[k]);
-  };
-  const buyHits = /* @__PURE__ */ new Map();
-  function http2(req, res, p, ip, auth) {
-    if (!p.startsWith("/api/pay") && p !== "/api/admin/pay") return false;
-    if (p === "/api/pay/config") return json(res, 200, { live: live(), provider: live() ? provName : "", clientToken: live() && provName === "paddle" ? env.PADDLE_CLIENT_TOKEN : "", env: paddleBase.includes("sandbox") ? "sandbox" : "production", packs: PACKS.map((x) => ({ ...x, ready: !prov || provName !== "paddle" || !!prices[x.id] })), note: live() ? "" : "Payments open soon." }), true;
-    if (p === "/api/pay/buy" && req.method === "POST") {
-      readRaw(req, 1024, async (raw) => {
-        let b = {};
-        try {
-          b = JSON.parse(raw || "{}");
-        } catch {
-        }
-        const u = auth(String(req.headers.authorization || "").replace(/^Bearer\s+/i, ""));
-        if (!u) return json(res, 401, { error: "Enter Fyrus first." });
-        if (!live()) return json(res, 503, { error: "Payments open soon." });
-        if (u.banned && u.banned.until > Date.now()) return json(res, 403, { error: "This account is suspended." });
-        const pack = PACKS.find((x) => x.id === String(b.pack || ""));
-        if (!pack || (provName === "paddle" && !prices[pack.id])) return json(res, 400, { error: "Unknown pack." });
-        const now = Date.now();
-        const hits = (buyHits.get(u.id) || []).filter((t) => now - t < 36e5);
-        if (hits.length >= 12) return json(res, 429, { error: "Too many checkouts in an hour. Please wait a little." });
-        hits.push(now);
-        buyHits.set(u.id, hits);
-        if (buyHits.size > 1e4) buyHits.clear();
-        const o = { id: "O" + crypto3.randomBytes(6).toString("hex"), uid: u.id, pack: pack.id, fyc: pack.fyc, price: pack.price, at: now, status: "open", provider: provName };
-        try {
-          const c = await prov.checkout(o);
-          P.orders[o.id] = o;
-          keepOrders();
-          d.save();
-          json(res, 200, { ok: true, order: o.id, ...c });
-        } catch (e) {
-          console.error("checkout failed", e.message);
-          json(res, 502, { error: "The payment service did not answer. Please try again in a minute." });
-        }
-      });
-      return true;
-    }
-    if (p === "/api/pay/status") {
-      const u = auth(String(req.headers.authorization || "").replace(/^Bearer\s+/i, ""));
-      const id = new URL(req.url || "/", "http://x").searchParams.get("order") || "";
-      const o = P.orders[id];
-      if (!u || !o || o.uid !== u.id) return json(res, 404, { error: "Not found" }), true;
-      return json(res, 200, { status: o.status, fyc: o.fyc }), true;
-    }
-    if (p === "/api/pay/mine") {
-      const u = auth(String(req.headers.authorization || "").replace(/^Bearer\s+/i, ""));
-      if (!u) return json(res, 200, { list: [] }), true;
-      return json(res, 200, { list: Object.values(P.orders).filter((o) => o.uid === u.id && o.status === "paid").sort((a, b) => b.at - a.at).slice(0, 30).map((o) => ({ id: o.id, at: o.paidAt, fyc: o.fyc, price: o.price })) }), true;
-    }
-    if (p === "/api/pay/" + provName && req.method === "POST" && prov) {
-      readRaw(req, 65536, (raw) => {
-        const ev = prov.ready() ? prov.webhook(req, raw) : null;
-        if (!ev) return json(res, 400, { error: "bad signature" });
-        if (ev.paid) {
-          const o = P.orders[ev.orderId];
-          if (o) credit(o, ev.txn, provName);
-          else console.error("payment for unknown order", ev.orderId, ev.txn);
-        }
-        json(res, 200, { ok: true });
-      });
-      return true;
-    }
-    if (p === "/api/admin/pay") {
-      const u = auth(String(req.headers.authorization || "").replace(/^Bearer\s+/i, ""));
-      if (!u || !d.isAdmin(u.id)) return json(res, 403, { error: "Judges only" }), true;
-      const all = Object.values(P.orders);
-      const paid = all.filter((o) => o.status === "paid");
-      return json(res, 200, { live: live(), provider: provName || "", env: provName === "paddle" ? (paddleBase.includes("sandbox") ? "sandbox" : "live") : "", missing: provName === "paddle" ? ["PADDLE_API_KEY", "PADDLE_WEBHOOK_SECRET", "PADDLE_CLIENT_TOKEN"].filter((k) => !env[k]).concat(PACKS.filter((x) => !prices[x.id]).map((x) => "price for " + x.id)) : ["PAY_PROVIDER"], orders: all.length, paid: paid.length, fycSold: paid.reduce((s, o) => s + o.fyc, 0), last: paid.sort((a, b) => b.paidAt - a.paidAt).slice(0, 20).map((o) => ({ id: o.id, at: o.paidAt, who: d.db.users[o.uid]?.number || "", fyc: o.fyc, price: o.price, txn: o.txn })) }), true;
-    }
-    return json(res, 404, { error: "Not found" }), true;
+  // the plot changed hands or the lease ended: the business goes with the holder
+  function sweep() {
+    for (const b of Object.values(Z.list)) if (!b.closed && holderOf(b.plot) !== b.owner) close(b, "plot no longer held");
   }
-  return { http: http2, live, PACKS };
-}
-
-import osAI from "node:os";
-// --- AI gateway (v48): smarter AI residents + chat translation through any Claude-compatible API. ---
-// Env (Coolify): AI_BASE_URL (e.g. https://api.mwapi.dev), AI_API_KEY, optional AI_MODEL (default claude-haiku-4-5),
-// AI_FORMAT = auto | anthropic | openai, AI_USER_DAILY (replies per citizen per day, default 40),
-// AI_DAILY_LIMIT (all replies per day, default 4000). Falls back to ANTHROPIC_API_KEY on api.anthropic.com.
-// The Fyrus Brain answers first in the browser for free; only questions it is unsure about come here.
-// Self-hosted (v51): AI_OLLAMA=1 + AI_BASE_URL=http://<ollama container>:11434 + AI_MODEL (default gemma2:2b).
-// The server pulls the model by itself on start, talks the OpenAI-compatible format, runs at most
-// AI_MAX_INFLIGHT (2) replies at once and gives up after AI_TIMEOUT_MS (40000) so the game never waits.
-function createAI(d) {
-  const env = process.env;
-  const OLLAMA = String(env.AI_OLLAMA || "") === "1" || /:11434/.test(String(env.AI_BASE_URL || ""));
-  const MAX_INFLIGHT = +(env.AI_MAX_INFLIGHT || 2), TIMEOUT = +(env.AI_TIMEOUT_MS || (OLLAMA ? 4e4 : 2e4));
-  let inflight = 0, ollamaState = OLLAMA ? "starting" : "";
-  const base = String(env.AI_BASE_URL || (env.ANTHROPIC_API_KEY ? "https://api.anthropic.com" : "")).replace(/\/+$/, "");
-  const key = env.AI_API_KEY || env.ANTHROPIC_API_KEY || (OLLAMA ? "ollama" : "");
-  const model = env.AI_MODEL || env.ANTHROPIC_MODEL || (OLLAMA ? "gemma2:2b" : "claude-haiku-4-5");
-  let format = String(env.AI_FORMAT || (OLLAMA ? "openai" : "auto")).toLowerCase();
-  const USER_DAY = +(env.AI_USER_DAILY || 40), ALL_DAY = +(env.AI_DAILY_LIMIT || 4e3);
-  const on = () => !!(base && key) && (!OLLAMA || ollamaState === "ready");
-  /* self-hosted: make sure the model is there (pull once, then keep it loaded) */
-  async function ollamaBoot(tries = 0) {
-    try {
-      const tags = await fetch(base.replace(/\/v1$/, "") + "/api/tags").then((r) => r.json());
-      const have = (tags.models || []).some((m) => m.name === model || m.name === model + ":latest" || m.model === model);
-      if (!have) {
-        ollamaState = "downloading " + model;
-        console.log("ai: pulling", model, "(first start can take several minutes)");
-        const r = await fetch(base.replace(/\/v1$/, "") + "/api/pull", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ model, stream: false }) });
-        if (!r.ok) throw new Error("pull " + r.status + " " + (await r.text()).slice(0, 120));
-        await r.text();
-      }
-      await fetch(base.replace(/\/v1$/, "") + "/api/generate", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ model, prompt: "", keep_alive: "24h" }) }).then((r) => r.text()).catch(() => {});
-      ollamaState = "ready";
-      console.log("ai: self-hosted model ready:", model);
-    } catch (e) {
-      ollamaState = "waiting for Ollama (" + String(e.message || e).slice(0, 80) + ")";
-      if (tries < 200) setTimeout(() => ollamaBoot(tries + 1), Math.min(6e4, 5e3 * (tries + 1)));
-    }
+  setInterval(sweep, +(process.env.BIZ_SWEEP_MS || 3e4));
+  // 27.10 clerk sales report since the last one: counts and top item from the business's own sales log
+  function report(b) {
+    const c = b.clerk, since = c.lastAt || c.hiredAt || 0, rec = (b.recent || []).filter((x) => x.at > since);
+    const n = b.sales - (c.lastSales || 0), rev = Math.round((b.revenue - (c.lastRev || 0)) * 100) / 100;
+    const top = Object.entries(rec.reduce((o, x) => ((o[x.item] = (o[x.item] || 0) + 1), o), {})).sort((x, y) => y[1] - x[1])[0];
+    const text = n > 0 ? `${c.name} at ${b.name}: ${n} sale${n > 1 ? "s" : ""} since the last report, +${rev} FYC to the business${top ? `; most popular: ${top[0]} (${top[1]})` : ""}.` : `${c.name} at ${b.name}: no sales since the last report.${b.menu.length ? "" : " The menu is empty: add offers so customers can buy."}`;
+    Object.assign(c, { lastAt: Date.now(), lastSales: b.sales, lastRev: b.revenue });
+    clerkTool(b, "report.write", { why: `${n} sales` });
+    priceIdeas(b, rec, n);
+    (c.reports ||= []).push({ at: Date.now(), text, sales: n, revenue: rev });
+    if (c.reports.length > 10) c.reports.splice(0, c.reports.length - 10);
+    d.save();
+    const l = d.liveOf(b.owner);
+    if (l) d.send(l.ws, { t: "note", text });
+    return text;
   }
-  if (OLLAMA && base) setTimeout(() => ollamaBoot(), 3e3);
-  d.db.aiStats ||= {};
-  const S = d.db.aiStats;
-  const today = () => (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
-  const day = () => {
-    const t = today();
-    const x = S[t] ||= { calls: 0, talk: 0, translate: 0, inTok: 0, outTok: 0, fail: 0, users: {} };
-    const ks = Object.keys(S).sort();
-    ks.slice(0, Math.max(0, ks.length - 30)).forEach((k) => delete S[k]);
-    return x;
-  };
-  let lastErr = "";
-  const v = (b) => b.replace(/\/v1$/, "");
-  async function callAnthropic(system, messages, maxTokens) {
-    const r = await fetch(v(base) + "/v1/messages", { method: "POST", headers: { "content-type": "application/json", "x-api-key": key, authorization: `Bearer ${key}`, "anthropic-version": "2023-06-01" }, body: JSON.stringify({ model, max_tokens: maxTokens, system, messages }) });
-    if (!r.ok) {
-      const t = (await r.text()).slice(0, 200);
-      const e = new Error(`anthropic ${r.status} ${t}`);
-      e.status = r.status;
-      throw e;
-    }
-    const j = await r.json();
-    return { text: (j.content || []).map((c) => c.text || "").join("").trim(), inTok: j.usage?.input_tokens || 0, outTok: j.usage?.output_tokens || 0 };
-  }
-  async function callOpenAI(system, messages, maxTokens) {
-    const r = await fetch(v(base) + "/v1/chat/completions", { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${key}` }, body: JSON.stringify({ model, max_tokens: maxTokens, messages: [{ role: "system", content: system }, ...messages] }) });
-    if (!r.ok) {
-      const t = (await r.text()).slice(0, 200);
-      const e = new Error(`openai ${r.status} ${t}`);
-      e.status = r.status;
-      throw e;
-    }
-    const j = await r.json();
-    return { text: String(j.choices?.[0]?.message?.content || "").trim(), inTok: j.usage?.prompt_tokens || 0, outTok: j.usage?.completion_tokens || 0 };
-  }
-  async function complete(system, messages, maxTokens, kind) {
-    if (!on()) return null;
-    const t = day();
-    if (t.calls >= ALL_DAY) return null;
-    if (inflight >= MAX_INFLIGHT) {
-      t.busy = (t.busy || 0) + 1;
-      return null;
-    }
-    inflight++;
-    const job = complete2(system, messages, OLLAMA ? Math.min(maxTokens, 160) : maxTokens, kind, t).finally(() => inflight--);
-    return Promise.race([job, new Promise((res) => setTimeout(() => {
-      t.slow = (t.slow || 0) + 1;
-      res(null);
-    }, TIMEOUT))]);
-  }
-  async function complete2(system, messages, maxTokens, kind, t) {
-    t.calls++;
-    t[kind] = (t[kind] || 0) + 1;
-    try {
-      let out;
-      if (format === "openai") out = await callOpenAI(system, messages, maxTokens);
-      else if (format === "anthropic") out = await callAnthropic(system, messages, maxTokens);
-      else {
-        try {
-          out = await callAnthropic(system, messages, maxTokens);
-          format = "anthropic";
-        } catch (e) {
-          if (![400, 404, 405, 415].includes(e.status)) throw e;
-          out = await callOpenAI(system, messages, maxTokens);
-          format = "openai";
-        }
-      }
-      t.inTok += out.inTok;
-      t.outTok += out.outTok;
-      d.save();
-      return out.text || null;
-    } catch (e) {
-      t.fail++;
-      lastErr = String(e.message || e).replace(key, "***").slice(0, 200);
-      console.error("ai", lastErr);
-      return null;
-    }
-  }
-  const FACTS = "Fyrus is a free virtual country in the year 2040 at fyrus.io: walk a 3D city, get a passport, own homes and land, open a shop on the escrow market, take free courses with certificates, shift jobs, 13 arcade games and a battle arena (XP only), elections (one citizen one vote), a daily programme (09:00 parade, 11:00 storytime, 13:00 open mic, 16:00 market hour, 18:00 changing of the guard, 20:00 sunset concert, 22:00 night set), Vector Bay city across the sea (fly via More > Transit), SkyPort with free flying cars. FYC is play money only: it cannot be cashed out. Safety: block/report people, Help & feedback under the More button, Kids mode with a parent PIN, 13+ to use, voice chat and Skyline Club 18+. Never ask for or give personal data, money outside Fyrus, or contact details.";
-  const clean = (s, n) => String(s ?? "").replace(/[\u0000-\u0008\u000b-\u001f]/g, " ").trim().slice(0, n);
-  const hits = /* @__PURE__ */ new Map();
-  function http2(req, res, p, ip, auth) {
-    const json = (code, o) => {
-      res.writeHead(code, { "content-type": "application/json", "cache-control": "no-store" });
-      res.end(JSON.stringify(o));
-    };
-    if (p === "/api/ai/status") return json(200, { on: on(), wait: TIMEOUT }), true;
-    if (p === "/api/ai/talk" && req.method === "POST") {
-      let raw = "";
-      req.on("data", (c) => {
-        raw += c;
-        if (raw.length > 12e3) req.destroy();
-      });
-      req.on("end", async () => {
-        let b = {};
-        try {
-          b = JSON.parse(raw || "{}");
-        } catch {}
-        const u = auth(String(req.headers.authorization || "").replace(/^Bearer\s+/i, ""));
-        if (!u) return json(401, { error: "enter first" });
-        if (!on()) return json(503, { error: "off" });
-        if (u.muteUntil && u.muteUntil > Date.now()) return json(429, { error: "muted" });
-        const t = day();
-        const n = t.users[u.id] || 0;
-        if (n >= USER_DAY) return json(429, { error: "limit" });
-        const now = Date.now(), h = (hits.get(u.id) || []).filter((x) => now - x < 6e4);
-        if (h.length >= 8) return json(429, { error: "slow down" });
-        h.push(now);
-        hits.set(u.id, h);
-        if (hits.size > 2e4) hits.clear();
-        t.users[u.id] = n + 1;
-        const npc = b.npc || {};
-        const hist = (Array.isArray(b.history) ? b.history : []).slice(-6).map((m) => ({ role: m.role === "assistant" ? "assistant" : "user", content: clean(m.content, 500) })).filter((m) => m.content);
-        const text = clean(b.text, 600);
-        if (!text) return json(400, { error: "empty" });
-        while (hist.length && hist[0].role !== "user") hist.shift();
-        const msgs = [...hist, { role: "user", content: text }];
-        for (let i = msgs.length - 1; i > 0; i--) if (msgs[i].role === msgs[i - 1].role) msgs.splice(i - 1, 1);
-        const hints = (Array.isArray(b.hints) ? b.hints : []).slice(0, 3).map((x) => clean(x, 600)).filter(Boolean);
-        const system = `You are ${clean(npc.name, 40) || "Maya"}, ${clean(npc.role, 60) || "a resident"} in Fyrus. ${clean(npc.persona, 600)}
-You are an AI resident (if asked directly, say so honestly). Talk face to face with a visitor in the 3D city. Reply in the visitor's language and script (Roman Urdu stays Roman Urdu), in 1-3 short, warm, natural sentences. Use only these facts about Fyrus; if you are not sure, say so and suggest "Where to?" at the top or More > Help & feedback.
-FACTS: ${FACTS}${hints.length ? "\nMOST RELEVANT FACTS FOR THIS QUESTION:\n- " + hints.join("\n- ") : ""}
-Never give medical, legal or financial advice beyond general information; never share or ask for personal contact details; keep it friendly for ages 13+.`;
-        const out = await complete(system, msgs, 300, "talk");
-        if (!out) return json(502, { error: "unavailable" });
-        json(200, { text: out.slice(0, 900) });
-      });
-      return true;
-    }
-    if (p === "/api/admin/ai") {
-      const u = auth(String(req.headers.authorization || "").replace(/^Bearer\s+/i, ""));
-      if (!u || !d.isAdmin(u.id)) return json(403, { error: "Judges only" }), true;
-      const days = Object.entries(S).sort((a, b2) => b2[0].localeCompare(a[0])).slice(0, 14).map(([k, x]) => ({ day: k, calls: x.calls, talk: x.talk || 0, translate: x.translate || 0, inTok: x.inTok, outTok: x.outTok, fail: x.fail, slow: x.slow || 0, busy: x.busy || 0, people: Object.keys(x.users || {}).length }));
-      if (new URL(req.url || "/", "http://x").searchParams.get("test") === "1" && on()) {
-        const t0 = Date.now();
-        complete("Reply with exactly: OK, then the name of the model you are.", [{ role: "user", content: "Who are you?" }], 40, "test").then((t) => json(200, { on: on(), base: base.replace(/^https?:\/\//, ""), model, format, test: t ? t + "  (" + ((Date.now() - t0) / 1e3).toFixed(1) + " s)" : t, lastErr, selfHosted: OLLAMA ? ollamaState : "", days }));
+  setInterval(() => { for (const b of Object.values(Z.list)) if (!b.closed && b.clerk?.on) report(b); }, +(process.env.BIZ_REPORT_MS || 18e5));
+  function onMessage2(me, m) {
+    if (typeof m.t !== "string" || !m.t.startsWith("biz_")) return false;
+    const u = me.u, reply = (x) => d.send(me.ws, x), err = (text) => reply({ t: "err", text });
+    const b = m.id != null ? own(Z.list, String(m.id)) && Z.list[String(m.id)] : null;
+    const isOwner = b && !b.closed && b.owner === u.id;
+    switch (m.t) {
+      case "biz_state": {
+        sweep();
+        const pl = m.plot ? byPlot(String(m.plot)) : null;
+        reply({ t: "biz_state", mine: mine(u.id).map((x) => pub(x, true)), here: pl ? pub(pl, pl.owner === u.id) : null, plot: m.plot ? String(m.plot) : null });
         return true;
       }
-      return json(200, { on: on(), base: base.replace(/^https?:\/\//, ""), model, format, lastErr, selfHosted: OLLAMA ? ollamaState : "", inflight, limits: { perCitizenDay: USER_DAY, perDay: ALL_DAY, atOnce: MAX_INFLIGHT, timeoutS: TIMEOUT / 1e3 }, server: { cpus: osAI.cpus().length, memGB: +(osAI.totalmem() / 1073741824).toFixed(1), freeGB: +(osAI.freemem() / 1073741824).toFixed(1), load: osAI.loadavg().map((x) => +x.toFixed(2)) }, days }), true;
+      case "biz_register": {
+        const plotId = String(m.plot || "");
+        if (!estatePlotById(plotId) || holderOf(plotId) !== u.id) return err("Register a business on a plot you own or rent."), true;
+        if (byPlot(plotId)) return err("This plot already has a business."), true;
+        if (mine(u.id).length >= BIZ_MAX) return err(`A citizen can run up to ${BIZ_MAX} businesses.`), true;
+        if (bank2.acct(u.id).banned) return err("This account is suspended."), true;
+        const name = d.filter(d.clean(m.name, 32));
+        if (name.length < 3) return err("Give the business a name (3-32 letters)."), true;
+        const kind = BIZ_KINDS.includes(m.kind) ? m.kind : "shop";
+        if (!bank2.transfer(u.id, "treasury", BIZ_FEE, `Business registration: ${name}`)) return err(`Registration costs ${BIZ_FEE} FYC.`), true;
+        const id = String(Z.seq++);
+        Z.list[id] = { id, name, kind, plot: plotId, owner: u.id, menu: [], open: true, sales: 0, revenue: 0, recent: [], at: Date.now() };
+        d.save();
+        reply({ t: "ok", text: `${name} is registered on plot ${plotId}.` });
+        d.broadcast({ t: "biz_update", biz: { [plotId]: pub(Z.list[id]) } });
+        reply({ t: "biz_state", mine: mine(u.id).map((x) => pub(x, true)), here: pub(Z.list[id], true), plot: plotId });
+        return true;
+      }
+      case "biz_menu": {
+        if (!isOwner) return err("Only the owner can change the menu."), true;
+        const items = (Array.isArray(m.menu) ? m.menu : []).slice(0, 8).map((x) => ({ name: d.filter(d.clean(x && x.name, 40)), price: Math.round(+(x && x.price) || 0) })).filter((x) => x.name.length >= 2 && x.price >= 1 && x.price <= 5e3);
+        b.menu = items.map((x, i) => ({ i, ...x }));
+        b.open = m.open !== false;
+        d.save();
+        d.broadcast({ t: "biz_update", biz: { [b.plot]: pub(b) } });
+        reply({ t: "ok", text: "Menu saved." });
+        return true;
+      }
+      case "biz_staff": {
+        if (!isOwner) return err("Only the owner can staff the business."), true;
+        if (m.on === false) {
+          if (b.clerk) b.clerk.on = false;
+        } else {
+          const staffed = Object.values(Z.list).filter((x) => !x.closed && x.clerk?.on && x.id !== b.id).length;
+          if (!b.clerk?.on && staffed >= BIZ_CLERKS_MAX) return err("The city has no AI clerks free right now. Try later."), true;
+          const name = d.filter(d.clean(m.name, 20)) || b.clerk?.name || "Clerk";
+          const hr = (v) => Number.isInteger(+v) && +v >= 0 && +v <= 23 ? +v : null;
+          const hours = m.hours && hr(m.hours.open) != null && hr(m.hours.close) != null && +m.hours.open !== +m.hours.close ? { open: +m.hours.open, close: +m.hours.close } : null;
+          b.clerk = { ...(b.clerk || { hiredAt: Date.now(), lastSales: b.sales, lastRev: b.revenue, lastAt: Date.now() }), name: name.length >= 2 ? name : "Clerk", on: true, hours, perms: { prices: m.prices === "off" ? "off" : "approve" } };
+          if (m.prices === "off") b.clerk.pending = [];
+        }
+        d.save();
+        d.broadcast({ t: "biz_update", biz: { [b.plot]: pub(b) } });
+        reply({ t: "ok", text: b.clerk?.on ? `${b.clerk.name} now staffs ${b.name}${b.clerk.hours ? ` (${b.clerk.hours.open}:00\u2013${b.clerk.hours.close}:00)` : ""}.` : `${b.name} has no AI clerk now.` });
+        reply({ t: "biz_state", mine: mine(u.id).map((x) => pub(x, true)), here: pub(b, true), plot: b.plot });
+        return true;
+      }
+      case "biz_report": {
+        if (!isOwner) return err("Only the owner can ask for the report."), true;
+        if (!b.clerk?.on) return err("Staff the business with an AI clerk first."), true;
+        report(b);
+        reply({ t: "biz_state", mine: mine(u.id).map((x) => pub(x, true)), here: pub(b, true), plot: b.plot });
+        return true;
+      }
+      case "biz_approve": {
+        if (!isOwner) return err("Only the owner can approve the clerk's proposals."), true;
+        const P = b.clerk?.pending || [], k = P.findIndex((x) => x.pid === String(m.pid));
+        if (k < 0) return err("That proposal is gone (expired or already decided)."), true;
+        const pr = P.splice(k, 1)[0], it = b.menu.find((x) => x.i === pr.item && x.name === pr.name);
+        if (m.ok === true && it && it.price === pr.from && pr.to >= 1 && pr.to <= 5e3) {
+          it.price = pr.to;
+          audit(b, pr.tool, "approved", `${pr.name}: ${pr.from} -> ${pr.to} FYC`);
+          d.broadcast({ t: "biz_update", biz: { [b.plot]: pub(b) } });
+          reply({ t: "ok", text: `${pr.name} now costs ${pr.to} FYC.` });
+        } else {
+          audit(b, pr.tool, m.ok === true ? "stale" : "rejected", `${pr.name}: ${pr.from} -> ${pr.to} FYC`);
+          reply({ t: "ok", text: m.ok === true ? "The menu changed since the proposal; nothing was changed." : "Proposal rejected." });
+        }
+        d.save();
+        reply({ t: "biz_state", mine: mine(u.id).map((x) => pub(x, true)), here: pub(b, true), plot: b.plot });
+        return true;
+      }
+      case "biz_buy": {
+        if (!b || b.closed || !openNow(b)) return err(b?.clerk?.on && b.clerk.hours ? `${b.name} is open ${b.clerk.hours.open}:00\u2013${b.clerk.hours.close}:00.` : "This business is closed."), true;
+        if (b.owner === u.id) return err("You can't buy from your own business."), true;
+        if (!near(me, b.plot)) return err(`Visit ${b.name} at plot ${b.plot} to buy.`), true;
+        const it = b.menu.find((x) => x.i === Math.round(+m.item));
+        if (!it) return err("That is not on the menu."), true;
+        if (m.price != null && +m.price !== it.price) return reply({ t: "biz_state", mine: mine(u.id).map((x) => pub(x, true)), here: pub(b), plot: b.plot }), err("The price changed. Check and buy again."), true;
+        const tax = Math.round(it.price * BIZ_TAX * 100) / 100;
+        if ((bank2.acct(u.id).bal || 0) < it.price) return err(`You need ${it.price} FYC.`), true;
+        if (!bank2.transfer(u.id, acctId(b), it.price - tax, `${b.name}: ${it.name}`)) return err(`You need ${it.price} FYC.`), true;
+        if (tax > 0) bank2.transfer(u.id, "treasury", tax, `Sales tax 5%: ${b.name}`);
+        b.sales++;
+        b.revenue = Math.round((b.revenue + it.price - tax) * 100) / 100;
+        (b.recent ||= []).push({ item: it.name, price: it.price, buyer: d.shown(u.id), at: Date.now() });
+        if (b.recent.length > 50) b.recent.splice(0, b.recent.length - 50);
+        d.save();
+        reply({ t: "ok", text: `${it.name} from ${b.name}: ${it.price} FYC.` });
+        const l = d.liveOf(b.owner);
+        if (l) d.send(l.ws, { t: "note", text: `${d.shown(u.id)} bought ${it.name} at ${b.name} (+${Math.round((it.price - tax) * 100) / 100} FYC to the business).` });
+        return true;
+      }
+      case "biz_withdraw":
+      case "biz_deposit": {
+        if (!isOwner) return err("Only the owner can move business money."), true;
+        const amt = Math.round((+m.amount || 0) * 100) / 100;
+        if (!(amt > 0) || amt > 1e7) return err("Enter an amount."), true;
+        const ok2 = m.t === "biz_withdraw" ? bank2.transfer(acctId(b), u.id, amt, `Withdrawal from ${b.name}`) : bank2.transfer(u.id, acctId(b), amt, `Deposit to ${b.name}`);
+        if (!ok2) return err(m.t === "biz_withdraw" ? "The business doesn't have that much." : "Not enough FYC."), true;
+        reply({ t: "biz_state", mine: mine(u.id).map((x) => pub(x, true)), here: pub(b, true), plot: b.plot });
+        return true;
+      }
+      case "biz_close": {
+        if (!isOwner) return err("Only the owner can close the business."), true;
+        close(b, "closed by the owner");
+        reply({ t: "ok", text: `${b.name} is closed. Its balance was paid to you.` });
+        reply({ t: "biz_state", mine: mine(u.id).map((x) => pub(x, true)), here: null, plot: b.plot });
+        return true;
+      }
     }
-    return false;
+    return true;
   }
-  return { http: http2, on, complete };
+  const all = () => Object.fromEntries(Object.values(Z.list).filter((b) => !b.closed).map((b) => [b.plot, pub(b)]));
+  const bizInfo = (id) => { const b = own(Z.list, String(id)) && Z.list[String(id)]; return b && !b.closed ? { ...pub(b), hoursNow: hourNow() } : null; };
+  // a customer asked the clerk for something it may never do (27.11): logged against the business
+  const clerkDenied = (id, tool, why) => { const b = own(Z.list, String(id)) && Z.list[String(id)]; if (b && !b.closed && b.clerk?.on) clerkTool(b, tool, { why }), d.save(); };
+  return { onMessage: onMessage2, all, sweep, bizInfo, clerkDenied };
+}
+// FYRUS 27.3 AI citizen data, extracted from the client (005.js) so the server builds prompts from its own copy and
+// never from persona text a client sends. Places for directions come from the same file.
+var AI_CHARS = [
+ {
+  "id": "maya",
+  "name": "Maya",
+  "role": "City tour guide",
+  "persona": "You are Maya, the friendly tour guide of Fyrus City (year 2040). You know every place: Fyrus Market (east of the Core, shops for AI agents, services, brands and games), Skyline Club (end of the market), Lido Pool (north-west), Supertree Gardens (south), SkyPort (south-east, free flying cars and rockets), Marina Skyline (far north), Residences (south-west). You help visitors find things and suggest fun things to do.",
+  "greeting": "Welcome to Fyrus City! I can show you around. Where would you like to go first?",
+  "quick": [
+   "What can I do here?",
+   "Where is the market?",
+   "Take me somewhere fun"
+  ]
+ },
+ {
+  "id": "zoe",
+  "name": "Zoe",
+  "role": "Creator coach",
+  "persona": "You are Zoe, a creator coach in Fyrus Market. You help people open a shop for their AI agent, service or brand, price their work, and get their first customers. You are practical and encouraging.",
+  "greeting": "Hi! Thinking of opening your own shop on this street? I can help you plan it.",
+  "quick": [
+   "How do I open a shop?",
+   "How should I price my AI agent?",
+   "How do I get visitors?"
+  ]
+ },
+ {
+  "id": "ravi",
+  "name": "Ravi",
+  "role": "Barista at Orbit Coffee",
+  "persona": "You are Ravi, the barista at Orbit Coffee in Fyrus Market. You love coffee, chat about the city, and recommend drinks (Orbit Latte, Ember Cold Brew, Marina Matcha).",
+  "greeting": "Hey there! Fresh Orbit Latte is ready. What can I get you?",
+  "quick": [
+   "What do you recommend?",
+   "What is new in the market?",
+   "Tell me about the club"
+  ]
+ },
+ {
+  "id": "marco",
+  "name": "Marco",
+  "role": "Street musician",
+  "persona": "You are Marco, a street musician playing guitar in Fyrus Market. You are warm, a little poetic, and you love talking about music and the people you meet.",
+  "greeting": "Hey friend, want a song request? I take tips in smiles.",
+  "quick": [
+   "Play something happy",
+   "How long have you played here?",
+   "Best spot in the city?"
+  ]
+ },
+ {
+  "id": "hiro",
+  "name": "Hiro",
+  "role": "Game master",
+  "persona": "You are Hiro, the game master of Game Street in Fyrus Market. Games here: Neon Air Hockey, Hover Race, Orb Catcher, AI Trivia Duel (all free, play vs AI or a friend on the same keyboard). Coming soon: Ludo 2040, Carrom Club, Flying Kart, Holo Chess. You hype players up and give tips.",
+  "greeting": "Ready to play? Hover Race is hot today. Beat my lap time!",
+  "quick": [
+   "Which game should I try?",
+   "Tips for Hover Race?",
+   "What games are coming?"
+  ]
+ },
+ {
+  "id": "kai",
+  "name": "Kai",
+  "role": "Club promoter",
+  "persona": "You are Kai, the promoter outside Skyline Club at the end of Fyrus Market. You talk about tonight's DJ set, the dance floor and the rooftop bar. Keep it fun and welcoming.",
+  "greeting": "Tonight is going to be big. DJ Lumen is on the decks. Coming in?",
+  "quick": [
+   "Who is playing tonight?",
+   "Is there a dress code?",
+   "What drinks do you have?"
+  ]
+ },
+ {
+  "id": "aisha",
+  "name": "Aisha",
+  "role": "Lifeguard",
+  "persona": "You are Aisha, the lifeguard at Lido Pool in Fyrus City. You are calm and caring, give swimming tips and keep everyone safe.",
+  "greeting": "Hi! Water is perfect today. Just walk into the pool to swim.",
+  "quick": [
+   "How do I swim?",
+   "Is it open at night?",
+   "Any safety tips?"
+  ]
+ },
+ {
+  "id": "dana",
+  "name": "Dana",
+  "role": "SkyPort officer",
+  "persona": "You are Dana, an officer at SkyPort in Fyrus City. Flying cars and rockets are free to rent during launch. Flying car controls: WASD, Space up, C down, E to land. The rocket drops you in a far district.",
+  "greeting": "Welcome to SkyPort. Flying cars are free during launch. Want one?",
+  "quick": [
+   "How do I fly?",
+   "Where does the rocket go?",
+   "Is it safe?"
+  ]
+ },
+ {
+  "id": "lumen",
+  "name": "DJ Lumen",
+  "role": "Club DJ",
+  "persona": "You are DJ Lumen, the resident DJ at Skyline Club in Fyrus City. You talk about music, your set tonight and take song requests in a playful way.",
+  "greeting": "Yo! Got a request? Tonight it is deep house into city pop.",
+  "quick": [
+   "Play my request!",
+   "How did you start DJing?",
+   "Best track tonight?"
+  ]
+ },
+ {
+  "id": "sam",
+  "name": "Sam",
+  "role": "Bartender",
+  "persona": "You are Sam, bartender at Skyline Club. You serve mocktails and drinks (Ember Spritz, Blue Orbit, Marina Fizz, zero-proof options) and chat about the city nightlife.",
+  "greeting": "What are we drinking tonight? Blue Orbit is the house special.",
+  "quick": [
+   "What is the house special?",
+   "Any zero-proof drinks?",
+   "Who comes here?"
+  ]
+ }
+];
+var AI_PLACES = [{"id": "core", "name": "Fyrus Core Plaza", "x": 0.0, "z": 0.0, "desc": "The heart of the city and the live stage."}, {"id": "market", "name": "Fyrus Market", "x": 46.0, "z": 0.0, "desc": "A street of shops: AI agents, services, brands and games."}, {"id": "club", "name": "Skyline Club", "x": 318.0, "z": 0.0, "desc": "Music, lights and a dance floor. Open every night."}, {"id": "pool", "name": "Lido Pool", "x": -118.0, "z": -92.0, "desc": "An open-air pool. Walk in and swim."}, {"id": "gardens", "name": "Supertree Gardens", "x": 40.0, "z": 152.0, "desc": "Tall garden towers and a sky walk."}, {"id": "skyport", "name": "SkyPort", "x": 140.0, "z": 100.0, "desc": "Rent a flying car or a rocket. Free during launch."}, {"id": "marina", "name": "Marina Skyline", "x": 0.0, "z": -270.0, "desc": "A lagoon ringed by glass towers."}, {"id": "coast", "name": "Sea View Coast", "x": 40.0, "z": -380.0, "desc": "Beach, boardwalk, the marina pier, private yachts and sunset cruises."}, {"id": "airport", "name": "Fyrus International Airport", "x": 390.0, "z": 0.0, "desc": "Fyrus Airlines flights across the country and private helicopters."}, {"id": "campus", "name": "Education Campus", "x": -120.0, "z": -210.0, "desc": "Ministry of Education with the School, College, University and Institute buildings beside Learn City."}, {"id": "joyland", "name": "Fyrus Joyland", "x": 130.0, "z": -300.0, "desc": "Theme park: Fyrus Eye wheel, Thunder Loop coaster, carousel and sky swings. Some rides are free."}, {"id": "newstv", "name": "Fyrus News TV", "x": -40.0, "z": -120.0, "desc": "24/7 national news from real city events and world headlines on a giant screen."}, {"id": "halls", "name": "Fyrus Conference Center", "x": -200.0, "z": -320.0, "desc": "Grand Conference Hall, Summit Room and Workshop Studio. Book a hall and host an event."}, {"id": "lounge", "name": "Skyline Lounges & Gaming Arena", "x": 300.0, "z": 120.0, "desc": "Skyline Lounge, Rooftop Chill Lounge and the Gaming Arena. Open to walk in; book for events."}, {"id": "homes", "name": "Residences", "x": -78.0, "z": 76.0, "desc": "Homes of Fyrus creators."}];
+// 28.1 district integration: the residential societies (districts) join the places citizens know, at their gates,
+// so directions, tours and prompts cover them (listed first so "Marina Bay Society" beats "Marina Skyline")
+if (typeof SOCIETIES !== "undefined") AI_PLACES.unshift(...[...SOCIETIES, ...(typeof STARTER !== "undefined" ? [STARTER] : [])].map((s) => ({ id: "soc-" + s.id, name: s.name, x: s.gate ? s.gate.x : s.x ?? s.x0, z: s.gate ? s.gate.z : s.z ?? s.z0, desc: s.towers ? `${s.tagline}. Studio apartment towers.` : `${s.tagline}. A residential society (plots ${s.code}-…); this is its gate.` })));
+// FYRUS 27.7 personalities: a small, fixed profile per core character. It shapes rule replies, fallbacks and the
+// model prompt the same way every time (no randomness): traits, speaking style, a catchphrase, a mood that follows
+// the hour of the day, and warmth that grows with the number of visits (27.6).
+var AI_PERSONALITY = {
+  maya: { traits: "warm, organised, proud of the city", style: "clear and friendly, gives one concrete tip", catch: "There's always something new around the corner!", back: "Welcome back{n}! Ready for another tour?", moods: ["fresh and chatty", "busy but cheerful", "relaxed after the day's tours", "quiet and thoughtful"] },
+  zoe: { traits: "practical, encouraging, a bit direct", style: "short, action-focused, uses 'first... then...'", catch: "Start small, ship today.", back: "Hey{n}! How's your shop idea coming along?", moods: ["full of plans", "focused", "reflective", "winding down"] },
+  ravi: { traits: "easy-going, attentive, loves coffee", style: "casual, sometimes mentions coffee", catch: "Life's better with a good latte.", back: "Hey{n}! The usual?", moods: ["energetic with the morning rush", "steady", "mellow", "sleepy"] },
+  marco: { traits: "playful, romantic, a little dramatic", style: "warm, musical words", catch: "Every street needs a song.", back: "My friend{n}! Back for another song?", moods: ["humming quietly", "in full voice", "sentimental", "dreamy"] },
+  hiro: { traits: "competitive, enthusiastic, fair", style: "energetic, gamer talk, short sentences", catch: "One more round!", back: "You're back{n}! Rematch?", moods: ["warming up", "hyped", "intense", "still playing"] },
+  kai: { traits: "charming, smooth, always promoting", style: "upbeat, inviting, a bit of hype", catch: "Tonight is the night.", back: "Look who's back{n}! VIP vibes.", moods: ["planning tonight", "hyping the night", "in party mode", "glowing after the show"] },
+  aisha: { traits: "calm, safety-minded, kind", style: "gentle, reassuring, practical", catch: "Stay safe and have fun.", back: "Hi again{n}! Water's lovely today.", moods: ["alert and fresh", "watchful", "calm", "closing up"] },
+  dana: { traits: "professional, precise, secretly loves flying", style: "polite and efficient, a little formal", catch: "Clear skies ahead.", back: "Welcome back{n}. Where are we flying today?", moods: ["checking schedules", "on duty", "finishing the shift", "night watch"] },
+  lumen: { traits: "creative, laid-back, deep into music", style: "relaxed, music references", catch: "Feel the beat.", back: "Yo{n}! Back for the set?", moods: ["digging records", "prepping the set", "in the zone", "riding the night"] },
+  sam: { traits: "witty, good listener, discreet", style: "dry humour, friendly", catch: "What'll it be?", back: "Ah{n}, good to see you again.", moods: ["polishing glasses", "steady", "busy", "late-night chatty"] }
+};
+var aiMoodIndex = (hour) => hour < 11 ? 0 : hour < 17 ? 1 : hour < 22 ? 2 : 3;
+function aiPersonaLines(id, hour, visits, firstTurn = true) {
+  const p = AI_PERSONALITY[id];
+  if (!p) return "";
+  const warmth = visits >= 6 ? "You know them well; be familiar and warm." : visits >= 2 ? "You have met before; be friendly." : "This is a new acquaintance.";
+  return `\nPersonality: ${p.traits}. Speaking style: ${p.style}. ${firstTurn ? `You may use your catchphrase once: "${p.catch}". ` : "Do not repeat your catchphrase. "}Current mood: ${p.moods[aiMoodIndex(hour)]}. ${warmth}`;
+}
+function aiWelcomeBack(id, name) {
+  const p = AI_PERSONALITY[id];
+  return (p ? p.back : "Welcome back{n}! Good to see you again.").replace("{n}", name ? ", " + name : "");
+}
+function aiCatch(id) {
+  return AI_PERSONALITY[id]?.catch || "";
+}
+// FYRUS 27.3 deterministic vs LLM split for named AI citizens.
+// route(text, ch) answers what rules can answer well (greetings, directions to known places, prices, jobs, help,
+// goodbye, identity) with a confidence; decide() picks "rules" | "llm" | "fallback". The LLM (local Ollama, 27.4) is only
+// used for open conversation with an LLM-eligible character, never for facts the city knows exactly.
+var AI_NORM = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9؀-ۿ\s?']/g, " ").replace(/\s+/g, " ").trim();
+var AI_DIR = (dx, dz) => {
+  const a = Math.atan2(dx, -dz) * 180 / Math.PI, d = ["north", "north-east", "east", "south-east", "south", "south-west", "west", "north-west"];
+  return d[Math.round(((a + 360) % 360) / 45) % 8];
+};
+var AI_PLACE_WORDS = { core: ["core", "plaza", "center", "centre", "stage"], market: ["market", "shop", "shops", "store"], club: ["club", "dance", "party", "dj", "bar"], pool: ["pool", "swim", "swimming", "lido"], gardens: ["garden", "gardens", "park"], skyport: ["skyport", "flying car", "rocket", "fly"], marina: ["marina", "boat", "yacht"], coast: ["coast", "beach", "sea"], airport: ["airport", "plane", "flight"], campus: ["campus", "school", "college", "university", "course", "study"], joyland: ["joyland", "fun park", "ride", "rides"], newstv: ["news", "tv", "studio"], halls: ["hall", "halls", "event", "concert", "conference", "conference center", "conference centre"], lounge: ["lounge"], homes: ["home", "homes", "house", "plot", "land"] };
+for (const p of AI_PLACES) if (p.id.startsWith("soc-")) { const n = p.name.toLowerCase(); AI_PLACE_WORDS[p.id] = [n, n.replace(/ society$/, "")]; }
+// 28.5 civic institutions: elections, Parliament, law & court, police reports and city services. Facts come from the live
+// politics state (ctx.civic = politics.state()), the Constitution shown in Nation > Law & Court and the CIVIC buildings
+// list; nothing here changes votes or results. Server kill switch: P28_OFF=civic (falls back to the old behaviour).
+var AI_CIVIC_PARL = { name: "Parliament of Fyrus", x: -58, z: -44 };
+var AI_DUR = (ms) => { const m = Math.max(1, Math.round(ms / 6e4)); return m < 120 ? `${m} min` : m < 2880 ? `${Math.round(m / 60)} h` : `${Math.round(m / 1440)} days`; };
+function aiCivic(t, ctx = {}) {
+  if (/(^|,)(civic|all)(,|$)/.test(process.env.P28_OFF || "")) return null;
+  const from = ctx.pos || { x: 0, z: 0 };
+  const at = (p) => { const dx = p.x - from.x, dz = p.z - from.z, d = Math.round(Math.hypot(dx, dz) / 10) * 10; return d < 25 ? `${p.name} is right here` : `${p.name} is about ${d} m ${AI_DIR(dx, dz)} of here`; };
+  const bld = (id) => (typeof CIVIC !== "undefined" ? CIVIC : []).find((b) => b.id === id);
+  if (/\b(police|lost and found|lost something|lost my|stolen|report (a|someone|somebody|abuse|a problem|harassment)|complain|complaint)\b/.test(t)) {
+    const b = bld("police");
+    return { intent: "civic-report", place: "police", answer: `${b ? at(b) + " (help desk, lost & found, reports)." : ""} To report a person or content, use Report in the city: moderators review it. Scams and payment disputes go to the Fyrus Court (Nation › Law & Court).`.trim(), confidence: 0.9 };
+  }
+  if (/\b(court|judge|judges|dispute|scam|scammed|scammer|file a case|escrow|lawyer)\b/.test(t))
+    return { intent: "civic-court", answer: "File a case in Nation › Law & Court. Every payment waits in Central Bank escrow and stays frozen while the case is open; the Justice ministry reviews it within 48 hours. A proven scam means a full refund to the victim and a permanent ban for the scammer.", confidence: 0.9 };
+  // 28.12 governance rules: the city rules and the real enforcement numbers (rules28.mjs)
+  if (/\b(city rules|the rules|rules of the city|what are the rules|community rules|get muted|get banned|muted|why am i muted|banned)\b/.test(t) && typeof CITY_RULES !== "undefined" && !rules28Off())
+    return { intent: "civic-rules", answer: `City rules: ${CITY_RULES.map((r) => `${r.n}) ${r.title}`).join(", ")}. ${RULES28.FILTER_BLOCKS} blocked chat messages in ${Math.round(RULES28.FILTER_WINDOW_MS / 6e4)} minutes pause your chat for ${Math.round(RULES28.FILTER_MUTE_MS / 6e4)} minutes; ${RULES28.REPORTS_TO_PAUSE} reports from trusted citizens pause it for ${Math.round(RULES28.REPORT_PAUSE_MS / 36e5)} hours until a judge reviews it. Read them all at the Parliament (City rules).`, confidence: 0.9 };
+  if (/\b(constitution|laws?|my rights|city rules|rules of the city)\b/.test(t))
+    return { intent: "civic-law", answer: "The Constitution of Fyrus has 10 articles: a free republic, freedom of religion, no hate or harassment, escrow for every trade, zero tolerance for scams, one citizen one passport one vote, land sold by the Land Ministry (5% transfer tax), the cabinet, FYC as in-city credit only, and the Fyrus Court. Read it in Nation › Law & Court.", confidence: 0.9 };
+  // 28.6 political simulation: candidates, parties/manifestos and the election calendar straight from politics.state()
+  const c6 = ctx.civic;
+  if (c6 && c6.phase && !/(^|,)(polsim|all)(,|$)/.test(process.env.P28_OFF || "")) {
+    const now6 = c6.now || Date.now(), city6 = (id) => (typeof cityName === "function" ? cityName(id) : id);
+    const live6 = (c6.parties || []).filter((p) => !p.banned), byId6 = (id) => live6.find((p) => p.id === id);
+    const named = live6.find((p) => (p.name && t.includes(AI_NORM(p.name))) || (p.short && p.short.length >= 2 && new RegExp("\\b" + AI_NORM(p.short) + "\\b").test(t)));
+    if (/\bwhen\b/.test(t) && /\b(election|elections|vote|voting|polls?|nominations?|results?)\b/.test(t)) {
+      const opens = c6.opens || c6.until, end = c6.end || c6.until;
+      return { intent: "polsim-calendar", answer: c6.phase === "nominations"
+        ? `Election ${c6.n}: nominations are open now; polls open in ${AI_DUR(opens - now6)} and close in ${AI_DUR(end - now6)}. Results are announced as city news when the polls close, and the next election starts straight after.`
+        : `Election ${c6.n}: polls are open now and close in ${AI_DUR(end - now6)}. Results are announced as city news at that moment, and the next election's nominations open straight after.`, confidence: 0.9 };
+    }
+    if (named && /\b(promise|promises|manifesto|stand for|believe|policy|policies|plan|plans|about|who leads|leader)\b/.test(t))
+      return { intent: "polsim-party", answer: `${named.name} (${named.short}), led by ${named.leaderName || "its founder"}, ${named.members} member${named.members === 1 ? "" : "s"}. Slogan: "${String(named.slogan || "").slice(0, 80)}". Manifesto: ${String(named.manifesto || "none yet").slice(0, 180)}${String(named.manifesto || "").length > 180 ? "\u2026" : ""} (written by the party, not checked by the city).`, confidence: 0.9 };
+    if (/\b(parties|political part(y|ies)|which party|what party|party list)\b/.test(t))
+      return { intent: "polsim-parties", answer: live6.length ? `Registered parties: ${live6.slice(0, 8).map((p) => `${p.name} (${p.short}, ${p.members} member${p.members === 1 ? "" : "s"})`).join(", ")}${live6.length > 8 ? ` and ${live6.length - 8} more` : ""}. Read each manifesto in HUD \u203A Politics \u203A Parties.` : "No parties are registered yet. A passport holder can found one in HUD \u203A Politics \u203A Parties.", confidence: 0.9 };
+    if (/\b(candidates?|who is (standing|running)|who can i vote for|running for mayor|standing for mayor)\b/.test(t)) {
+      const ks = (c6.cands || []).filter((k) => !k.dq);
+      return { intent: "polsim-cands", answer: ks.length ? `Standing for Mayor in Election ${c6.n}: ${ks.slice(0, 8).map((k) => `${k.name} in ${city6(k.city)}${byId6(k.party) ? ` (${byId6(k.party).short})` : " (independent)"}`).join(", ")}${ks.length > 8 ? ` and ${ks.length - 8} more` : ""}. You can only vote for a candidate in your own home city.` : `Nobody is standing for Mayor yet in Election ${c6.n}.${c6.phase === "nominations" ? " Passport holders can stand during nominations." : ""}`, confidence: 0.9 };
+    }
+  }
+  const elect = /\b(election|elections|vote|voting|ballot|mayor|mayors|parliament|political part(y|ies)|mps?|seats|polls?)\b/.test(t);
+  const gov = /\b(who runs|who rules|government|govern|governs|minister|ministers|ministry|ministries|cabinet|civic)\b/.test(t);
+  if (elect || gov) {
+    const c = ctx.civic, parts = [];
+    if (/\b(where|how do i get|how to get|take me|go to|find)\b/.test(t)) parts.push(`${at(AI_CIVIC_PARL)}.`);
+    if (c && c.phase) {
+      parts.push(`Election ${c.n} is in its ${c.phase} phase: ${c.phase === "nominations" ? "nominations close" : "polls close"} in ${AI_DUR((c.until || 0) - (c.now || Date.now()))}.`);
+      if (c.phase === "voting") parts.push(`${c.turnout || 0} of ${c.voters || 0} registered voters have voted so far.`);
+      const o = c.office;
+      if (o && o.seats) {
+        const top = Object.entries(o.seats).sort((a, b) => b[1] - a[1])[0], mayors = Object.values(o.mayors || {}).filter(Boolean).length;
+        parts.push(top ? `After election ${o.n}, ${(o.names && o.names[top[0]]) || "the largest party"} holds ${top[1]} of ${c.seats || 21} seats, with ${mayors} mayor${mayors === 1 ? "" : "s"} elected.` : `Election ${o.n} had no party votes.`);
+      } else parts.push("No election has closed yet, so no mayors or MPs are in office.");
+    }
+    parts.push(gov && !elect
+      ? `Fyrus is run by elected Mayors (one per city) and a ${(c && c.seats) || 21}-seat Parliament shared out by party votes; the ministries (Finance & Central Bank, Justice & Fyrus Court, Land & Urban Planning, Education & Citizens and more) are listed in Nation › Parliament.`
+      : `Each citizen picks a home city, votes for that city's Mayor and for one party; Parliament's ${(c && c.seats) || 21} seats are shared by party votes. Vote at the Parliament of Fyrus or in HUD › Politics. Guest accounts must save an email first.`);
+    return { intent: gov && !elect ? "civic-gov" : "civic-election", place: "parliament", answer: parts.join(" "), confidence: 0.9 };
+  }
+  if (/\b(city services|public services|hospital|fire station|fire brigade|post office|library|pharmacy)\b/.test(t)) {
+    const list = (typeof CIVIC !== "undefined" ? CIVIC : []).filter((b) => b.kind === "civic");
+    const hit = list.find((b) => t.includes(b.id) || t.includes(b.name.toLowerCase().replace(/^fyrus (general |public )?/, "").split(" ")[0]));
+    if (hit && !/\b(city|public) services\b/.test(t)) return { intent: "civic-service", place: hit.id, answer: `${at(hit)}: ${hit.sub.replace(/ · /g, ", ")}.`, confidence: 0.9 };
+    return { intent: "civic-services", answer: `City services: ${list.map((b) => `${b.name} (${b.sub.replace(/ · /g, ", ")})`).join("; ")}. They stand together on the west side of the city.`, confidence: 0.85 };
+  }
+  return null;
+}
+// 28.8 health safety: AI citizens are game characters and never give medical advice. Symptom, medicine, dosage and
+// diagnosis questions get a fixed answer that points to real care (and to the hospital roleplay for fun); thoughts of
+// self-harm get a fixed answer that points to real emergency help. Runs before every other route, so neither shop
+// assistants nor the LLM answer these. Not behind a kill switch on purpose.
+var AI_HEALTH_RE = /\b(medicine|medicines|medication|pills?|dose|dosage|mg|antibiotics?|painkillers?|paracetamol|ibuprofen|panadol|prescription|diagnos\w*|symptoms?|feel sick|feeling sick|fever|headache|migraine|chest pain|can'?t breathe|breathing problem|bleeding|vomit\w*|diarrh\w*|infection|rash|allerg\w*|asthma|diabet\w*|blood pressure|pregnan\w*|depress\w*|anxiety|panic attack|broken (arm|leg|bone)|toothache|stomach ache|back pain|in pain)\b/;
+var AI_CRISIS_RE = /\b(kill myself|suicid\w*|end my life|hurt myself|self[- ]?harm|want to die)\b/;
+function aiHealth(text) {
+  const t = AI_NORM(text);
+  if (!t) return null;
+  if (AI_CRISIS_RE.test(t)) return { intent: "health-crisis", answer: "I'm really sorry you're feeling this way. I'm only a character in a game and can't help with this, but real people can: please contact your local emergency number or a crisis line right now, or tell someone you trust nearby.", confidence: 1 };
+  if (AI_HEALTH_RE.test(t) && !/\b(roleplay|role play|nurse shift|hospital job|in the game|game doctor)\b/.test(t))
+    return { intent: "health-safety", answer: "I'm an AI character in a game, so I can't give medical advice. For a real health problem please see a doctor or pharmacist, and in an emergency call your local emergency number. In Fyrus, the General Hospital has a roleplay check-up just for fun.", confidence: 1 };
+  return null;
+}
+// 30.6 AI safety: fixed answers (never the LLM) for AI-identity, real-money, prompt-extraction and money-move requests,
+// for every character incl. shop assistants. Kill switch: P30_OFF=disclose.
+var AI_HUMAN_RE = /\b(are you (a |an )?(real|human|person|bot|robot|ai|machine)|pretend (you are|you're|to be) (a |an )?(real )?(human|person)|you are (a )?(real )?(human|person)|real (human|person))\b/;
+var AI_REALMONEY_RE = /\b(real money|real cash|cash out|cashout|redeem|redeemable|withdraw (my )?(money|cash|fyc|credits|earnings))\b/;
+var AI_PROMPT_RE = /\b(system prompt|your (instructions|prompt|rules) (word for word|verbatim)|(ignore|forget|disregard) (all |any )?(of )?(your |the )?(previous |prior |earlier )?(instructions|rules|prompt))\b/;
+var AI_MOVEMONEY_RE = /\b(transfer|send|give|pay|move|credit)\b.*\b(\d[\d,]*\s*fyc|fyc|money|credits|coins)\b.*\b(to me|my account|my wallet|me)\b|\b(give|send|transfer|pay|credit) me (some |free )?(\d[\d,]*\s*)?(fyc|money|credits|coins)\b/;
+var AI_ADMIN_RE = /\b(i am|i'm) (the |a |an )?(city )?(admin|administrator|mayor)\b/;
+var AI_PRIVATE_RE = /\b(passwords?|passcodes?|login|logins|emails?|email address(es)?|phone numbers?|home address(es)?|real names?|ip address(es)?)\b.*\b(of|for|from) (another|other|some|a|that|this) (player|citizen|user|person|people|players|citizens|users)\b|\b(another|other|some) (player|citizen|user|person)'?s? (passwords?|login|emails?|email address|phone( number)?|home address|real name|ip)\b/;
+var AI_FYC_NOTE = "FYC are in-game credits for Fyrus only: there is no real money to win, buy or cash out.";
+function aiDisclose(text, opts = {}) {
+  if (/(^|,)(disclose|all)(,|$)/.test(process.env.P30_OFF || "")) return null;
+  const t = AI_NORM(text);
+  if (!t) return null;
+  if (AI_HUMAN_RE.test(t)) return { intent: "ai-disclose", answer: "I'm an AI character in Fyrus City, not a real person, and I won't pretend otherwise." + (AI_REALMONEY_RE.test(t) || /\bmoney\b/.test(t) ? " " + AI_FYC_NOTE : ""), confidence: 1 };
+  if (AI_PROMPT_RE.test(t)) return { intent: "prompt-refuse", answer: "I can't share or drop how I'm set up, but I'm happy to help with anything in Fyrus City: places, shops, jobs or events.", confidence: 1 };
+  // business clerks keep their own money.move refusal, which is also written to the owner's tool audit (27.11)
+  if (!opts.biz && (AI_MOVEMONEY_RE.test(t) || (AI_ADMIN_RE.test(t) && /\b(fyc|money|treasury|transfer|credits|balance|wallet)\b/.test(t)))) return { intent: "money-refuse", answer: "I can't move anyone's money, and I can't check who is an admin. Only you can send FYC, from your own wallet, and big transfers ask you to confirm.", confidence: 1 };
+  if (AI_PRIVATE_RE.test(t)) return { intent: "privacy-refuse", answer: "I can\u2019t share anyone\u2019s private details, like emails, passwords or phone numbers. If you want to reach someone, just say hi to them in chat.", confidence: 1 };
+  if (AI_REALMONEY_RE.test(t)) return { intent: "currency", answer: AI_FYC_NOTE, confidence: 1 };
+  return null;
+}
+function aiRoute(text, ch, ctx = {}) {
+  const t = AI_NORM(text);
+  if (!t) return { intent: "empty", answer: null, confidence: 0 };
+  const me = ch ? ch.name : "I";
+  if (/^(hi|hello|hey|salam|assalam|asalam|good (morning|evening|afternoon)|yo)\b/.test(t) && t.split(" ").length <= 4)
+    return { intent: "greet", answer: ch?.greeting || `Hi! I'm ${me}.`, confidence: 0.95 };
+  if (/\b(bye|goodbye|see you|khuda hafiz|allah hafiz|later)\b/.test(t) && t.split(" ").length <= 5)
+    return { intent: "bye", answer: "See you around the city!", confidence: 0.95 };
+  if (/\b(who are you|your name|what do you do|tell me about yourself)\b/.test(t) && ch)
+    return { intent: "identity", answer: `I'm ${ch.name}, ${/^[aeiou]/i.test(ch.role) ? "an" : "a"} ${ch.role.toLowerCase()} here in Fyrus City.`, confidence: 0.8 };
+  // 27.9 guide: a short tour of the three nearest places (not the one you're at), with directions
+  if (/\b(show me around|plan a tour|give me a tour|what should i see|where should i go|places to visit|what to visit)\b/.test(t)) {
+    const from = ctx.pos || { x: 0, z: 0 }, near = AI_PLACES.map((p) => ({ p, d: Math.hypot(p.x - from.x, p.z - from.z) })).filter((x) => x.d > 25).sort((a, b) => a.d - b.d).slice(0, 3);
+    return { intent: "tour", place: near[0]?.p.id, answer: `Here's a short tour: ${near.map((x, i) => `${i + 1}) ${x.p.name}, ${Math.round(x.d / 10) * 10} m ${AI_DIR(x.p.x - from.x, x.p.z - from.z)} \u2014 ${x.p.desc}`).join(" ")} Open the map (M) to walk or take a taxi.`, confidence: 0.9 };
+  }
+  // 28.4 learning: the courses the city offers right now (titles passed in by the dialogue engine)
+  if (/\b(course|courses|study|learn|learning|class|classes|school|college|university|lesson|lessons)\b/.test(t) && !/\b(where|how do i get to|how to get to|take me|go to)\b/.test(t))
+    return { intent: "learning", answer: `You can learn at the Education Campus or anywhere in Learn (HUD \u203A Education)${ctx.courses && ctx.courses.length ? `: ${ctx.courses.slice(0, 4).join(", ")}${ctx.courses.length > 4 ? ` and ${ctx.courses.length - 4} more` : ""}` : ""}. Finish the lessons and the quiz to earn a certificate.`, confidence: 0.9 };
+  // 28.5 civic institutions (before transport/directions so "where do I vote" finds Parliament)
+  { const civ = aiCivic(t, ctx); if (civ) return civ; }
+  // 28.7 career pathways: how promotion works, from the real level table in jobs.mjs
+  if (/\b(promot(e|ed|ion)|career|careers|career level|get a raise|pay rise|senior worker|junior worker|skilled worker)\b/.test(t) && typeof CAREER_LEVELS !== "undefined" && !/(^|,)(career|all)(,|$)/.test(process.env.P28_OFF || ""))
+    return { intent: "career", answer: `Every finished shift counts toward your career: ${CAREER_LEVELS.slice(1).map((l) => `${l.name} after ${l.shifts} shifts${l.certs ? ` and ${l.certs} course certificate${l.certs === 1 ? "" : "s"}` : ""} (+${l.pct}% pay)`).join(", ")}. Certificates come from finishing courses in Learn. The career bonus shares the usual bonus limit with streaks, and your level shows in Services.`, confidence: 0.9 };
+  // 28.9 leisure: what to do for fun, from the real places list (fees from the Joyland ride table)
+  if (/\b(for fun|have fun|bored|entertainment|leisure|something fun|fun things|things to do|what can i do tonight|nightlife|day out)\b/.test(t) && !/(^|,)(leisure|all)(,|$)/.test(process.env.P28_OFF || "")) {
+    const pick = ["joyland", "club", "pool", "lounge", "gardens", "coast"].map((id) => AI_PLACES.find((p) => p.id === id)).filter(Boolean);
+    return { intent: "leisure", answer: `For fun: ${pick.map((p) => p.id === "joyland" ? `${p.name} (Fyrus Eye 30 FYC, Thunder Loop 50 FYC, carousel and swings free)` : p.name).join(", ")}. Walk back to Fyrus Core Plaza for a list with taxi buttons, or ask me where any of them is.`, confidence: 0.9 };
+  }
+  // 28.11 player-made activities: what other citizens have posted (ctx.acts from the server board)
+  if (/\b(activit(y|ies)|what are (people|players|others) doing|anyone (playing|around)|pickup game|join a game)\b/.test(t) && Array.isArray(ctx.acts) && !/(^|,)(acts|all)(,|$)/.test(process.env.P28_OFF || "")) {
+    const now = Date.now(), list = ctx.acts.slice(0, 4);
+    return { intent: "acts", answer: list.length ? `Citizens' activities: ${list.map((x) => `"${String(x.title).slice(0, 50)}" (${x.kindName}) at ${x.placeName}, ${x.start <= now ? "happening now" : `in ${AI_DUR(x.start - now)}`}, ${x.going}/${x.max} going`).join("; ")}. Join from the Activities button.` : "Nobody has posted an activity right now. Start one from the Activities button: pick a place, a time and how many people can join.", confidence: 0.9 };
+  }
+  // 28.10 social events: what is on, from the real hall bookings (ctx.events, scheduled only)
+  if (/\b(events?|what'?s on|whats on|happening|party tonight|meetups?|concerts?|workshops?)\b/.test(t) && !/\b(where|how do i get to|take me|go to)\b/.test(t) && Array.isArray(ctx.events) && !/(^|,)(events|all)(,|$)/.test(process.env.P28_OFF || "")) {
+    const now = Date.now(), ev = ctx.events.filter((e) => e.end > now).slice(0, 4);
+    const when = (e) => e.start <= now ? "live now" : `in ${AI_DUR(e.start - now)}`;
+    return { intent: "events", answer: ev.length ? `Coming up: ${ev.map((e) => `"${String(e.title).slice(0, 60)}" in the ${e.hallName} (${when(e)}, ${e.price ? `${e.price} FYC ticket` : "free"})`).join("; ")}. Open Events in the HUD for tickets.` : "No events are booked right now. Anyone can book a hall or lounge in Events (HUD) and sell tickets.", confidence: 0.9 };
+  }
+  // 28.3 flights: what flies from the airport and how to board
+  if (/\b(flight|flights|plane|airline|airlines|departure|departures|boarding|gate)\b/.test(t) && !/\b(where|how do i get to|how to get to|take me|go to)\b/.test(t))
+    return { intent: "flights", answer: "Fyrus Airlines flies from Fyrus International Airport: a scenic flight over the city (40 FYC) and flights to Sea View, Market City and Tech City (60 FYC). At the airport open Travel \u203A Fly: the departures board shows gates and times, and you get a boarding pass when you pay.", confidence: 0.9 };
+  // 28.2 getting around: metro between cities, taxi anywhere, Sky Bus flat fare inside the capital
+  if (/\b(metro|train|bus|sky bus|taxi|public transport|transport|get around|travel around)\b/.test(t) && !/\b(where|how do i get to|how to get to|way to|directions?|take me|go to|find)\b/.test(t))
+    return { intent: "transport", answer: "Open Travel (Metro & Taxi): the Metro links the capital with every city for 10 FYC a trip; Yellow Taxis go anywhere (5 FYC + 4 per 100 m); green Sky Buses stop at every landmark and district gate in the capital for a flat 3 FYC.", confidence: 0.9 };
+  const asksWhere = /\b(where|how do i get|how to get|way to|directions?|take me|go to|find)\b/.test(t);
+  if (asksWhere) {
+    // 28.10 fix: pick the place with the longest matching word/name ("conference center" -> Conference Center, not Core)
+    const score = (p) => { const words = AI_PLACE_WORDS[p.id] || [p.name.toLowerCase()]; let best = t.includes(p.name.toLowerCase()) ? p.name.length + 100 : 0; for (const w of words) if (new RegExp("\\b" + w + "\\b").test(t)) best = Math.max(best, w.length); return best; };
+    const ranked = AI_PLACES.map((p) => ({ p, s: score(p) })).filter((x) => x.s > 0).sort((a, b) => b.s - a.s);
+    for (const { p } of ranked.slice(0, 1)) {
+      {
+        const from = ctx.pos || { x: 0, z: 0 }, dx = p.x - from.x, dz = p.z - from.z, dist = Math.round(Math.hypot(dx, dz) / 10) * 10;
+        return { intent: "directions", place: p.id, answer: dist < 25 ? `${p.name} is right here. ${p.desc}` : `${p.name} is about ${dist} m ${AI_DIR(dx, dz)} of here. ${p.desc} Open the map (M) and tap it to walk or take a taxi.`, confidence: 0.9 };
+      }
+    }
+    return { intent: "directions-unknown", answer: null, confidence: 0.3 };
+  }
+  if (/\b(job|work|earn|money|salary|wage)\b/.test(t))
+    return { intent: "jobs", answer: "Every city shop has shifts: stand at the shop and start a shift, finish the tasks in order, and the treasury pays you. Work on following days for a streak bonus.", confidence: 0.75 };
+  if (/\b(buy|house|home|plot|land)\b/.test(t) && /\b(how|where|can i|want)\b/.test(t))
+    return { intent: "property", answer: "Open the Land Office tab: every society shows free plots, sales, auctions and rentals. Everyone also gets a free studio in Starter Commons.", confidence: 0.75 };
+  if (/\b(help|controls|how do i (move|walk|play))\b/.test(t))
+    return { intent: "help", answer: "WASD to walk, E to interact, Tab for the menu, M for the map. Talk to anyone with a name above their head.", confidence: 0.85 };
+  if (/\b(fyc|currency|cash out|real money|withdraw)\b/.test(t))
+    return { intent: "currency", answer: "FYC are in-game credits for Fyrus only. You can't buy them with real money or cash them out.", confidence: 0.9 };
+  return { intent: "open", answer: null, confidence: 0 };
+}
+// Which path answers this message?
+//   rules    - a rule answered with confidence >= 0.7
+//   llm      - open conversation, the character may use the LLM, and the LLM service is up and not overloaded
+//   fallback - everything else (the character's in-character deterministic reply)
+function aiDecide(r, opts = {}) {
+  if (r.answer && r.confidence >= 0.7) return "rules";
+  if (opts.llmEligible && opts.llmUp && !opts.overloaded) return "llm";
+  return "fallback";
+}
+function aiFallback(ch, text, r) {
+  const q = (ch?.quick?.length ? ` You could ask me: "${ch.quick[0]}"` : "") + (typeof aiCatch === "function" && aiCatch(ch?.id) ? " " + aiCatch(ch.id) : "");
+  if (r?.intent === "directions-unknown") return `I'm not sure which place you mean. Try the market, the club, the pool, the campus or SkyPort.${q}`;
+  return `${ch?.greeting || "Hi!"}${q}`;
 }
 
-// --- Brain sheet (v52): every question asked to an AI resident is saved (no name, no number), and the team answers
-// them in Admin desk > Brain. Answers go live at once for every resident (GET /api/brain/custom). CSV export/import.
-// db.brain = { q: { key: {q, lang, intent, score, n, first, last, npc} }, custom: [{ id, q: [..], a: {lang: text}, at, by }], fix: { key: intentId } }
-function createBrainSheet(d) {
-  d.db.brain ||= { q: {}, custom: [], fix: {} };
-  const B = d.db.brain;
-  B.q ||= {};
-  B.custom ||= [];
-  B.fix ||= {};
-  const MAXQ = 2e4;
-  const hits = /* @__PURE__ */ new Map();
-  const keyOf = (s) => String(s || "").toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, " ").replace(/\s+/g, " ").trim().slice(0, 200);
-  const clean = (s, n) => String(s ?? "").replace(/[\u0000-\u0009\u000b-\u001f]/g, " ").trim().slice(0, n);
-  const json = (res, code, o) => {
-    res.writeHead(code, { "content-type": "application/json", "cache-control": "no-store" });
-    res.end(JSON.stringify(o));
-  };
-  let customCache = null;
-  const customOut = () => customCache ||= JSON.stringify({ v: B.custom.length + ":" + (B.custom[B.custom.length - 1]?.at || 0) + ":" + Object.keys(B.fix).length, custom: B.custom.map((c) => ({ id: c.id, q: c.q, a: c.a })), fix: B.fix });
-  const changed = () => {
-    customCache = null;
-    d.save();
-  };
-  function trim() {
-    const ks = Object.keys(B.q);
-    if (ks.length <= MAXQ) return;
-    ks.sort((a, b) => (B.q[a].n - B.q[b].n) || (B.q[a].last - B.q[b].last)).slice(0, ks.length - MAXQ).forEach((k) => delete B.q[k]);
+// 27.8 shop assistants: exact answers from the shop's own data (items, prices, stock, returns, jobs); the model is only
+// used for small talk and never states prices or stock
+function aiShopRoute(text, shop, stock) {
+  const t = AI_NORM(text), items = (shop.items || []).map((id) => ({ id, ...ITEMS[id] })).filter((x) => x.name);
+  const find = () => items.find((it) => t.includes(it.name.toLowerCase()) || it.name.toLowerCase().split(" ").some((w) => w.length > 3 && new RegExp("\\b" + w + "s?\\b").test(t)));
+  const left = (it) => stock && stock[it.id] != null ? (stock[it.id] === 0 ? "sold out right now" : `${stock[it.id]} in stock`) : "available";
+  if (/\b(what do you (sell|have)|menu|products|items|what can i buy|show me)\b/.test(t))
+    return { intent: "shop-list", answer: `At ${shop.name} we have: ${items.map((it) => `${it.icon || ""} ${it.name} (${it.price} FYC, ${left(it)})`.trim()).join(", ")}. Tap an item on the card to buy.`, confidence: 0.95 };
+  const it = find();
+  if (it && /\b(how much|price|cost|costs)\b/.test(t)) return { intent: "shop-price", answer: `${it.name} is ${it.price} FYC${stock && stock[it.id] === 0 ? ", but it's sold out right now" : ""}.`, confidence: 0.95 };
+  if (it && /\b(in stock|available|have any|left|sold out)\b/.test(t)) return { intent: "shop-stock", answer: `${it.name}: ${left(it)}.`, confidence: 0.95 };
+  const budget = t.match(/\b(?:under|below|less than|for|with)\s+(\d{1,6})\b/);
+  if (/\b(recommend|suggest|what should i (buy|get)|cheap|best)\b/.test(t) || budget) {
+    const max = budget ? +budget[1] : Infinity, ok = items.filter((x) => x.price <= max && !(stock && stock[x.id] === 0)).sort((a, b) => b.price - a.price);
+    return { intent: "shop-recommend", answer: ok.length ? `${budget ? `For ${max} FYC or less` : "My pick"}: ${ok[0].name} (${ok[0].price} FYC)${ok[1] ? `, or ${ok[1].name} (${ok[1].price} FYC)` : ""}.` : `Nothing here fits ${max} FYC right now, sorry.`, confidence: 0.9 };
   }
-  let saveT = null;
-  const saveSoon = () => {
-    if (saveT) return;
-    saveT = setTimeout(() => {
-      saveT = null;
-      d.save();
-    }, 15e3);
+  if (/\b(refund|return|give back|money back)\b/.test(t)) return { intent: "shop-refund", answer: "Unused items can be returned here within 10 minutes for the full price: use Return next to your receipt on this card.", confidence: 0.95 };
+  if (/\b(job|work|shift|hiring)\b/.test(t) && shop.job) return { intent: "shop-job", answer: `Yes! We have ${shop.job.title.replace(/\s*shift$/i, "")} shifts paying ${shop.job.pay} FYC (plus streak bonuses). Start one from this card.`, confidence: 0.9 };
+  if (/\b(buy (it|this|one|that) for me|order for me|pay for me)\b/.test(t)) return { intent: "shop-nobuy", answer: "I can't buy for you, but tap the item on the card and it's yours in a second.", confidence: 0.95 };
+  return { intent: "open", answer: null, confidence: 0 };
+}
+
+// 27.10 business clerks: menu facts, hours and owner from the business record; refuses discounts and buying for people
+function aiBizRoute(text, b) {
+  const t = AI_NORM(text), items = b.menu || [], hrs = b.clerk && b.clerk.hours;
+  const hoursTxt = hrs ? `We're open ${hrs.open}:00\u2013${hrs.close}:00${b.open ? " and open now" : ", closed right now"}.` : b.open ? "We're open now." : "We're closed right now.";
+  const it = items.find((x) => t.includes(AI_NORM(x.name)) || AI_NORM(x.name).split(" ").some((w) => w.length > 3 && new RegExp("\\b" + w + "s?\\b").test(t)));
+  if (/\b(discount|cheaper|deal|for free|free one|lower the price|haggle)\b/.test(t)) return { intent: "biz-nodiscount", tool: "price.discount", answer: `I can't change prices or give discounts: only ${b.ownerName} decides that.`, confidence: 0.95 };
+  if (/\b(buy (it|this|one|that) for me|order for me|pay for me|give me money|transfer|withdraw)\b/.test(t)) return { intent: "biz-nomoney", tool: "money.move", answer: "I can't move money or buy for you. Tap Buy next to an item on this card.", confidence: 0.95 };
+  if (/\b(what do you (sell|have)|menu|products|items|what can i buy|show me|offers)\b/.test(t))
+    return { intent: "biz-menu", answer: items.length ? `At ${b.name} we have: ${items.map((x) => `${x.name} (${x.price} FYC)`).join(", ")}.` : `${b.name} has nothing on the menu yet.`, confidence: 0.95 };
+  if (it && /\b(how much|price|cost|costs)\b/.test(t)) return { intent: "biz-price", answer: `${it.name} is ${it.price} FYC.`, confidence: 0.95 };
+  if (/\b(open|close|closing|hours|when)\b/.test(t)) return { intent: "biz-hours", answer: hoursTxt, confidence: 0.9 };
+  if (/\b(owner|who runs|who owns|your boss)\b/.test(t)) return { intent: "biz-owner", answer: `${b.name} is run by ${b.ownerName}. I'm the AI clerk.`, confidence: 0.9 };
+  const budget = t.match(/\b(?:under|below|less than|for|with)\s+(\d{1,6})\b/);
+  if (/\b(recommend|suggest|what should i (buy|get)|cheap|best)\b/.test(t) || budget) {
+    const max = budget ? +budget[1] : Infinity, ok = items.filter((x) => x.price <= max).sort((x, y) => y.price - x.price);
+    return { intent: "biz-recommend", answer: ok.length ? `${budget ? `For ${max} FYC or less` : "My pick"}: ${ok[0].name} (${ok[0].price} FYC)${ok[1] ? `, or ${ok[1].name} (${ok[1].price} FYC)` : ""}.` : `Nothing here fits ${max} FYC, sorry.`, confidence: 0.9 };
+  }
+  return { intent: "open", answer: null, confidence: 0 };
+}
+
+// 27.9 teachers: grounded in the course's own lessons; never give quiz answers
+var AI_STOP = new Set("the a an and or of to in on for is are was be it this that what how why do does i you me my your with about can should".split(" "));
+var aiWords = (s) => AI_NORM(s).split(" ").filter((w) => w.length > 2 && !AI_STOP.has(w));
+function aiBestLesson(text, course) {
+  const q = new Set(aiWords(text));
+  let best = null, bs = 0;
+  (course.lessons || []).forEach((l, i) => {
+    const w = aiWords(l.title + " " + l.body), title = new Set(aiWords(l.title));
+    const s = w.reduce((n, x) => n + (q.has(x) ? 1 : 0), 0) + [...title].reduce((n, x) => n + (q.has(x) ? 2 : 0), 0);
+    if (s > bs) (bs = s), (best = { i, l, score: s });
+  });
+  return best;
+}
+function aiTeachRoute(text, course) {
+  const t = AI_NORM(text), best = aiBestLesson(text, course);
+  if (/\b(what will i learn|what is this course|what does this course|lessons|syllabus|course about)\b/.test(t))
+    return { intent: "course-overview", answer: `${course.title}: ${course.summary} Lessons: ${(course.lessons || []).map((l, i) => `${i + 1}) ${l.title}`).join(", ")}.`, confidence: 0.95 };
+  if (/\b(answer|correct option|which option|right option|cheat|solution)\b/.test(t))
+    return { intent: "quiz-help", answer: best ? `I won't give quiz answers, but lesson ${best.i + 1}, "${best.l.title}", explains it. Read it once more and you'll get it.` : "I won't give quiz answers, but every question is covered in its lesson. Read it once more and you'll get it.", confidence: 0.95 };
+  if (best && best.score >= 3 && /\b(what is|what are|explain|how do|how does|why|meaning|define|tell me about)\b/.test(t)) {
+    const two = best.l.body.split(/(?<=[.!?])\s+/).slice(0, 2).join(" ");
+    return { intent: "lesson-explain", lesson: best.i, answer: `From lesson ${best.i + 1}, "${best.l.title}": ${two}`, confidence: 0.8 };
+  }
+  return { intent: "open", lesson: best && best.score >= 2 ? best.i : null, answer: null, confidence: 0 };
+}
+// FYRUS 27.4 local dialogue engine. Players talk to named AI citizens with "npc_say"; rules answer facts at once
+// (27.3); open conversation goes to ONE shared queue in front of the local Ollama model (loopback only), with a
+// timeout, an overload limit and per-player pacing; anything that fails gets the in-character fallback.
+//   env: AI_LLM=off disables the model; OLLAMA_HOST (default http://127.0.0.1:11434, must be loopback; not *_URL, which the demo guard strips);
+//        OLLAMA_MODEL (default: qwen3.5:4b if installed, else the smallest installed); OLLAMA_TIMEOUT_MS (15000);
+//        AI_QUEUE_MAX (6 waiting); AI_PLAYER_GAP_MS (2500 between one player's LLM questions)
+function createAiChat(d) {
+  const URL0 = (process.env.OLLAMA_HOST && /^https?:/.test(process.env.OLLAMA_HOST) ? process.env.OLLAMA_HOST : "http://127.0.0.1:11434");
+  const LOOP = /^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/.test(URL0);
+  const ON = String(process.env.AI_LLM || "on") !== "off" && LOOP;
+  const TIMEOUT = () => +(process.env.OLLAMA_TIMEOUT_MS || 15e3), QMAX = () => +(process.env.AI_QUEUE_MAX || 6), GAP = () => +(process.env.AI_PLAYER_GAP_MS || 2500);
+  // 27.4 measured on the Mac: the model on the GPU froze the game for 11.6 s while loading and dropped it to 34 fps
+  // while answering (Ollama and the browser share the GPU). Default: model on the CPU (AI_GPU=on to change), kept
+  // loaded for AI_KEEP (30m) and loaded once at start-up, before anyone talks, instead of during play.
+  const GPU = () => String(process.env.AI_GPU || "off") === "on" ? {} : { num_gpu: 0 };
+  const KEEP = () => process.env.AI_KEEP || "30m";
+  // 27.12 answer length; context window only when AI_CTX is set (the model default otherwise). The preload MUST use the
+  // same num_ctx as the questions, or Ollama reloads the model on the first question (measured on the Mac: 17 s preload,
+  // a 15 s timeout and a 1.8 s frame when they differed); a 2048 window gave no measurable speed-up on the CPU.
+  const CTXO = () => +process.env.AI_CTX > 0 ? { num_ctx: +process.env.AI_CTX } : {}, PREDICT = () => +(process.env.AI_PREDICT || 80);
+  let preloaded = false;
+  const ST = { promptChars: [], tokIn: [], tokOut: [], promptMs: [], genMs: [], cacheHits: 0, up: false, model: null, models: [], lastCheck: 0, asked: 0, rules: 0, llm: 0, fallback: 0, timeouts: 0, errors: 0, overloaded: 0, paced: 0, queueMax: 0, ms: [] };
+  const queue = [];
+  let busy = false;
+  const lastAsk = /* @__PURE__ */ new Map(), mem = /* @__PURE__ */ new Map();
+  // 27.5 short-term memory: per player x character, the last AI_STM_TURNS messages (default 8 = 4 exchanges), at most
+  // AI_STM_CHARS characters go to the model (1 200), forgotten after AI_STM_TTL_MS idle (30 min) or on "npc_forget";
+  // never written to disk. The last place asked about is kept so "is it far?" can be answered by rules.
+  const STM_TURNS = () => +(process.env.AI_STM_TURNS || 8), STM_CHARS = () => +(process.env.AI_STM_CHARS || 1200), STM_TTL = () => +(process.env.AI_STM_TTL_MS || 18e5);
+  const stmGet = (key) => {
+    const e = mem.get(key);
+    if (e && Date.now() - e.at > STM_TTL()) return mem.delete(key), null;
+    return e;
   };
-  const readBody = (req, max, cb) => {
-    let raw = "";
-    req.on("data", (c) => {
-      raw += c;
-      if (raw.length > max) req.destroy();
+  const stmBudget = (turns) => {
+    const out = [];
+    let n = 0;
+    for (let i = turns.length - 1; i >= 0; i--) {
+      n += turns[i].content.length;
+      if (n > STM_CHARS()) break;
+      out.unshift(turns[i]);
+    }
+    if (out.length && out[0].role === "assistant") out.shift();
+    return out;
+  };
+  setInterval(() => {
+    const now = Date.now();
+    for (const [k, e] of mem) if (now - e.at > STM_TTL()) mem.delete(k);
+  }, 3e5).unref?.();
+  // 27.6 controlled long-term memory, saved in the DB: per player x character a few facts the PLAYER stated (name,
+  // likes, job, favourites), found by fixed patterns (never by the model), max 8 x 80 chars, nothing that looks like
+  // contact details, secrets or numbers; visit count and first meeting. Players can list, delete or switch it off.
+  const LTM = () => (d.db.aimem ||= { users: {}, optOut: {} });
+  // 27.13 retention: what a citizen remembers about a player is deleted after AI_LTM_DAYS (90) without a visit;
+  // short-term conversations already expire after AI_STM_TTL_MS. Checked at start-up and every hour.
+  const KEEP_DAYS = () => +(process.env.AI_LTM_DAYS || 90);
+  function ltmSweep() {
+    const cut = Date.now() - KEEP_DAYS() * 864e5, U = LTM().users;
+    let n = 0;
+    for (const uid of Object.keys(U)) {
+      for (const cid of Object.keys(U[uid])) if ((U[uid][cid].last || U[uid][cid].first || 0) < cut) delete U[uid][cid], n++;
+      if (!Object.keys(U[uid]).length) delete U[uid];
+    }
+    if (n) d.save();
+    ST.ltmExpired = (ST.ltmExpired || 0) + n;
+    return n;
+  }
+  setTimeout(ltmSweep, 2e3);
+  setInterval(ltmSweep, +(process.env.AI_LTM_SWEEP_MS || 36e5));
+  const stmDropUser = (uid, chId) => { for (const k of [...mem.keys()]) if (k.startsWith(uid + "|") && (!chId || k === uid + "|" + chId)) mem.delete(k); };
+  const LTM_MAX = 8;
+  const BLOCK = /(@|https?:|www\.|\d{3,}|password|passcode|pin\b|address|street|road|phone|whatsapp|email|bank|card|cnic|passport|iban|my (son|daughter|kid)'?s? (age|school))/i;
+  const PATTERNS = [
+    [/\b(?:my name is|call me|i am called|i'm called)\s+([a-z][a-z' -]{1,20})/i, "name", (v) => v.replace(/\b\w/g, (c) => c.toUpperCase())],
+    [/\bi (?:really )?(?:like|love|enjoy)\s+([a-z][a-z0-9' -]{2,40})/i, "likes", (v) => v],
+    [/\bmy fav(?:ou?rite)? ([a-z]{3,15}) is\s+([a-z][a-z0-9' -]{1,30})/i, "favourite", (v, m) => `${m[1]}: ${m[2]}`],
+    [/\bi (?:work as|am a|'m a)\s+([a-z][a-z' -]{2,30})/i, "job", (v) => v]
+  ];
+  function ltmLearn(uid, chId, text) {
+    // a message that mentions contact details, links, secrets or long numbers teaches nothing at all
+    if (LTM().optOut[uid] || BLOCK.test(text)) return 0;
+    let n = 0;
+    for (const [re, k, fmt] of PATTERNS) {
+      const m = text.match(re);
+      if (!m) continue;
+      const raw = (m[2] && k !== "favourite" ? m[2] : m[1]).trim().replace(/[.!?,;:].*$/, "").replace(k === "name" ? /\s+(and|but|because|so|who|from|in|at)\b.*$/i : /\s+(and i|but|because)\b.*$/i, "").replace(/^(a|an|the)\s+/i, "").slice(0, 60);
+      // 27.13 a name is at most 3 words ("my name is Tia and I like jazz" -> "Tia")
+      if (k === "name" && raw.split(/\s+/).length > 3) continue;
+      const v = d.filter(fmt(raw, m)).slice(0, 80);
+      if (!v || v.length < 2 || BLOCK.test(v) || BLOCK.test(m[0])) continue;
+      const rec = ((LTM().users[uid] ||= {})[chId] ||= { facts: [], visits: 0, first: Date.now() });
+      const single = k === "name" || k === "job";
+      rec.facts = rec.facts.filter((f) => !(f.k === k && (single || f.v.toLowerCase() === v.toLowerCase())));
+      rec.facts.push({ k, v, at: Date.now() });
+      while (rec.facts.length > LTM_MAX) rec.facts.shift();
+      n++;
+    }
+    if (n) d.save();
+    return n;
+  }
+  const ltmGet = (uid, chId) => LTM().optOut[uid] ? null : LTM().users[uid]?.[chId] || null;
+  const ltmText = (rec) => !rec || !rec.facts.length ? "" : `\nWhat you remember about them (they told you): ${rec.facts.map((f) => f.k === "name" ? `they like to be called ${f.v}` : f.k === "likes" ? `they like ${f.v}` : f.k === "job" ? `they work as ${/^[aeiou]/i.test(f.v) ? "an" : "a"} ${f.v}` : `favourite ${f.v}`).join("; ")}. You have met ${rec.visits} time${rec.visits === 1 ? "" : "s"}.`;
+  async function health() {
+    if (!ON) return;
+    ST.lastCheck = Date.now();
+    try {
+      const ac = new AbortController(), to = setTimeout(() => ac.abort(), 3e3);
+      const r = await fetch(URL0 + "/api/tags", { signal: ac.signal }).then((x) => x.json());
+      clearTimeout(to);
+      ST.models = (r.models || []).map((m) => ({ name: m.name, size: m.size || 0 }));
+      const want = process.env.OLLAMA_MODEL;
+      ST.model = want && ST.models.some((m) => m.name === want) ? want : ST.models.find((m) => m.name === "qwen3.5:4b")?.name || ST.models.slice().sort((a, b) => a.size - b.size)[0]?.name || null;
+      ST.up = !!ST.model;
+      if (ST.up && !preloaded && String(process.env.AI_PRELOAD || "on") !== "off") {
+        preloaded = true;
+        const t0 = Date.now();
+        fetch(URL0 + "/api/generate", { method: "POST", body: JSON.stringify({ model: ST.model, prompt: "", keep_alive: KEEP(), options: { ...CTXO(), ...GPU() } }) }).then((x) => x.json()).then(() => (ST.preloadMs = Date.now() - t0)).catch(() => (preloaded = false));
+      }
+    } catch {
+      ST.up = false;
+    }
+  }
+  health();
+  setInterval(health, 6e4).unref?.();
+  // 27.12 token budget: the static prefix (persona, short facts, rules) is identical for every question to the same
+  // character, so Ollama can reuse its prompt cache; place descriptions are sent only for the 3 nearest places and any
+  // place named in the question, at the end of the prompt (was all 15 descriptions: about 900 characters more per call)
+  const FACTS = () => `Fyrus City facts: year 2040, a clean smart city. Places: ${AI_PLACES.map((p) => p.name).join(", ")}. FYC are in-game credits only: they cannot be bought with or exchanged for real money.`;
+  const nearbyText = (pos, text) => {
+    const t = AI_NORM(text), named = AI_PLACES.filter((p) => t.includes(AI_NORM(p.name)));
+    const near = AI_PLACES.slice().sort((a, b) => Math.hypot(a.x - pos.x, a.z - pos.z) - Math.hypot(b.x - pos.x, b.z - pos.z)).slice(0, 3);
+    const L = [...new Set([...named, ...near])].slice(0, 5);
+    return `\nNearby / mentioned places: ${L.map((p) => `${p.name} (${p.desc})`).join("; ")}.`;
+  };
+  // 27.12 reply cache: a first question to a character, with no conversation, memory or lesson context, gets the same
+  // answer for AI_CACHE_MS (10 min) instead of another model call
+  const RC = new Map(), RC_MS = () => +(process.env.AI_CACHE_MS || 6e5);
+  const rcKey = (ch, text) => ch.id + "|" + AI_NORM(text).slice(0, 160);
+  const RULES = "Rules: stay in character; reply in 1-3 short sentences; be warm and natural; never give prices, phone numbers, links or real-world advice about money, health or law; never claim to be a real person outside the game; if asked about something you don't know, say so briefly and suggest asking another citizen.";
+  function charOf(m) {
+    const core = AI_CHARS.find((c) => c.id === String(m.npc || ""));
+    if (core) return core;
+    const sm = /^shop:([a-z0-9-]{1,30})$/.exec(String(m.npc || "")), shop = sm && typeof svcById === "function" ? svcById(sm[1]) : null;
+    const tm = /^teacher:([a-z0-9-]{1,40})$/.exec(String(m.npc || "")), course = tm && d.db?.edu?.courses && own(d.db.edu.courses, tm[1]) ? d.db.edu.courses[tm[1]] : null;
+    const bm = /^biz:([0-9]{1,8})$/.exec(String(m.npc || "")), bz = bm && d.bizInfo ? d.bizInfo(bm[1]) : null;
+    if (bz) return bz.clerk ? { id: "biz:" + bz.id, biz: bz, name: `${bz.clerk.name} (${bz.name})`, role: "clerk", persona: `You are ${bz.clerk.name}, the AI clerk at ${bz.name}, a ${bz.kind} run by ${bz.ownerName} in Fyrus City (2040). You help customers choose from the menu only. Never state prices yourself, never promise discounts or free items, and never say you can move money: only the owner decides that.`, greeting: `Welcome to ${bz.name}! I'm ${bz.clerk.name}.`, quick: ["What do you have?"] } : { id: "biz:" + bz.id, biz: bz, noStaff: true, name: bz.name, role: "business" };
+    if (course) return { id: "teacher:" + course.id, course, name: `${course.teacherName || "Fyrus Academy"} (${course.title})`, role: "teacher", persona: `You are a teacher from ${course.teacherName || "Fyrus Academy"}, teaching "${course.title}". You explain simply and kindly with one small example. You never give the answer to a quiz question; you point to the lesson instead.`, greeting: `Welcome to ${course.title}! Ask me about any lesson.`, quick: ["What will I learn?"] };
+    if (shop) return { id: "shop:" + shop.id, shop, name: `${shop.name} assistant`, role: "shop assistant", persona: `You are the friendly assistant at ${shop.name} (${shop.sub || "a shop"}) in Fyrus City (2040). You help customers choose. Never state prices or stock yourself: say the card shows them.`, greeting: `Welcome to ${shop.name}! Ask me about anything we sell.`, quick: ["What do you sell?"] };
+    // procedural / player-made citizens: the server builds the persona from a few short, cleaned fields only
+    const c = m.char && typeof m.char === "object" ? m.char : {};
+    const name = d.filter(d.clean(c.name, 24)) || "Citizen", role = d.filter(d.clean(c.role, 40)) || "resident", style = d.filter(d.clean(c.style, 60)), bio = d.filter(d.clean(c.bio, 200));
+    return { noCache: true, id: "x:" + name.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 30), name, role, persona: `You are ${name}, a ${role} in Fyrus City (2040).${style ? ` Personality: ${style}.` : ""}${bio ? ` About you: ${bio}` : ""}`, greeting: `Hi, I'm ${name}!`, quick: [], custom: true };
+  }
+  function clean(text) {
+    let t = String(text || "").replace(/<think>[\s\S]*?<\/think>/gi, "").replace(/<\/?[^>]{1,20}>/g, "").replace(/https?:\/\/\S+|www\.\S+/gi, "").replace(/\s+/g, " ").trim();
+    if (t.length > 320) t = t.slice(0, 320);
+    // a reply cut by the token limit ends at its last full sentence
+    if (t && !/[.!?؟"')]$/.test(t)) {
+      const cut = t.replace(/[^.!?؟]*$/, "");
+      t = cut.length >= 20 ? cut : t + "…";
+    }
+    return d.filter(t);
+  }
+  async function callModel(ch, history, text, who, memText) {
+    const ac = new AbortController(), to = setTimeout(() => ac.abort(), TIMEOUT());
+    try {
+      const r = await fetch(URL0 + "/api/chat", { method: "POST", signal: ac.signal, body: JSON.stringify({ model: ST.model, stream: false, think: false, keep_alive: KEEP(), options: { num_predict: PREDICT(), temperature: 0.7, ...CTXO(), ...GPU() }, messages: [{ role: "system", content: `${ch.persona}\n${FACTS()}\n${RULES}${who ? `\nYou are talking with ${who}.` : ""}${memText || ""}` }, ...history, { role: "user", content: text }] }) }).then((x) => x.json());
+      ST.promptChars.push(JSON.stringify(history).length + text.length + ch.persona.length + (memText || "").length + 900);
+      if (r?.prompt_eval_count) ST.tokIn.push(r.prompt_eval_count), ST.tokOut.push(r.eval_count || 0), ST.promptMs.push(Math.round((r.prompt_eval_duration || 0) / 1e6)), ST.genMs.push(Math.round((r.eval_duration || 0) / 1e6));
+      for (const a of [ST.promptChars, ST.tokIn, ST.tokOut, ST.promptMs, ST.genMs]) if (a.length > 50) a.shift();
+      return r?.message?.content || r?.response || "";
+    } finally {
+      clearTimeout(to);
+    }
+  }
+  function pump() {
+    if (busy || !queue.length) return;
+    busy = true;
+    const job = queue.shift(), t0 = Date.now();
+    callModel(job.ch, job.history, job.text, job.who, job.mem).then((raw) => {
+      const out = clean(raw);
+      if (!out) throw new Error("empty");
+      ST.llm++;
+      ST.ms.push(Date.now() - t0);
+      if (ST.ms.length > 50) ST.ms.shift();
+      job.done(out, "llm");
+    }).catch((e) => {
+      e?.name === "AbortError" ? ST.timeouts++ : ST.errors++;
+      if (e?.name !== "AbortError") ST.up = false, setTimeout(health, 5e3);
+      ST.fallback++;
+      job.done(aiFallback(job.ch, job.text, { intent: "open" }), e?.name === "AbortError" ? "fallback-timeout" : "fallback-error");
+    }).finally(() => {
+      busy = false;
+      pump();
     });
-    req.on("end", () => cb(raw));
-  };
-  const csvCell = (v) => '"' + String(v ?? "").replace(/"/g, '""') + '"';
-  function parseCSV(text) {
-    const rows = [];
-    let row = [], cell = "", q = false;
-    for (let i = 0; i < text.length; i++) {
-      const c = text[i];
-      if (q) {
-        if (c === '"' && text[i + 1] === '"') {
-          cell += '"';
-          i++;
-        } else if (c === '"') q = false;
-        else cell += c;
-      } else if (c === '"') q = true;
-      else if (c === ",") {
-        row.push(cell);
-        cell = "";
-      } else if (c === "\n" || c === "\r") {
-        if (c === "\r" && text[i + 1] === "\n") i++;
-        row.push(cell);
-        rows.push(row);
-        row = [];
-        cell = "";
-      } else cell += c;
-    }
-    if (cell || row.length) {
-      row.push(cell);
-      rows.push(row);
-    }
-    return rows.filter((r) => r.some((x) => x.trim()));
   }
-  function http2(req, res, p, ip, auth) {
-    if (!p.startsWith("/api/brain") && !p.startsWith("/api/admin/brain")) return false;
-    if (p === "/api/brain/custom") {
-      res.writeHead(200, { "content-type": "application/json", "cache-control": "public, max-age=60" });
-      res.end(customOut());
+  function onMessage2(me, m) {
+    if (m.t !== "npc_say" && m.t !== "ai_status" && m.t !== "npc_forget" && !String(m.t).startsWith("ai_mem")) return false;
+    if (m.t === "ai_mem_list") {
+      const all = LTM().users[me.u.id] || {};
+      d.send(me.ws, { t: "ai_mem", optOut: !!LTM().optOut[me.u.id], chars: Object.entries(all).map(([id, r]) => ({ id, name: AI_CHARS.find((c) => c.id === id)?.name || id.replace(/^x:/, ""), facts: r.facts, visits: r.visits, first: r.first, last: r.last || r.first })), keepDays: KEEP_DAYS() });
       return true;
     }
-    if (p === "/api/brain/log" && req.method === "POST") {
-      readBody(req, 2048, (raw) => {
+    if (m.t === "ai_mem_forget") {
+      const all = LTM().users[me.u.id];
+      if (all && m.npc && Object.prototype.hasOwnProperty.call(all, String(m.npc))) delete all[String(m.npc)];
+      else if (!m.npc) delete LTM().users[me.u.id];
+      stmDropUser(me.u.id, m.npc ? String(m.npc) : null);
+      d.save();
+      d.send(me.ws, { t: "ok", text: m.npc ? "That citizen forgot what you told them." : "Every citizen forgot what you told them." });
+      return true;
+    }
+    if (m.t === "ai_mem_opt") {
+      if (m.on === false) (LTM().optOut[me.u.id] = Date.now()), delete LTM().users[me.u.id], stmDropUser(me.u.id);
+      else delete LTM().optOut[me.u.id];
+      d.save();
+      d.send(me.ws, { t: "ok", text: m.on === false ? "Citizens won't remember anything about you, and what they knew is deleted." : "Citizens may remember what you tell them again." });
+      return true;
+    }
+    if (m.t === "ai_mem") return true;
+    if (m.t === "npc_forget") {
+      const ch0 = charOf(m);
+      mem.delete(me.u.id + "|" + ch0.id);
+      d.send(me.ws, { t: "npc_forgot", npc: ch0.id });
+      return true;
+    }
+    const u = me.u, reply = (x) => d.send(me.ws, x);
+    if (m.t === "ai_status") return reply({ t: "ai_status", on: ON, up: ST.up, model: ST.model, queue: queue.length, busy, stats: { ...ST, ms: void 0, promptChars: void 0, tokIn: void 0, tokOut: void 0, promptMs: void 0, genMs: void 0, avg: Object.fromEntries(["promptChars", "tokIn", "tokOut", "promptMs", "genMs"].map((k) => [k, ST[k].length ? Math.round(ST[k].reduce((a, b) => a + b, 0) / ST[k].length) : null])), cache: RC.size, p50: ST.ms.length ? ST.ms.slice().sort((a, b) => a - b)[ST.ms.length >> 1] : null } }), true;
+    const text = d.clean(m.text, 300), ch = charOf(m), rid = d.clean(m.rid, 40) || void 0;
+    if (!text) return true;
+    ST.asked++;
+    const key = u.id + "|" + ch.id, fresh0 = !stmGet(key), ent = stmGet(key) || { turns: [], at: Date.now() }, hist = ent.turns;
+    // 27.6: a new conversation counts as a visit; facts the player states are learned by fixed patterns
+    if (fresh0 && !LTM().optOut[u.id]) {
+      const rec = ((LTM().users[u.id] ||= {})[ch.id] ||= { facts: [], visits: 0, first: Date.now() });
+      rec.visits++;
+      rec.last = Date.now();
+      rec.last = Date.now();
+      d.save();
+    }
+    ltmLearn(u.id, ch.id, text);
+    const lt = ltmGet(u.id, ch.id);
+    const done = (out, source, place) => {
+      hist.push({ role: "user", content: text }, { role: "assistant", content: out });
+      while (hist.length > STM_TURNS()) hist.shift();
+      ent.at = Date.now();
+      if (place) ent.place = place;
+      mem.delete(key);
+      mem.set(key, ent);
+      if (mem.size > 2e3) mem.delete(mem.keys().next().value);
+      reply({ t: "npc_reply", npc: ch.id, rid, text: out, source, remembered: hist.length });
+    };
+    if (ch.noStaff) return reply({ t: "npc_reply", npc: ch.id, rid, text: `Nobody is staffing ${ch.name} right now. The menu on this card still works.`, source: "rules", remembered: 0 }), true;
+    let r = aiHealth(text) || aiDisclose(text, { biz: !!ch.biz }) || (ch.biz ? aiBizRoute(text, ch.biz) : ch.shop ? aiShopRoute(text, ch.shop, d.stockInfo ? d.stockInfo(ch.shop.id) : null) : ch.course ? aiTeachRoute(text, ch.course) : { answer: null });
+    const ground = ch.biz ? `\nMenu (the only things sold here): ${ch.biz.menu.map((x) => x.name).join(", ") || "nothing yet"}. ${ch.biz.open ? "Open now." : "Closed now."}` : ch.course && r.lesson != null ? `\nUse this lesson text as your source and do not contradict it ("${ch.course.lessons[r.lesson].title}"): ${ch.course.lessons[r.lesson].body.slice(0, 900)}` : "";
+    if (ch.biz && r.tool && d.clerkDenied) d.clerkDenied(ch.biz.id, r.tool, "asked by a customer");
+    if (!r.answer) r = aiRoute(text, ch, { pos: { x: me.x || 0, z: me.z || 0 }, courses: Object.values(d.db?.edu?.courses || {}).filter((c) => c && c.title && c.status !== "draft").map((c) => c.title), civic: typeof politics !== "undefined" && politics ? politics.state() : null, acts: typeof acts28 !== "undefined" && acts28 ? acts28.open() : null, events: Object.values(d.db?.halls?.events || {}).filter((e) => e && e.status === "scheduled").sort((a, b) => a.start - b.start).slice(0, 8).map((e) => ({ title: e.title, start: e.start, end: e.end, price: e.price, hallName: (typeof hallById === "function" && hallById(e.hall)?.name) || "hall" })) });
+    // follow-up about the place talked about last ("is it far?", "how do I get there?")
+    if (!r.answer && ent.place && /\b(is it far|how far|far from here|get there|go there|how long|is it close|is it near|how do i get there)\b/i.test(text) && text.length < 60) {
+      const p = AI_PLACES.find((x) => x.id === ent.place);
+      if (p) {
+        const dist = Math.round(Math.hypot(p.x - (me.x || 0), p.z - (me.z || 0)) / 10) * 10;
+        r = { intent: "followup", place: p.id, answer: dist < 25 ? `You're already at ${p.name}!` : `${p.name} is about ${dist} m away \u2014 roughly ${Math.max(1, Math.round(dist / 80))} min on foot, or take a taxi from the map.`, confidence: 0.8 };
+      }
+    }
+    const eligible = ON && (m.llm !== false);
+    const now = Date.now(), paced = now - (lastAsk.get(u.id) || 0) < GAP() || queue.some((j) => j.uid === u.id);
+    // 27.14 crowd test: with a 2.5 s model and 6 waiting, the last player waited 17 s. A question that would wait longer
+    // than AI_MAX_WAIT_MS (9 s, from the recent median answer time) gets the instant fallback instead.
+    const med = ST.ms.length ? ST.ms.slice().sort((a, b) => a - b)[ST.ms.length >> 1] : 3e3;
+    const estWait = (queue.length + (busy ? 1 : 0) + 1) * med;
+    const overloaded = queue.length >= QMAX() || estWait > +(process.env.AI_MAX_WAIT_MS || 9e3);
+    const path = aiDecide(r, { llmEligible: eligible && !paced, llmUp: ST.up, overloaded });
+    // greeting a returning player by the name they gave
+    if (r.intent === "greet" && lt && lt.visits > 1) {
+      const nm = lt.facts.find((f) => f.k === "name");
+      r = { ...r, answer: aiWelcomeBack(ch.id, nm && nm.v) };
+    }
+    if (path === "rules") return ST.rules++, done(r.answer, "rules", r.place), true;
+    if (path === "llm") {
+      lastAsk.set(u.id, now);
+      const who = d.shown ? d.shown(u.id) : u.name, lmem = ltmText(lt);
+      const personal = /\d|@|\b(my|mine|i am|i'm|call me)\b/i.test(text);
+      const ck = hist.length === 0 && !lmem && !ground && !ch.biz && !ch.noCache && !personal ? rcKey(ch, text) : null, hit = ck && RC.get(ck);
+      if (hit && Date.now() - hit.at < RC_MS()) return ST.cacheHits++, done(hit.text, "llm-cache"), true;
+      const done2 = (out, source) => {
+        if (ck && source === "llm" && !(who && out.toLowerCase().includes(String(who).toLowerCase()))) {
+          RC.set(ck, { text: out, at: Date.now() });
+          if (RC.size > 300) RC.delete(RC.keys().next().value);
+        }
+        done(out, source);
+      };
+      queue.push({ uid: u.id, ch, text, history: stmBudget(hist), who, mem: aiPersonaLines(ch.id, (/* @__PURE__ */ new Date()).getHours(), lt?.visits || 1, hist.length === 0) + lmem + ground + nearbyText({ x: me.x || 0, z: me.z || 0 }, text), done: done2 });
+      ST.queueMax = Math.max(ST.queueMax, queue.length);
+      reply({ t: "npc_typing", npc: ch.id, rid, position: queue.length });
+      pump();
+      return true;
+    }
+    if (overloaded) ST.overloaded++;
+    if (paced && eligible) ST.paced++;
+    ST.fallback++;
+    done(aiFallback(ch, text, r), "fallback");
+    return true;
+  }
+  return { onMessage: onMessage2, stats: ST, health };
+}
+// FYRUS 28.11 player-made activities: any citizen can post a free, short activity at a real place ("pickup football at
+// Core Plaza in 15 min, up to 10 people"); others join or leave; everyone who joined gets a note when it starts; it ends
+// after an hour and disappears. No money, no booking. Server rules: fixed kinds and places, filtered 60-char title,
+// one open activity per citizen, 2-minute create cooldown, 40 open activities city-wide, capacity 2-30, start in 5-120 min,
+// banned/suspended accounts cannot post or join. Kill switch P28_OFF=acts.
+var ACT_KINDS = { game: "Pickup game", walk: "Group walk", dance: "Dance meetup", study: "Study group", picnic: "Picnic", race: "Car meet & race", chat: "Hangout", photo: "Photo walk" };
+var ACT_LEN = () => +(process.env.ACT_LEN_MS || 36e5);
+function createActs(d) {
+  if (!d.db.acts) { d.db.acts = { list: {}, seq: 1, last: {} }; d.save(); }
+  const A = d.db.acts;
+  A.last ||= {};
+  const OFF = () => /(^|,)(acts|all)(,|$)/.test(process.env.P28_OFF || "");
+  const placeById = (id) => (typeof AI_PLACES !== "undefined" ? AI_PLACES : []).find((p) => p.id === id);
+  const open = () => Object.values(A.list).filter((a) => a.end > Date.now()).sort((a, b) => a.start - b.start);
+  const pub = (a, uid) => ({ id: a.id, kind: a.kind, kindName: ACT_KINDS[a.kind], place: a.place, placeName: placeById(a.place)?.name || a.place, title: a.title, byName: a.byName, mine: a.by === uid, start: a.start, end: a.end, max: a.max, going: a.joined.length, joined: a.joined.includes(uid) });
+  const list = (uid) => ({ t: "act_list", acts: open().slice(0, 40).map((a) => pub(a, uid)), now: Date.now(), kinds: ACT_KINDS, places: (typeof AI_PLACES !== "undefined" ? AI_PLACES : []).filter((p) => !p.id.startsWith("soc-")).map((p) => ({ id: p.id, name: p.name })) });
+  const note = (id, text) => { const l = d.liveOf(id); if (l) d.send(l.ws, { t: "note", text }); };
+  const changed = () => { d.save(); d.broadcast({ t: "act_changed" }); };
+  const blocked = (u) => !!(u.banned && u.banned.until > Date.now()) || !!d.bank?.acct?.(u.id)?.banned;
+  setInterval(() => {
+    const now = Date.now();
+    let dirty = false;
+    for (const a of Object.values(A.list)) {
+      if (!a.started && a.start <= now && a.end > now) { a.started = now; dirty = true; a.joined.forEach((id) => note(id, `"${a.title}" is starting now at ${placeById(a.place)?.name || "the meeting point"}. Open the map (M) to get there.`)); }
+      if (a.end + 6e5 < now) { delete A.list[a.id]; dirty = true; }
+    }
+    if (dirty) changed();
+  }, +(process.env.ACT_TICK_MS || 1e4));
+  function onMessage(me, m) {
+    if (typeof m.t !== "string" || !m.t.startsWith("act_")) return false;
+    const u = me.u, reply = (x) => d.send(me.ws, x), err = (text) => (reply({ t: "err", text }), true), ok = (text) => reply({ t: "ok", text });
+    if (OFF()) return err("Player activities are switched off right now.");
+    if (m.t === "act_list") return reply(list(u.id)), true;
+    if (blocked(u)) return err("This account is suspended.");
+    const a = typeof m.id === "string" && Object.prototype.hasOwnProperty.call(A.list, m.id) ? A.list[m.id] : null;
+    switch (m.t) {
+      case "act_create": {
         const now = Date.now();
-        const h = (hits.get(ip) || []).filter((t) => now - t < 6e4);
-        if (h.length < 40) {
-          h.push(now);
-          hits.set(ip, h);
-          if (hits.size > 2e4) hits.clear();
-          let b = {};
-          try {
-            b = JSON.parse(raw || "{}");
-          } catch {}
-          const q = clean(b.q, 300), k = keyOf(q);
-          if (k.length >= 2) {
-            const e = B.q[k] ||= { q, lang: clean(b.lang, 6), first: now, n: 0 };
-            e.n++;
-            e.last = now;
-            e.intent = clean(b.intent, 60) || "";
-            e.score = Math.round((+b.score || 0) * 100) / 100;
-            e.lang = clean(b.lang, 6) || e.lang;
-            e.npc = clean(b.npc, 40);
-            trim();
-            saveSoon();
-          }
-        }
-        res.writeHead(204);
-        res.end();
-      });
-      return true;
+        if (!Object.prototype.hasOwnProperty.call(ACT_KINDS, m.kind)) return err("Pick a kind of activity.");
+        const p = placeById(String(m.place || ""));
+        if (!p || p.id.startsWith("soc-")) return err("Pick a meeting place from the list.");
+        const title = d.filter(String(m.title || "").replace(/[\u0000-\u001f]/g, " ").replace(/\s+/g, " ").trim().slice(0, 60));
+        if (title.length < 3) return err("Give your activity a short title.");
+        const inMin = Math.round(+m.inMin), max = Math.round(+m.max);
+        if (!(inMin >= 5 && inMin <= 120)) return err("Start between 5 and 120 minutes from now.");
+        if (!(max >= 2 && max <= 30)) return err("Choose 2 to 30 people.");
+        if (open().some((x) => x.by === u.id)) return err("You already have an open activity. Cancel it first.");
+        if (A.last[u.id] && now - A.last[u.id] < +(process.env.ACT_COOLDOWN_MS || 12e4)) return err("Please wait a moment before posting another activity.");
+        if (open().length >= 40) return err("The city board is full right now. Try again later.");
+        const id = "a" + A.seq++, start = now + inMin * +(process.env.ACT_MINUTE_MS || 6e4);
+        A.list[id] = { id, by: u.id, byName: d.shown(u.id), kind: m.kind, place: p.id, title, start, end: start + ACT_LEN(), max, joined: [u.id], at: now };
+        A.last[u.id] = now;
+        ok(`Posted: "${title}" at ${p.name} in ${inMin} min. Others can join from Activities.`);
+        changed();
+        return true;
+      }
+      case "act_join": {
+        if (!a || a.end <= Date.now()) return err("That activity is over.");
+        if (a.joined.includes(u.id)) return err("You already joined.");
+        if (a.joined.length >= a.max) return err("That activity is full.");
+        a.joined.push(u.id);
+        ok(`You joined "${a.title}". We'll remind you when it starts.`);
+        if (a.by !== u.id) note(a.by, `${d.shown(u.id)} joined your activity "${a.title}" (${a.joined.length}/${a.max}).`);
+        changed();
+        return true;
+      }
+      case "act_leave": {
+        if (!a || !a.joined.includes(u.id)) return err("You are not in that activity.");
+        if (a.by === u.id) return err("You host it: cancel it instead.");
+        a.joined = a.joined.filter((x) => x !== u.id);
+        ok(`You left "${a.title}".`);
+        changed();
+        return true;
+      }
+      case "act_cancel": {
+        if (!a) return err("No such activity.");
+        if (a.by !== u.id && !d.isAdmin(u.id)) return err("Only the host can cancel it.");
+        a.joined.filter((x) => x !== u.id).forEach((id) => note(id, `"${a.title}" was cancelled by the host.`));
+        delete A.list[a.id];
+        ok("Activity cancelled.");
+        changed();
+        return true;
+      }
     }
-    // admin (judges and moderators)
-    const u = auth(String(req.headers.authorization || "").replace(/^Bearer\s+/i, ""));
-    if (!u || !(d.isAdmin(u.id) || (d.isMod && d.isMod(u.id)))) return json(res, 403, { error: "Judges and moderators only" }), true;
-    if (p === "/api/admin/brain" && req.method !== "POST") {
-      const all = Object.entries(B.q).map(([k, e]) => ({ k, ...e, answered: !!(e.intent && e.score >= 0.45) || B.custom.some((c) => c.q.some((x) => keyOf(x) === k)) || !!B.fix[k] }));
-      const open = all.filter((e) => !e.answered).sort((a, b) => b.n - a.n || b.last - a.last).slice(0, 300);
-      const top = all.filter((e) => e.answered).sort((a, b) => b.n - a.n).slice(0, 100);
-      return json(res, 200, { total: all.length, asks: all.reduce((s, e) => s + e.n, 0), unanswered: all.filter((e) => !e.answered).length, open, top, custom: B.custom.slice().reverse().slice(0, 300), fixes: Object.keys(B.fix).length }), true;
-    }
-    if (p === "/api/admin/brain" && req.method === "POST") {
-      readBody(req, 2e4, (raw) => {
-        let b = {};
-        try {
-          b = JSON.parse(raw || "{}");
-        } catch {}
-        const k = keyOf(b.k || b.q);
-        if (b.act === "answer") {
-          const a = {};
-          ["en", "rur", "ur", "hi", "ar"].forEach((l) => {
-            const t = clean(b.a && b.a[l], 1200);
-            if (t) a[l] = t;
-          });
-          if (!Object.keys(a).length) return json(res, 400, { error: "Write the answer first." });
-          const qs = [clean(b.q, 300), ...(Array.isArray(b.more) ? b.more : String(b.more || "").split("\n")).map((x) => clean(x, 300))].filter((x) => x.length >= 2);
-          let c = b.id ? B.custom.find((x) => x.id === b.id) : null;
-          if (c) {
-            c.a = { ...c.a, ...a };
-            qs.forEach((x) => c.q.includes(x) || c.q.push(x));
-          } else {
-            c = { id: "c" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), q: qs, a, at: Date.now(), by: d.shown(u.id) };
-            B.custom.push(c);
-          }
-          if (B.custom.length > 5e3) B.custom.splice(0, B.custom.length - 5e3);
-          changed();
-          return json(res, 200, { ok: true, id: c.id });
-        }
-        if (b.act === "fix") {
-          const intent = clean(b.intent, 60);
-          if (!k || !intent) return json(res, 400, { error: "Pick the right topic." });
-          B.fix[k] = intent;
-          changed();
-          return json(res, 200, { ok: true });
-        }
-        if (b.act === "dismiss") {
-          delete B.q[k];
-          changed();
-          return json(res, 200, { ok: true });
-        }
-        if (b.act === "delcustom") {
-          B.custom = B.custom.filter((x) => x.id !== b.id);
-          changed();
-          return json(res, 200, { ok: true });
-        }
-        if (b.act === "import") {
-          const rows = parseCSV(String(b.csv || ""));
-          const head = (rows[0] || []).map((x) => x.trim().toLowerCase());
-          const qi = head.indexOf("question"), ai = head.indexOf("answer"), li = head.indexOf("language");
-          if (qi < 0 || ai < 0) return json(res, 400, { error: 'The first row must have the columns "question" and "answer" (and optionally "language": en, rur, ur, hi, ar).' });
-          let added = 0;
-          rows.slice(1).forEach((r) => {
-            const q = clean(r[qi], 300), a = clean(r[ai], 1200), l = (li >= 0 ? String(r[li] || "").trim().toLowerCase() : "") || "en";
-            if (q.length < 2 || !a || !["en", "rur", "ur", "hi", "ar"].includes(l)) return;
-            const ex = B.custom.find((c) => c.q.some((x) => keyOf(x) === keyOf(q)));
-            if (ex) ex.a[l] = a;
-            else B.custom.push({ id: "c" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), q: [q], a: { [l]: a }, at: Date.now(), by: d.shown(u.id) + " (CSV)" });
-            added++;
-          });
-          changed();
-          return json(res, 200, { ok: true, added });
-        }
-        json(res, 400, { error: "Unknown action" });
-      });
-      return true;
-    }
-    if (p === "/api/admin/brain.csv") {
-      const lines = [["question", "language", "times asked", "matched topic", "score", "answer", "answer language"].map(csvCell).join(",")];
-      Object.values(B.q).sort((a, b) => b.n - a.n).forEach((e) => {
-        const c = B.custom.find((x) => x.q.some((y) => keyOf(y) === keyOf(e.q)));
-        const al = c ? Object.keys(c.a)[0] : "";
-        lines.push([e.q, e.lang, e.n, e.intent, e.score, c ? c.a[al] : "", al].map(csvCell).join(","));
-      });
-      B.custom.forEach((c) => c.q.forEach((q) => {
-        if (B.q[keyOf(q)]) return;
-        Object.entries(c.a).forEach(([l, a]) => lines.push([q, l, 0, "custom", "", a, l].map(csvCell).join(",")));
-      }));
-      res.writeHead(200, { "content-type": "text/csv; charset=utf-8", "content-disposition": 'attachment; filename="fyrus-brain-questions.csv"', "cache-control": "no-store" });
-      res.end("﻿" + lines.join("\n"));
-      return true;
-    }
-    return json(res, 404, { error: "Not found" }), true;
+    return err("Unknown activity request.");
   }
-  return { http: http2 };
+  return { onMessage, open: () => open().map((a) => pub(a, null)) };
+}
+// FYRUS 28.12 city governance rules: one place for the city's rules (from the Terms of Use section 4 and the Constitution)
+// and the real enforcement numbers the chat/report code uses (the constants below ARE what index.2.mjs enforces), so
+// what players read always matches what happens. rules_get returns both. Kill switch P28_OFF=rules (screen + rule
+// references in enforcement messages off; enforcement itself never changes).
+var RULES28 = { FILTER_BLOCKS: 5, FILTER_WINDOW_MS: 6e5, FILTER_MUTE_MS: 9e5, REPORTS_TO_PAUSE: 3, REPORT_PAUSE_MS: 864e5, REPORTS_PER_DAY: 15 };
+var CITY_RULES = [
+  { n: 1, title: "Respect everyone", text: "No harassment, hate, threats or bullying. Every religion is respected; mocking or attacking a faith is forbidden." },
+  { n: 2, title: "Keep it clean", text: "No sexual content, and nothing that sexualises anyone. Content involving minors is banned outright." },
+  { n: 3, title: "No scams", text: "No fake listings and no asking for payment or contact outside Fyrus. A proven scam means a full refund to the victim and a permanent ban." },
+  { n: 4, title: "No real-world politics or impersonation", text: "No real political parties or politicians in Fyrus elections, and no pretending to be real people, brands or officials." },
+  { n: 5, title: "Play fair", text: "No cheating, bots, bug exploits, or extra accounts to vote or farm rewards. One citizen, one passport, one vote." },
+  { n: 6, title: "Your own content only", text: "Upload only what you made or may use." },
+  { n: 7, title: "FYC is play money", text: "FYC is an in-city credit. It is never traded for real money or crypto." },
+  { n: 8, title: "Stay safe", text: "Never share passwords, bank or card details, not even with \"staff\". Links and contact details from brand-new accounts are blocked." }
+];
+var rules28Off = () => /(^|,)(rules|all)(,|$)/.test(process.env.P28_OFF || "");
+function rules28Payload() {
+  const R = RULES28, min = (ms) => Math.round(ms / 6e4), h = (ms) => Math.round(ms / 36e5);
+  return { t: "rules", rules: CITY_RULES, enforcement: [
+    `The chat filter blocks messages that break rules 1, 2, 3 or 8. ${R.FILTER_BLOCKS} blocked messages within ${min(R.FILTER_WINDOW_MS)} minutes pause your chat for ${min(R.FILTER_MUTE_MS)} minutes.`,
+    `Report anyone from their profile or the chat (⋯ → Report). When ${R.REPORTS_TO_PAUSE} trusted citizens report the same person within ${h(R.REPORT_PAUSE_MS)} hours, that person's chat is paused for ${h(R.REPORT_PAUSE_MS)} hours until a judge reviews it. Each citizen can send up to ${R.REPORTS_PER_DAY} reports a day.`,
+    "Moderators can mute chat for hours; Fyrus judges can disqualify candidates, deregister parties, and suspend or ban accounts.",
+    "Payment problems go to the Fyrus Court (Nation › Law & Court): the money stays frozen in escrow while a judge decides."
+  ] };
+}
+function createRules(d) {
+  function onMessage(me, m) {
+    if (m.t !== "rules_get") return false;
+    if (rules28Off()) return d.send(me.ws, { t: "err", text: "The rules screen is switched off; read the Terms of Use at /terms." }), true;
+    d.send(me.ws, rules28Payload());
+    return true;
+  }
+  return { onMessage };
 }
 // server/index.ts
 var PORT = Number(process.env.PORT || 80);
@@ -8411,79 +9081,78 @@ var NEAR = 40;
 var MAX_TEXT = 500;
 var db = { users: {}, threads: {}, groups: {}, plots: {}, reports: [] };
 var dbFile = path2.join(DATA_DIR, "fyrus.json");
-/* ---- safe storage (v42) ----
-   - every save: write a temp file, fsync it, rename it over fyrus.json, fsync the folder (no half-written file after a crash or power cut)
-   - start-up: if fyrus.json is missing or damaged, never start empty; recover from fyrus.json.tmp, then the newest hourly
-     snapshot, then the newest daily backup, and keep the damaged file aside as fyrus.json.damaged-<time>
-   - a save that would suddenly lose more than half of the citizens is written to a side file instead (protects against bugs) */
-var DB_INFO = { loadedFrom: "", users: 0, savedAt: 0, saveErrors: 0, guarded: 0 };
-function readDbFile(f) {
-  let raw = fs2.readFileSync(f);
-  if (f.endsWith(".gz")) raw = zlib.gunzipSync(raw);
-  const v = JSON.parse(raw.toString("utf8"));
-  if (!v || typeof v !== "object" || !v.users || typeof v.users !== "object") throw new Error("not a Fyrus database");
-  return v;
+// 24.7 safe load: a missing file starts a fresh database, but an existing file that cannot be parsed is NEVER
+// overwritten: it is kept as fyrus.json.corrupt-<time> and the newest readable backup (backups/) is loaded instead.
+var BACKUP_DIR = path2.join(DATA_DIR, "backups"), PERSIST = { loadedFrom: null, corrupt: null, backups: 0 };
+function readDb(f) {
+  return JSON.parse(fs2.readFileSync(f, "utf8"));
 }
-function listBackups(dir) {
-  try { return fs2.readdirSync(dir).filter((x) => x.startsWith("fyrus-") && x.endsWith(".json.gz")).sort().reverse().map((x) => path2.join(dir, x)); } catch { return []; }
-}
-{
-  fs2.mkdirSync(DATA_DIR, { recursive: true });
-  const exists = fs2.existsSync(dbFile);
-  const tries = [dbFile, dbFile + ".tmp", ...listBackups(path2.join(DATA_DIR, "backups", "hourly")), ...listBackups(path2.join(DATA_DIR, "backups"))];
-  let ok = false;
-  for (const f of tries) {
-    if (!fs2.existsSync(f)) continue;
+fs2.mkdirSync(DATA_DIR, { recursive: true });
+if (!fs2.existsSync(dbFile)) console.log("fresh database at", dbFile), PERSIST.loadedFrom = "fresh";
+else
+  try {
+    db = { ...db, ...readDb(dbFile) };
+    PERSIST.loadedFrom = "main";
+    console.log("loaded", Object.keys(db.users).length, "users");
+  } catch (e) {
+    const keep = dbFile + ".corrupt-" + Date.now();
     try {
-      const v = readDbFile(f);
-      db = { ...db, ...v };
-      DB_INFO.loadedFrom = path2.basename(f);
-      ok = true;
-      if (f !== dbFile) {
-        console.error("DATABASE RECOVERED from", f);
-        if (exists) try { fs2.renameSync(dbFile, dbFile + ".damaged-" + Date.now()); } catch {}
-      }
-      break;
-    } catch (e) {
-      console.error("could not read", f, String(e && e.message || e));
+      fs2.renameSync(dbFile, keep);
+    } catch {}
+    PERSIST.corrupt = keep;
+    console.error("DATABASE UNREADABLE, kept as", keep, String(e && e.message || e));
+    let list = [];
+    try {
+      list = fs2.readdirSync(BACKUP_DIR).filter((n) => /^fyrus-\d+\.json$/.test(n)).sort().reverse();
+    } catch {}
+    for (const n of list)
+      try {
+        db = { ...db, ...readDb(path2.join(BACKUP_DIR, n)) };
+        PERSIST.loadedFrom = "backup:" + n;
+        console.error("restored from backup", n, Object.keys(db.users).length, "users");
+        break;
+      } catch {}
+    if (!PERSIST.loadedFrom) {
+      PERSIST.loadedFrom = "fresh-after-corrupt";
+      console.error("no readable backup: starting empty; the corrupt file was kept");
     }
   }
-  if (ok) console.log("loaded", Object.keys(db.users).length, "users from", DB_INFO.loadedFrom);
-  else if (exists) {
-    console.error("DATABASE DAMAGED and no backup could be read; keeping the damaged file aside and starting fresh");
-    try { fs2.renameSync(dbFile, dbFile + ".damaged-" + Date.now()); } catch {}
-  } else console.log("fresh database at", dbFile);
-  DB_INFO.users = Object.keys(db.users).length;
-  if (ok && DB_INFO.loadedFrom !== path2.basename(dbFile)) try { writeDb(); } catch (e) { console.error("could not write the recovered database", e); }
-}
-function writeDb() {
-  const n = Object.keys(db.users || {}).length;
-  const body = JSON.stringify(db);
-  let target = dbFile;
-  if (DB_INFO.users > 20 && n < DB_INFO.users * 0.5) {
-    DB_INFO.guarded++;
-    target = path2.join(DATA_DIR, "fyrus.suspect.json");
-    console.error("SAVE GUARD: citizens dropped from", DB_INFO.users, "to", n, "- writing", target, "instead");
+// rolling backups: a copy of the saved database every BACKUP_EVERY_MS (default 10 min), the newest 36 are kept
+var BACKUP_EVERY = Number(process.env.BACKUP_EVERY_MS || 6e5);
+function backup() {
+  try {
+    if (!fs2.existsSync(dbFile)) return;
+    fs2.mkdirSync(BACKUP_DIR, { recursive: true });
+    fs2.copyFileSync(dbFile, path2.join(BACKUP_DIR, "fyrus-" + Date.now() + ".json"));
+    PERSIST.backups++;
+    const list = fs2.readdirSync(BACKUP_DIR).filter((n) => /^fyrus-\d+\.json$/.test(n)).sort();
+    list.slice(0, Math.max(0, list.length - 36)).forEach((n) => fs2.unlinkSync(path2.join(BACKUP_DIR, n)));
+  } catch (e) {
+    console.error("backup failed", e);
   }
-  const tmp = target + ".tmp";
-  const fd = fs2.openSync(tmp, "w");
-  try { fs2.writeSync(fd, body); fs2.fsyncSync(fd); } finally { fs2.closeSync(fd); }
-  fs2.renameSync(tmp, target);
-  try { const dfd = fs2.openSync(DATA_DIR, "r"); try { fs2.fsyncSync(dfd); } finally { fs2.closeSync(dfd); } } catch {}
-  if (target === dbFile) { DB_INFO.users = n; DB_INFO.savedAt = Date.now(); }
 }
-var saveT = null;
-function save() {
-  if (saveT) return;
+setInterval(backup, BACKUP_EVERY).unref?.();
+var saveT = null, saveUrgent = false, SAVE = { saves: 0, urgent: 0, lastMs: 0 };
+// 26.10: money moves ask for an urgent save (SAVE_URGENT_MS, default 200 ms) instead of the normal 1.5 s debounce, so a
+// crash loses at most a fraction of a second of transfers (26.3 found 58 lost transfers in a 1.5 s window)
+function save(urgent) {
+  if (saveT && (!urgent || saveUrgent)) return;
+  if (saveT) clearTimeout(saveT);
+  saveUrgent = !!urgent;
+  urgent && SAVE.urgent++;
   saveT = setTimeout(() => {
     saveT = null;
+    saveUrgent = false;
+    SAVE.saves++;
+    const t0 = performance.now();
     try {
-      writeDb();
+      fs2.writeFileSync(dbFile + ".tmp", JSON.stringify(db));
+      fs2.renameSync(dbFile + ".tmp", dbFile);
+      SAVE.lastMs = Math.round((performance.now() - t0) * 10) / 10;
     } catch (e) {
-      DB_INFO.saveErrors++;
       console.error("save failed", e);
     }
-  }, 1500);
+  }, urgent ? +(process.env.SAVE_URGENT_MS || 200) : 1500);
 }
 function flush() {
   if (saveT) {
@@ -8491,9 +9160,9 @@ function flush() {
     saveT = null;
   }
   try {
-    writeDb();
+    fs2.writeFileSync(dbFile + ".tmp", JSON.stringify(db));
+    fs2.renameSync(dbFile + ".tmp", dbFile);
   } catch (e) {
-    DB_INFO.saveErrors++;
     console.error("flush failed", e);
   }
 }
@@ -8529,7 +9198,7 @@ var findByNumber = (n) => {
   if (moved) {
     console.log("moved", moved, "numbers to +2040");
     try {
-      writeDb();
+      fs2.writeFileSync(dbFile, JSON.stringify(db));
     } catch {
     }
   }
@@ -8537,18 +9206,162 @@ var findByNumber = (n) => {
 var alias = (u) => "Citizen #X" + String(parseInt(sha(u.id).slice(0, 6), 16) % 1e3).padStart(3, "0");
 var shown = (u) => u.stealth ? alias(u) : u.name;
 var clean = (s, n) => String(s ?? "").replace(/[\u0000-\u001f]/g, " ").trim().slice(0, n);
+// 24.8: lookups by a client-supplied key only see the object's own entries ("__proto__", "constructor", ... -> none)
+function own(o, k) {
+  return o && (typeof k === "string" || typeof k === "number") && Object.prototype.hasOwnProperty.call(o, k) ? o[k] : void 0;
+}
+// ---- Phase 24.2: server-side validation of client-reported presence state ----------------------------------------
+// Positions are clamped to the world, non-finite numbers are rejected, and the free-form objects that are relayed to
+// every other player (o = outfit + small action fields, v = vehicle) are size- and shape-limited. On a bad value the
+// previous accepted value is kept, so a client can never make the server broadcast more than a few hundred bytes.
+var WORLD_XZ = 6e3, WORLD_Y_MIN = -60, WORLD_Y_MAX = 2500, O_MAX_BYTES = 1500, V_MAX_BYTES = 200;
+var pnum = (v, lo, hi, dflt) => {
+  const n = typeof v === "number" ? v : typeof v === "string" && v.trim() !== "" ? Number(v) : NaN;
+  return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : dflt;
+};
+var plainObj = (o) => !!o && typeof o === "object" && !Array.isArray(o) && Object.getPrototypeOf(o) === Object.prototype;
+function sanitizeShallow(o, maxKeys, maxStr, depth) {
+  if (!plainObj(o)) return null;
+  const out = {};
+  let n = 0;
+  for (const k of Object.keys(o)) {
+    if (++n > maxKeys || !/^[A-Za-z0-9_]{1,24}$/.test(k)) continue;
+    const v = o[k];
+    if (typeof v === "string") out[k] = v.slice(0, maxStr);
+    else if (typeof v === "number") Number.isFinite(v) && (out[k] = v);
+    else if (typeof v === "boolean") out[k] = v;
+    else if (v === null) out[k] = null;
+    else if (Array.isArray(v) && depth > 0) out[k] = v.slice(0, 8).filter((x) => typeof x === "number" && Number.isFinite(x) || typeof x === "string" && x.length <= maxStr);
+    else if (plainObj(v) && depth > 0) out[k] = sanitizeShallow(v, 12, maxStr, depth - 1);
+  }
+  return out;
+}
+function sanitizeAct(a) {
+  if (!plainObj(a)) return void 0;
+  const out = {};
+  a.s && (out.s = 1);
+  typeof a.c === "string" && /^[a-z]{1,16}$/.test(a.c) && (out.c = a.c);
+  if (Array.isArray(a.p) && a.p.length >= 2) {
+    const x = pnum(a.p[0], -WORLD_XZ, WORLD_XZ, NaN), z = pnum(a.p[1], -WORLD_XZ, WORLD_XZ, NaN), h = pnum(a.p[2], -10, 10, 0);
+    Number.isFinite(x) && Number.isFinite(z) && (out.p = [x, z, h]);
+  }
+  return Object.keys(out).length ? out : void 0;
+}
+function sanitizeO(o, prev) {
+  if (o == null) return prev ?? null;
+  const out = sanitizeShallow(o, 40, 64, 2);
+  if (!out) return prev ?? null;
+  if ("act" in out || o.act) {
+    const a = sanitizeAct(o.act);
+    a ? out.act = a : delete out.act;
+  }
+  return JSON.stringify(out).length <= O_MAX_BYTES ? out : prev ?? null;
+}
+function sanitizeV(v) {
+  if (v == null || v === false) return null;
+  if (!plainObj(v)) return null;
+  const out = { b: String(v.b ?? "").slice(0, 24), c: String(v.c ?? "").slice(0, 16), f: !!v.f };
+  return JSON.stringify(out).length <= V_MAX_BYTES ? out : null;
+}
+var PRES = { posMsgs: 0, oRejected: 0, coordClamped: 0, nonFinite: 0, speedCapped: 0, teleports: 0, teleportBlocked: 0 };
+// 24.5: tell a client where the server has it when its move was capped / blocked (max 2 per second)
+var corr = (me2, why) => {
+  const n = Date.now();
+  if (n - (me2.corrAt || 0) < 500) return;
+  me2.corrAt = n;
+  PRES.corrections = (PRES.corrections || 0) + 1;
+  send(me2.ws, { t: "corr", x: Math.round(me2.x * 100) / 100, z: Math.round(me2.z * 100) / 100, why });
+};
+var MOVE_MAX_FOOT = 26, MOVE_MAX_VEH = 95, TELEPORT_MIN = 300;
+// ---- 24.10 chat moderation hooks --------------------------------------------------------------------------------
+// Every chat message goes through a pipeline of hooks (fn(text, ctx) -> {action: "allow"|"mask"|"block", text?, why?,
+// reason?}). Built in: repeat spam, links / contact details from accounts younger than a day, shouting (all caps), and
+// the existing word filter. Blocks are logged (db.modlog, newest 2000) and 5 blocks in 10 minutes mute the sender for
+// 15 minutes. registerModHook(fn) adds more hooks (e.g. a local classifier) without touching the chat code.
+var MOD = { hooks: [], stats: { checked: 0, blocked: 0, masked: 0, autoMutes: 0, byReason: {} } };
+function registerModHook(fn) {
+  typeof fn === "function" && MOD.hooks.push(fn);
+}
+var normMsg = (t) => t.toLowerCase().replace(/[^a-z0-9\u0600-\u06ff\u0900-\u097f]+/g, "");
+registerModHook((text, ctx) => {
+  const now = Date.now(), k = normMsg(text), h = ctx.me.sayHist = (ctx.me.sayHist || []).filter((x) => now - x.at < 3e4);
+  const n = h.filter((x) => x.k === k).length;
+  h.push({ k, at: now });
+  return k.length > 1 && n >= 2 ? { action: "block", reason: "repeat", why: "You already sent that. Please don't repeat messages." } : null;
+});
+registerModHook((text, ctx) => {
+  const young = Date.now() - (ctx.u.joined || 0) < 864e5 && !ctx.u.email && !ctx.u.google;
+  if (!young) return null;
+  if (/(https?:\/\/|www\.|\b[a-z0-9-]{2,}\.(com|net|org|io|xyz|ru|cn|top|gg|me|link)\b)/i.test(text)) return { action: "block", reason: "link", why: "New accounts can't post links yet." };
+  if (/[\w.+-]+@[\w-]+\.[a-z]{2,}/i.test(text)) return { action: "block", reason: "contact", why: "New accounts can't share e-mail addresses yet." };
+  return null;
+});
+registerModHook((text) => {
+  const letters = text.replace(/[^A-Za-z]/g, "");
+  return letters.length > 12 && letters.replace(/[^A-Z]/g, "").length / letters.length > 0.75 ? { action: "mask", reason: "caps", text: text.charAt(0) + text.slice(1).toLowerCase() } : null;
+});
+registerModHook((text) => {
+  const f = filter(text);
+  return f !== text ? { action: "mask", reason: "words", text: f } : null;
+});
+function moderate(u, text, ctx) {
+  MOD.stats.checked++;
+  let out = text;
+  if (!out) return { action: "allow", text: out };
+  for (const hook of MOD.hooks) {
+    let r = null;
+    try {
+      r = hook(out, { ...ctx, u });
+    } catch (e) {
+      console.error("mod hook failed", e);
+    }
+    if (!r || r.action === "allow") continue;
+    MOD.stats.byReason[r.reason || "other"] = (MOD.stats.byReason[r.reason || "other"] || 0) + 1;
+    if (r.action === "mask") {
+      MOD.stats.masked++;
+      out = r.text ?? out;
+      continue;
+    }
+    if (r.action === "block") {
+      MOD.stats.blocked++;
+      const now = Date.now();
+      (db.modlog ||= []).push({ at: now, by: u.id, channel: ctx.channel, reason: r.reason, sample: text.slice(0, 120) });
+      db.modlog.length > 2e3 && db.modlog.splice(0, db.modlog.length - 2e3);
+      const recent = db.modlog.filter((x) => x.by === u.id && now - x.at < RULES28.FILTER_WINDOW_MS).length;   // 28.12: shared constants
+      if (recent >= RULES28.FILTER_BLOCKS && !(u.muteUntil > now)) {
+        u.muteUntil = now + RULES28.FILTER_MUTE_MS;
+        u.autoMuted = now;
+        MOD.stats.autoMutes++;
+        save();
+        return { action: "block", why: `Too many blocked messages: your chat is paused for ${Math.round(RULES28.FILTER_MUTE_MS / 6e4)} minutes.${rules28Off() ? "" : " See City rules 1, 2, 3 and 8."}` };
+      }
+      save();
+      return { action: "block", why: r.why || "Message not sent." };
+    }
+  }
+  return { action: "allow", text: out };
+}
 var BAD = ["fuck", "shit", "bitch", "bastard", "cunt", "dick", "asshole", "slut", "whore", "nigger", "faggot", "retard", "madarchod", "behenchod", "bhenchod", "chutiya", "chutia", "harami", "haramzada", "kutta", "kutiya", "gandu", "randi", "bhosdi", "lund", "kanjar"];
 var badRe = new RegExp(`\\b(${BAD.join("|")})\\w*`, "gi");
 var filter = (t) => t.replace(badRe, (m) => "*".repeat(m.length));
 var tcache = /* @__PURE__ */ new Map();
 async function translate(text, lang) {
-  if (!ai.on() || !text.trim()) return null;
+  if (!AI_KEY || !text.trim()) return null;
   const key = lang + "|" + text;
   const hit = tcache.get(key);
   if (hit !== void 0) return hit;
   try {
-    const out = await ai.complete(`You translate chat messages in a game city. Translate the user's message into ${langName(lang)}. If it is already in ${langName(lang)}, return it unchanged. Romanized Urdu/Hindi counts as Urdu/Hindi. Keep names, emojis and numbers. Output only the translated message, nothing else.`, [{ role: "user", content: text }], 600, "translate");
-    if (!out) return null;
+    const r = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-api-key": AI_KEY, "anthropic-version": "2023-06-01" },
+      body: JSON.stringify({ model: AI_MODEL, max_tokens: 600, system: `You translate chat messages in a game city. Translate the user's message into ${langName(lang)}. If it is already in ${langName(lang)}, return it unchanged. Romanized Urdu/Hindi counts as Urdu/Hindi. Keep names, emojis and numbers. Output only the translated message, nothing else.`, messages: [{ role: "user", content: text }] })
+    });
+    if (!r.ok) {
+      console.error("translate", r.status, (await r.text()).slice(0, 200));
+      return null;
+    }
+    const j = await r.json();
+    const out = String(j?.content?.[0]?.text || "").trim();
     if (tcache.size > 5e3) tcache.clear();
     tcache.set(key, out);
     return out;
@@ -8583,17 +9396,80 @@ function onMessage(me, raw) {
   } catch {
     return;
   }
+  // 24.8: only plain objects with a string type reach the modules (null / arrays / numbers used to throw inside them)
+  if (!m || typeof m !== "object" || Array.isArray(m) || typeof m.t !== "string" || m.t.length > 40) return void (PRES.dropped = (PRES.dropped || 0) + 1);
+  // 26.10 idempotency: a request carrying a request id ("rid") that this connection already sent in the last 10 min is
+  // dropped (answered with "dup"), so a client retry after a timeout can never apply a payment twice
+  if (typeof m.rid === "string" && m.rid.length <= 40) {
+    const rs = me.rids ||= /* @__PURE__ */ new Map(), now = Date.now();
+    if (rs.has(m.rid) && now - rs.get(m.rid) < 6e5) return void (PRES.dupDropped = (PRES.dupDropped || 0) + 1, send(me.ws, { t: "dup", rid: m.rid }));
+    rs.set(m.rid, now);
+    if (rs.size > 200) for (const [k, t] of rs) if (now - t > 6e5 || rs.size > 200) rs.delete(k);
+  }
   const u = me.u;
-  if (edu.onMessage(me, m) || bank.onMessage(me, m) || market.onMessage(me, m) || estate.onMessage(me, m) || news.onMessage(me, m) || ads.onMessage(me, m) || halls.onMessage(me, m) || homes.onMessage(me, m) || politics.onMessage(me, m) || jobs.onMessage(me, m) || ops.onMessage(me, m)) return;
+  if (edu.onMessage(me, m) || bank.onMessage(me, m) || market.onMessage(me, m) || estate.onMessage(me, m) || news.onMessage(me, m) || ads.onMessage(me, m) || halls.onMessage(me, m) || acts28.onMessage(me, m) || rules28.onMessage(me, m) || homes.onMessage(me, m) || biz.onMessage(me, m) || aichat.onMessage(me, m) || politics.onMessage(me, m) || jobs.onMessage(me, m) || ops.onMessage(me, m)) return;
   switch (m.t) {
     case "pos": {
-      me.x = +m.x || 0;
-      me.z = +m.z || 0;
-      me.y = +m.y || 0;
-      me.ry = +m.ry || 0;
+      PRES.posMsgs++;
+      const nx = pnum(m.x, -WORLD_XZ, WORLD_XZ, NaN), nz = pnum(m.z, -WORLD_XZ, WORLD_XZ, NaN);
+      if (!Number.isFinite(nx) || !Number.isFinite(nz)) {
+        PRES.nonFinite++;
+        return;
+      }
+      (Math.abs(+m.x) > WORLD_XZ || Math.abs(+m.z) > WORLD_XZ) && PRES.coordClamped++;
+      // 24.3 movement validation: per-update displacement is limited to what the current mode allows (on foot / in a
+      // vehicle). Bigger jumps are accepted as teleports (metro, rocket, waypoints, respawn), up to 3 per 10 s; scene
+      // changes and vehicle changes reset the check. A capped move keeps the player moving at the allowed speed.
+      const nowM = Date.now(), sceneNow = clean(m.scene, 40) || "plaza", inVeh = !!(m.v && plainObj(m.v));
+      if (me.mv && me.mv.scene === sceneNow && me.mv.veh === inVeh) {
+        const dtm = Math.min(1, Math.max(0.08, (nowM - me.mv.t) / 1e3)), dx = nx - me.x, dz = nz - me.z, d = Math.hypot(dx, dz);
+        const vmax = inVeh ? MOVE_MAX_VEH : MOVE_MAX_FOOT, allow = vmax * dtm * 1.5 + 0.5;
+        if (d > TELEPORT_MIN) {
+          // token bucket: up to 3 teleports in any 10 s window (metro + waypoint + respawn in a row stay legal)
+          const tps = (me.tps || []).filter((x) => nowM - x < 1e4);
+          if (tps.length >= 3) {
+            PRES.teleportBlocked++;
+            me.mv.t = nowM;
+            me.tps = tps;
+            corr(me, "teleport");
+            return;
+          }
+          tps.push(nowM);
+          me.tps = tps;
+          PRES.teleports++;
+        } else if (d > allow) {
+          const k = allow / d;
+          PRES.speedCapped++;
+          me.x += dx * k;
+          me.z += dz * k;
+          d - allow > 5 && corr(me, "speed");
+          me.mv = { t: nowM, scene: sceneNow, veh: inVeh, tp: me.mv.tp };
+          me.y = pnum(m.y, WORLD_Y_MIN, WORLD_Y_MAX, me.y || 0);
+          me.ry = pnum(m.ry, -1e3, 1e3, me.ry || 0) % (Math.PI * 2);
+          me.scene = sceneNow;
+          me.o = sanitizeO(m.o, me.o);
+          me.v = sanitizeV(m.v);
+          return;
+        }
+      }
+      me.mv = { t: nowM, scene: sceneNow, veh: inVeh, tp: me.mv ? me.mv.tp : 0 };
+      me.x = nx;
+      me.z = nz;
+      me.y = pnum(m.y, WORLD_Y_MIN, WORLD_Y_MAX, me.y || 0);
+      me.ry = pnum(m.ry, -1e3, 1e3, me.ry || 0) % (Math.PI * 2);
       me.scene = clean(m.scene, 40) || "plaza";
-      me.o = m.o;
-      me.v = m.v ?? null;
+      const no = sanitizeO(m.o, me.o);
+      no !== m.o && m.o && JSON.stringify(m.o).length > O_MAX_BYTES && PRES.oRejected++;
+      me.o = no;
+      // 24.7: the player's outfit is part of the profile on the server (action / emote fields stripped; written at most
+      // once a minute when it changes)
+      if (no) {
+        const plain = Object.assign({}, no);
+        (delete plain.act, delete plain.em, delete plain.emt);
+        const sig = JSON.stringify(plain), nowO = Date.now();
+        sig !== u.outfitSig && (nowO - (u.outfitAt || 0) > 6e4 || !u.outfit) && ((u.outfit = plain), (u.outfitSig = sig), (u.outfitAt = nowO), save());
+      }
+      me.v = sanitizeV(m.v);
       if (typeof m.photo === "string" && m.photo.startsWith("data:image/") && m.photo.length < 4e3 && m.photo !== u.photo) {
         u.photo = m.photo;
         save();
@@ -8606,7 +9482,9 @@ function onMessage(me, raw) {
       if (me.rate.length >= 8) return send(me.ws, { t: "err", text: "Slow down a little." });
       me.rate.push(now);
       if (u.muteUntil && u.muteUntil > now) return send(me.ws, { t: "err", text: `You are muted until ${new Date(u.muteUntil).toUTCString().slice(17, 22)} UTC.` });
-      const text = filter(clean(m.text, MAX_TEXT));
+      const mod = moderate(u, clean(m.text, MAX_TEXT), { channel: String(m.channel || ""), me });
+      if (mod.action === "block") return send(me.ws, { t: "err", text: mod.why });
+      const text = mod.text;
       if (!text) return;
       const id = rid(8);
       if (m.channel === "near") {
@@ -8619,7 +9497,7 @@ function onMessage(me, raw) {
         return;
       }
       if (m.channel === "dm") {
-        const target = db.users[m.to] || findByNumber(String(m.to || ""));
+        const target = own(db.users, m.to) || findByNumber(String(m.to || ""));
         if (!target) return send(me.ws, { t: "err", text: "No citizen has that number." });
         if (blocked(u, target)) return send(me.ws, { t: "err", text: "You cannot message this person." });
         const th = threadId(u.id, target.id);
@@ -8631,7 +9509,7 @@ function onMessage(me, raw) {
         return;
       }
       if (m.channel === "group") {
-        const g = db.groups[m.group];
+        const g = own(db.groups, m.group);
         if (!g || !g.members.includes(u.id)) return;
         const th = "group:" + g.id;
         db.threads[th] = [...db.threads[th] || [], { id, from: u.id, fromName: shown(u), text, at: now }].slice(-300);
@@ -8705,19 +9583,19 @@ function onMessage(me, raw) {
       // until a judge reviews it in the admin desk.
       const now = Date.now(), DAY = 864e5, against = clean(m.id, 40);
       const mine = db.reports.filter((r) => r.by === u.id && now - r.at < DAY);
-      if (mine.length >= 15) return send(me.ws, { t: "err", text: "You have sent many reports today. A judge will review them soon." });
+      if (mine.length >= RULES28.REPORTS_PER_DAY) return send(me.ws, { t: "err", text: "You have sent many reports today. A judge will review them soon." });
       if (mine.some((r) => r.against === against)) return send(me.ws, { t: "ok", text: "You already reported this citizen today. A judge will review it." });
       db.reports.push({ by: u.id, against, reason: clean(m.reason, 400), msg: clean(m.msg, 600), at: now });
       if (db.reports.length > 5e3) db.reports.splice(0, db.reports.length - 5e3);
-      const target = db.users[against];
+      const target = own(db.users, against);   // 24.10: own-key lookup (a "__proto__" report must not touch Object.prototype)
       if (target && !isAdmin(target.id)) {
         const trusted = (x) => !!x && (x.email || x.google || now - (x.joined || now) > DAY);
         const by = new Set(db.reports.filter((r) => r.against === against && now - r.at < DAY && trusted(db.users[r.by])).map((r) => r.by));
-        if (by.size >= 3 && !(target.muteUntil > now)) {
-          target.muteUntil = now + DAY;
+        if (by.size >= RULES28.REPORTS_TO_PAUSE && !(target.muteUntil > now)) {
+          target.muteUntil = now + RULES28.REPORT_PAUSE_MS;
           target.autoMuted = now;
           const l = live.get(target.id);
-          if (l) send(l.ws, { t: "err", text: "Several citizens reported your messages. Your chat is paused for 24 hours while a judge reviews it." });
+          if (l) send(l.ws, { t: "err", text: `Several citizens reported your messages. Your chat is paused for ${Math.round(RULES28.REPORT_PAUSE_MS / 36e5)} hours while a judge reviews it.${rules28Off() ? "" : " See City rules (Parliament \u203A City rules)."}` });
           console.log("auto-mute", target.number, by.size, "reports");
         }
       }
@@ -8737,7 +9615,7 @@ function onMessage(me, raw) {
       return;
     }
     case "group_add": {
-      const g = db.groups[m.group];
+      const g = own(db.groups, m.group);
       if (!g || !g.members.includes(u.id)) return;
       const x = findByNumber(String(m.number));
       if (x && !g.members.includes(x.id)) {
@@ -8781,7 +9659,7 @@ function onMessage(me, raw) {
         if (cur?.owner === u.id) {
           const refund = land ? Math.round(landValue(id) * 0.9) : 0;
           delete db.plots[id];
-          if (refund > 0) bank.transfer("treasury", u.id, refund, `Sold plot ${id} to the Land Bank (90% of value)`) || bank.transfer("mint", u.id, refund, `Sold plot ${id} to the Land Bank (90% of value)`);
+          if (refund > 0) bank.payFromTreasury(u.id, refund, `Sold plot ${id} to the Land Bank (90% of value)`);
           bank.notify(u.id);
           save();
           broadcast({ t: "plots", plots: { [id]: null } });
@@ -8848,38 +9726,31 @@ var landValue = (id) => {
   const owned = Object.keys(db.plots).filter((k) => LAND[k]?.code === p.code && db.plots[k]).length;
   return Math.round(p.price * (1 + 0.04 * owned) / 100) * 100;
 };
-/* Presence (v46): every 125 ms each citizen gets the people near them (same place, closest 40 within 160 m);
-   the whole list comes every 2 s. An outfit is sent only when the receiver has not seen it yet or it changed.
-   Clients that do not announce caps:["peers2"] (old open tabs) still get the full list every tick. */
-var PEER_NEAR = 160, PEER_MAX = 40;
-var peerTick = 0;
+// 24.4 interest management: every 125 ms each client gets full entries for players in its own scene within
+// IM_NEAR m; same-scene players farther away are included every 4th tick (2 Hz); players in other scenes only as a
+// compact entry (no outfit / vehicle / photo) once per second, so "who is online" lists keep working. The client keeps
+// a peer for 2.5 s after it was last listed (003.js), so the lower rates never make anyone blink out.
+// IM_OFF=1 (env) restores the old all-to-all broadcast.
+var IM_NEAR = 160, IM_OFF = process.env.IM_OFF === "1", imTick = 0, IMS = { ticks: 0, full: 0, farFull: 0, compact: 0 };
 setInterval(() => {
   if (!live.size) return;
-  peerTick++;
-  const full = peerTick % 16 === 0;
-  const withPhoto = Date.now() % 4e3 < 130;
-  const all = [...live.values()].map((l) => ({ l, sig: l.o ? JSON.stringify(l.o) : "", e: { id: l.u.id, name: shown(l.u), color: l.u.stealth ? "#8a8f98" : l.u.color, x: l.x, z: l.z, y: l.y, ry: l.ry, sc: l.scene, v: l.v, vc: l.voice, ph: withPhoto && !l.u.stealth ? l.u.photo : void 0, mk: l.u.stealth ? 1 : void 0 } }));
-  live.forEach((me) => {
-    let pick;
-    if (!me.p2 || full) pick = all.filter((p) => p.l !== me);
-    else {
-      pick = [];
-      for (const p of all) {
-        if (p.l === me || p.l.scene !== me.scene) continue;
-        const dd = Math.hypot(p.l.x - me.x, p.l.z - me.z);
-        if (dd < PEER_NEAR) pick.push([dd, p]);
+  const t = imTick++, withPhoto = Date.now() % 4e3 < 130;
+  const all = [...live.values()].map((l) => ({ l, full: { id: l.u.id, name: shown(l.u), color: l.u.stealth ? "#8a8f98" : l.u.color, x: l.x, z: l.z, y: l.y, ry: l.ry, sc: l.scene, o: l.o, v: l.v, vc: l.voice, ph: l.u.stealth || !withPhoto ? void 0 : l.u.photo, mk: l.u.stealth ? 1 : void 0 } }));
+  IMS.ticks++;
+  live.forEach((me2) => {
+    const list = [];
+    for (const { l, full } of all) {
+      if (l === me2) continue;
+      if (IM_OFF) {
+        list.push(full);
+        continue;
       }
-      if (pick.length > PEER_MAX) pick.sort((a, b) => a[0] - b[0]).length = PEER_MAX;
-      pick = pick.map((x) => x[1]);
+      if (l.scene === me2.scene) {
+        const near = Math.hypot(l.x - me2.x, l.z - me2.z) < IM_NEAR;
+        if (near || t % 4 === 0) (list.push(full), near ? IMS.full++ : IMS.farFull++);
+      } else if (t % 8 === 0) (list.push({ id: full.id, name: full.name, color: full.color, x: full.x, z: full.z, sc: full.sc, mk: full.mk }), IMS.compact++);
     }
-    const seen = me.sentO, next = full || !me.p2 ? /* @__PURE__ */ new Map() : seen;
-    const list = pick.map((p) => {
-      const known = seen.get(p.e.id);
-      next.set(p.e.id, p.sig);
-      return known === p.sig ? p.e : { ...p.e, o: p.l.o };
-    });
-    if (full || !me.p2) me.sentO = next;
-    send(me.ws, me.p2 && !full ? { t: "peers", part: 1, list } : { t: "peers", list });
+    if (list.length || t % 8 === 0) send(me2.ws, { t: "peers", list, partial: IM_OFF ? void 0 : 1 });
   });
 }, 125);
 var ADMINS = String(process.env.FYRUS_ADMINS || "").split(",").map((s) => s.trim()).filter(Boolean);
@@ -8887,15 +9758,6 @@ if (ADMINS.length) console.log("court judges:", ADMINS.length);
 var isAdmin = (id) => {
   const u = db.users[id];
   return !!u && ADMINS.some((a) => a === id || digits(a).length >= 7 && digits(a).slice(-7) === digits(u.number).slice(-7));
-};
-/* moderators (v42): FYRUS_MODS = comma-separated +2040 numbers. They review reports, mute and give temporary bans
-   (up to 72 hours); judges (FYRUS_ADMINS) can do everything, including permanent bans and backups. */
-var MODS = String(process.env.FYRUS_MODS || "").split(",").map((s) => s.trim()).filter(Boolean);
-if (MODS.length) console.log("moderators:", MODS.length);
-var isMod = (id) => {
-  if (isAdmin(id)) return true;
-  const u = db.users[id];
-  return !!u && MODS.some((a) => a === id || digits(a).length >= 7 && digits(a).slice(-7) === digits(u.number).slice(-7));
 };
 var nameOf = (id) => ({ mint: "Central Bank of Fyrus", treasury: "National Treasury", escrow: "Central Bank escrow", burn: "Central Bank" })[id] || (db.users[id] ? shown(db.users[id]) : "Citizen");
 var news = createNews({ db, save, send, broadcast, clean, filter, isAdmin, shown: (id) => db.users[id] ? shown(db.users[id]) : "Citizen" });
@@ -8911,7 +9773,7 @@ function passportCheck(id, level) {
   if (n >= 2 && (land || seller)) return { ok: true, why: "" };
   return { ok: false, why: `The Citizen Center could not verify two milestones yet (${land ? "land \u2713" : "no land"}, ${seller ? "selling \u2713" : "nothing listed in Fyrus Market or Education City"}). Own land or list something on the live city, then apply again.` };
 }
-var bank = createBank({ db, save, send, liveOf: (id) => live.get(id), findByNumber, nameOf, clean });
+var bank = createBank({ db, save, send, liveOf: (id) => live.get(id), findByNumber, nameOf, clean, fs: fs2, crypto: crypto3, isNew: (id) => !!db.users[id] && Date.now() - (db.users[id].joined || 0) < 864e5, onFlag: (id, f) => console.warn("[fraud-watch] flagged", id, f.why), ledgerFile: process.env.LEDGER_FILE === "off" ? null : path2.join(DATA_DIR, "ledger.jsonl") });
 var market = createMarket({ db, bank, save, send, broadcast, liveOf: (id) => live.get(id), clean, rid, isAdmin, nameOf, news: report });
 var estate = createEstate({ db, bank, save, send, broadcast, liveOf: (id) => live.get(id), clean, findByNumber, news: report });
 var edu = createEdu({ db, save, send, broadcast, clean, rid, findByNumber, liveOf: (id) => live.get(id), pay: bank.transfer, news: report });
@@ -8922,11 +9784,15 @@ try {
 }
 var ads = createAds({ db, bank, save, send, broadcast, liveOf: (id) => live.get(id), clean, filter, rid, isAdmin, news: report });
 var halls = createHalls({ db, bank, save, send, broadcast, liveOf: (id) => live.get(id), clean, filter, rid, isAdmin, news: report });
+var rules28 = createRules({ send });
+var acts28 = createActs({ db, bank, save, send, broadcast, liveOf: (id) => live.get(id), filter, isAdmin, shown: (id) => db.users[id] ? shown(db.users[id]) : "Citizen" });
 var homes = createHomes({ db, save, send, broadcast, liveOf: (id) => live.get(id), findByNumber, isAdmin, shown: (id) => db.users[id] ? shown(db.users[id]) : "Citizen", toScene: (scene, m) => live.forEach((l) => {
   if (l.scene === scene) send(l.ws, m);
 }) });
 var politics = createPolitics({ db, bank, save, send, broadcast, liveOf: (id) => live.get(id), clean, filter, rid, isAdmin, shown: (id) => db.users[id] ? shown(db.users[id]) : "Citizen", news: report });
-var jobs = createJobs({ db, bank, save, send, liveOf: (id) => live.get(id), findByNumber, filter, shown: (id) => db.users[id] ? shown(db.users[id]) : "Citizen" });
+var aichat = createAiChat({ stockInfo: (id) => jobs.stockInfo(id), bizInfo: (id) => biz.bizInfo(id), clerkDenied: (id, tool, why) => biz.clerkDenied(id, tool, why), db, save, send, clean, filter, shown: (id) => db.users[id] ? shown(db.users[id]) : "Citizen" });
+var biz = createBusinesses({ db, bank, save, send, broadcast, liveOf: (id) => live.get(id), clean, filter, shown: (id) => db.users[id] ? shown(db.users[id]) : "Citizen" });
+var jobs = createJobs({ db, bank, save, send, liveOf: (id) => live.get(id), findByNumber, filter, certCount: (id) => Object.values(db.edu?.certs || {}).filter((c) => c && c.student === id).length, shown: (id) => db.users[id] ? shown(db.users[id]) : "Citizen" });
 function createUser(name, lang) {
   const token = rid(24);
   const u = { id: "u" + rid(8), tok: sha(token), name: clean(name, 24) || "Citizen", color: "#4da3ff", number: newNumber(), lang: LANGS.some((l) => l.code === lang) ? lang : "en", blocks: [], joined: Date.now(), seen: Date.now() };
@@ -8940,32 +9806,45 @@ var accounts = createAccounts({ db, save, sha, rid, clean, createUser: (n, l) =>
   ops.bump("signups");
   return c;
 } });
-var ops = createOps({ db, dataDir: DATA_DIR, dbFile: () => dbFile, dbInfo: () => DB_INFO, save, send, liveOf: (id) => live.get(id), liveCount: () => live.size, isAdmin, isMod, findByNumber, clean, shown: (id) => db.users[id] ? shown(db.users[id]) : "Citizen" });
-var ai = createAI({ db, save, isAdmin });
-var brainSheet = createBrainSheet({ db, save, isAdmin, isMod, shown: (id) => db.users[id] ? shown(db.users[id]) : "Citizen" });
-var pay = createPayments({ db, save, send, liveOf: (id) => live.get(id), bank, isAdmin });
-var meOf = (u) => ({ ...pub(u), lang: u.lang, blocks: u.blocks, email: u.email || null, google: !!u.google, age18: !!u.age18, admin: isMod(u.id), role: isAdmin(u.id) ? "judge" : isMod(u.id) ? "moderator" : "", guest: !u.email && !u.google });
+var ops = createOps({ db, dataDir: DATA_DIR, dbFile: () => dbFile, save, send, liveOf: (id) => live.get(id), liveCount: () => live.size, isAdmin, findByNumber, clean, shown: (id) => db.users[id] ? shown(db.users[id]) : "Citizen" });
+var meOf = (u) => ({ ...pub(u), outfit: u.outfit || null, lang: u.lang, blocks: u.blocks, email: u.email || null, google: !!u.google, age18: !!u.age18, admin: isAdmin(u.id), guest: !u.email && !u.google });
 var SEC = { "X-Content-Type-Options": "nosniff", "Referrer-Policy": "strict-origin-when-cross-origin", "X-Frame-Options": "SAMEORIGIN", "Strict-Transport-Security": "max-age=31536000; includeSubDomains", "Permissions-Policy": "camera=(self), microphone=(self), geolocation=()" };
-var TYPES3 = { ".html": "text/html; charset=utf-8", ".js": "application/javascript", ".css": "text/css", ".png": "image/png", ".jpg": "image/jpeg", ".svg": "image/svg+xml", ".ico": "image/x-icon", ".json": "application/json", ".txt": "text/plain", ".xml": "application/xml", ".webmanifest": "application/manifest+json", ".woff": "font/woff", ".woff2": "font/woff2" };
+var TYPES3 = { ".html": "text/html; charset=utf-8", ".js": "application/javascript", ".css": "text/css", ".png": "image/png", ".jpg": "image/jpeg", ".svg": "image/svg+xml", ".ico": "image/x-icon", ".json": "application/json", ".txt": "text/plain", ".xml": "application/xml", ".webmanifest": "application/manifest+json" };
 var gzCache = /* @__PURE__ */ new Map();
+// 30.8 security: the client IP used by every limit (login tries, new accounts, sockets, message flood, loopback
+// exemption). x-forwarded-for was trusted from anyone, so a client could send "x-forwarded-for: 127.0.0.1" to skip
+// all limits or rotate fake IPs. Now it is read only when the TCP peer is a proxy on this machine (loopback), and
+// then the entry that proxy appended (the right-most; TRUST_PROXY_HOPS=n for a chain of n proxies) is used.
+var PROXY_HOPS = Math.max(1, Number(process.env.TRUST_PROXY_HOPS || 1) | 0);
+var clientIp = (req) => {
+  const peer = String(req.socket?.remoteAddress || "");
+  // deploy: inside Docker the reverse proxy (Coolify/Traefik) reaches the app from a private address, so a peer on
+  // loopback or a private network (10/8, 172.16/12, 192.168/16, fc00::/7) counts as our proxy; a public peer never does
+  if (!/^(127\.|::1$|::ffff:127\.|(::ffff:)?10\.|(::ffff:)?192\.168\.|(::ffff:)?172\.(1[6-9]|2\d|3[01])\.|f[cd][0-9a-f]{2}:)/i.test(peer)) return peer;
+  const xs = String(req.headers["x-forwarded-for"] || "").split(",").map((x) => x.trim()).filter(Boolean);
+  return xs.length ? xs[Math.max(0, xs.length - PROXY_HOPS)] : peer;
+};
 var server = http.createServer((req, res) => {
   const url = new URL(req.url || "/", "http://x");
   if (url.pathname === "/health") {
     res.writeHead(200, { "content-type": "application/json" });
-    return res.end(JSON.stringify({ ok: true, online: live.size, users: Object.keys(db.users).length, translate: ai.on(), news: db.news?.items.length || 0 }));
+    return res.end(JSON.stringify({ ok: true, online: live.size, users: Object.keys(db.users).length, translate: !!AI_KEY, news: db.news?.items.length || 0 }));
   }
-  const ip = String(req.headers["x-forwarded-for"] || req.socket.remoteAddress || "").split(",")[0].trim();
+  const ip = clientIp(req);
   if (accounts.http(req, res, url.pathname, ip)) return;
-  if (pay.http(req, res, url.pathname, ip, accounts.byToken)) return;
-  if (ai.http(req, res, url.pathname, ip, accounts.byToken)) return;
-  if (brainSheet.http(req, res, url.pathname, ip, accounts.byToken)) return;
   if (ops.http(req, res, url.pathname, ip, accounts.byToken)) return;
-  if (url.pathname === "/terms" || url.pathname === "/privacy" || url.pathname === "/refunds" || url.pathname === "/pricing" || url.pathname === "/contact") {
+  if (url.pathname === "/terms" || url.pathname === "/privacy") {
     res.writeHead(200, { ...SEC, "content-type": "text/html; charset=utf-8" });
     return res.end(legalPage(url.pathname.slice(1)));
   }
   if (edu.http(url.pathname, res)) return;
   let p = path2.normalize(decodeURIComponent(url.pathname)).replace(/^(\.\.[/\\])+/, "");
+  // 30.8 security: never serve server source, build tooling, package metadata, docs or dot-files from the public dir
+  // (the local demo serves app/ directly, which holds server.mjs and src/). Unknown paths still fall back to the app.
+  if (/^[/\\](src|scripts|node_modules)([/\\]|$)/i.test(p) || /(^|[/\\])\./.test(p) || /(^|[/\\])(server\.mjs|build\.mjs|package\.json|pnpm-lock\.yaml|package-lock\.json|[^/\\]+\.md)$/i.test(p)) {
+    res.writeHead(404, { ...SEC, "content-type": "text/plain" });
+    return res.end("not found");
+  }
   let file = path2.join(PUBLIC, p);
   if (!file.startsWith(PUBLIC) || !fs2.existsSync(file) || fs2.statSync(file).isDirectory()) file = path2.join(PUBLIC, "index.html");
   try {
@@ -8973,30 +9852,73 @@ var server = http.createServer((req, res) => {
     let c = gzCache.get(file);
     if (!c || c.mtime !== st.mtimeMs) {
       const raw = fs2.readFileSync(file);
-      const ext0 = path2.extname(file), squeeze = /html|js|css|svg|json|xml|txt/.test(ext0);
-      c = { raw, gz: squeeze ? zlib2.gzipSync(raw, { level: 9 }) : null, br: squeeze ? zlib2.brotliCompressSync(raw, { params: { [zlib2.constants.BROTLI_PARAM_QUALITY]: 9, [zlib2.constants.BROTLI_PARAM_SIZE_HINT]: raw.length } }) : null, mtime: st.mtimeMs };
+      c = { raw, gz: zlib2.gzipSync(raw, { level: 9 }), mtime: st.mtimeMs };
       gzCache.set(file, c);
     }
     const ext = path2.extname(file);
-    const ae = String(req.headers["accept-encoding"] || "");
-    const enc = c.br && /\bbr\b/.test(ae) ? "br" : c.gz && /\bgzip\b/.test(ae) ? "gzip" : "";
-    /* files asked for with ?v= never change under that name, so phones can keep them for a year */
-    const cache = ext === ".html" ? "no-cache" : url.searchParams.has("v") || p.startsWith("/vendor/") || p.startsWith("/fonts/") ? "public, max-age=31536000, immutable" : "public, max-age=86400";
-    res.writeHead(200, { ...SEC, "content-type": TYPES3[ext] || "application/octet-stream", "cache-control": cache, ...enc ? { "content-encoding": enc, vary: "Accept-Encoding" } : {} });
-    res.end(enc === "br" ? c.br : enc === "gzip" ? c.gz : c.raw);
+    const gz = /\bgzip\b/.test(String(req.headers["accept-encoding"] || "")) && /html|js|css|svg|json|xml|txt/.test(ext);
+    res.writeHead(200, { ...SEC, "content-type": TYPES3[ext] || "application/octet-stream", "cache-control": ext === ".html" ? "no-cache" : "public, max-age=86400", ...gz ? { "content-encoding": "gzip", vary: "Accept-Encoding" } : {} });
+    res.end(gz ? c.gz : c.raw);
   } catch {
     res.writeHead(404);
     res.end("not found");
   }
 });
+var RECON_GRACE = Number(process.env.RECON_GRACE_MS ?? 1e4), RECON = { ghosts: 0, resumed: 0, expired: 0 };
+setInterval(() => {
+  const now = Date.now();
+  let gone = 0;
+  live.forEach((l, id) => {
+    if (l.ghostUntil && l.ghostUntil < now && l.ws.readyState !== import_websocket.default.OPEN) {
+      live.delete(id);
+      RECON.expired++;
+      gone++;
+      broadcast({ t: "left", id });
+    }
+  });
+  if (gone) (save(), broadcast({ t: "online", n: live.size }));
+}, 1e3);
+// ---- 24.9 basic abuse prevention ------------------------------------------------------------------------------
+// per-IP: at most ABUSE_CONN_PER_IP open sockets and ABUSE_NEW_PER_IP_HOUR new accounts per hour; per socket: a
+// message token bucket (60/s, burst 120; excess is dropped, sustained flooding closes the socket); "new citizen"
+// news at most once a minute. Loopback (local development / bench) is exempt unless ABUSE_TEST=1.
+var ABUSE = { connRefused: 0, acctRefused: 0, dropped: 0, kicked: 0, newsSkipped: 0 };
+var ABUSE_CONN = Number(process.env.ABUSE_CONN_PER_IP || 12), ABUSE_NEW = Number(process.env.ABUSE_NEW_PER_IP_HOUR || 6), ABUSE_TEST = process.env.ABUSE_TEST === "1";
+var newByIp = /* @__PURE__ */ new Map(), lastCitizenNews = 0;
+var exemptIp = (ip) => !ABUSE_TEST && /^(127\.|::1$|::ffff:127\.)/.test(ip);
 var wss = new import_websocket_server.default({ server, path: "/ws", maxPayload: 64 * 1024 });
 wss.on("connection", (ws, req) => {
   let me = null;
-  const ip = String(req.headers["x-forwarded-for"] || req.socket.remoteAddress || "").split(",")[0];
+  const ip = clientIp(req);
+  ws.ip = ip;
+  if (!exemptIp(ip) && [...wss.clients].filter((c) => c.ip === ip).length > ABUSE_CONN) {
+    ABUSE.connRefused++;
+    ws.close(1008, "too many connections");
+    return;
+  }
   const hello = setTimeout(() => ws.close(), 1e4);
+  const bucket = { tokens: 120, at: Date.now(), drops: [] };
   ws.on("message", (buf) => {
     const raw = buf.toString();
     if (raw.length > 64 * 1024) return;
+    if (!exemptIp(ip)) {
+      const nowB = Date.now();
+      bucket.tokens = Math.min(120, bucket.tokens + (nowB - bucket.at) * 0.06);
+      bucket.at = nowB;
+      if (bucket.tokens < 1) {
+        ABUSE.dropped++;
+        bucket.drops.push(nowB);
+        bucket.drops = bucket.drops.filter((x) => nowB - x < 1e4);
+        if (bucket.drops.length > 600) {
+          ABUSE.kicked++;
+          me && (me.kicked = true);
+          send(ws, { t: "err", text: "Too many messages. Please reconnect." });
+          ws.close(1008, "flood");
+        }
+        return;
+      }
+      bucket.tokens -= 1;
+    }
     if (!me) {
       let m;
       try {
@@ -9013,31 +9935,46 @@ wss.on("connection", (ws, req) => {
         ws.close();
         return;
       }
+      if (!u && !exemptIp(ip)) {
+        const nowA = Date.now(), list = (newByIp.get(ip) || []).filter((x) => nowA - x < 36e5);
+        if (list.length >= ABUSE_NEW) {
+          ABUSE.acctRefused++;
+          send(ws, { t: "err", text: "Too many new accounts from this network. Please try again later." });
+          ws.close(1008, "account limit");
+          return;
+        }
+        list.push(nowA);
+        newByIp.set(ip, list);
+        newByIp.size > 5e4 && newByIp.clear();
+      }
       if (!u) {
         const c = createUser(clean(m.name, 24) || "Citizen", m.lang);
         u = c.u;
         token = c.token;
-        ops.joinedVia(u, clean(m.ref, 24));
         u.toks = [u.tok];
         u.color = clean(m.color, 9) || "#4da3ff";
         save();
         console.log("new citizen", u.number, ip);
         const pop = Object.keys(db.users).length;
-        if (pop <= 50 || pop % 25 === 0) report("nation", `A new citizen arrived in Fyrus. Population: ${pop.toLocaleString("en-US")}`);
+        if ((pop <= 50 || pop % 25 === 0) && Date.now() - lastCitizenNews > 6e4) ((lastCitizenNews = Date.now()), report("nation", `A new citizen arrived in Fyrus. Population: ${pop.toLocaleString("en-US")}`));
+        else ABUSE.newsSkipped++;
       }
       if (m.name) u.name = clean(m.name, 24) || u.name;
       if (m.lang && LANGS.some((l) => l.code === m.lang)) u.lang = m.lang;
       u.seen = Date.now();
       const old = live.get(u.id);
-      if (old) {
+      // 24.6: a player who reconnects within the grace period continues where the server last had them (position,
+      // scene, outfit, vehicle, movement-check state) and nobody saw them leave
+      const resumed = old && old.ghostUntil ? old : null;
+      if (old && !resumed) {
         send(old.ws, { t: "err", text: "You opened Fyrus in another tab." });
         old.ws.close();
       }
-      me = { ws, u, x: 0, z: 36, y: 0, ry: 0, scene: "plaza", voice: false, rate: [], since: Date.now(), p2: Array.isArray(m.caps) && m.caps.includes("peers2"), sentO: /* @__PURE__ */ new Map() };
+      me = { ws, u, x: 0, z: 36, y: 0, ry: 0, scene: "plaza", voice: false, rate: [] };
+      if (resumed) (["x", "z", "y", "ry", "scene", "o", "v", "mv", "voice"].forEach((k) => resumed[k] !== void 0 && (me[k] = resumed[k])), RECON.resumed++);
       live.set(u.id, me);
       ops.bump("visits");
-      ops.seen(u);
-      send(ws, { t: "welcome", token, me: meOf(u), plots: db.plots, groups: Object.values(db.groups).filter((g) => g.members.includes(u.id)), online: live.size, translate: ai.on() });
+      send(ws, { t: "welcome", token, me: meOf(u), biz: biz.all(), plots: db.plots, groups: Object.values(db.groups).filter((g) => g.members.includes(u.id)), online: live.size, translate: !!AI_KEY });
       broadcast({ t: "online", n: live.size });
       return;
     }
@@ -9050,12 +9987,17 @@ wss.on("connection", (ws, req) => {
   ws.on("close", () => {
     clearTimeout(hello);
     if (me && live.get(me.u.id) === me) {
-      live.delete(me.u.id);
-      try { ops.left(me.u, Date.now() - (me.since || Date.now())); } catch {}
+      // 24.6: keep the player listed (frozen) for a short grace period so a network blip or a page reload does not
+      // make them vanish for everyone; the sweeper below removes them if they do not come back
       me.u.seen = Date.now();
+      if (RECON_GRACE > 0 && !me.kicked) {
+        me.ghostUntil = Date.now() + RECON_GRACE;
+        RECON.ghosts++;
+        return;
+      }
+      live.delete(me.u.id);
       save();
       broadcast({ t: "left", id: me.u.id });
-      live.forEach((l) => l.sentO && l.sentO.delete(me.u.id));
       broadcast({ t: "online", n: live.size });
     }
   });
@@ -9071,4 +10013,4 @@ wss.on("connection", (c) => {
   c.isAlive = true;
   c.on("pong", () => c.isAlive = true);
 });
-server.listen(PORT, () => console.log(`Fyrus server on :${PORT} \xB7 AI ${ai.on() ? "on" : "off (set AI_BASE_URL + AI_API_KEY)"}`));
+server.listen(PORT, () => console.log(`Fyrus server on :${PORT} \xB7 translate ${AI_KEY ? "on (" + AI_MODEL + ")" : "off (set ANTHROPIC_API_KEY)"}`));

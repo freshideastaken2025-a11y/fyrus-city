@@ -18,10 +18,17 @@ function createEstate(d) {
     if (l) d.send(l.ws, { t: "note", text });
   };
   const pub2 = (id, p) => ({ id, owner: p.owner, ownerName: p.ownerName, style: p.style, sign: p.sign, sale: p.sale, rent: p.rent ? { price: p.rent.price, tenantName: p.rent.tenantName, tenant: p.rent.tenant, paidUntil: p.rent.paidUntil, ending: p.rent.ending } : void 0, auction: p.auction ? { endsAt: p.auction.endsAt, start: p.auction.start, reserve: !!p.auction.reserve, top: p.auction.bids.at(-1)?.amount, topName: p.auction.bids.at(-1)?.name, bids: p.auction.bids.length } : void 0 });
-  const state = () => ({ t: "est_state", plots: Object.fromEntries(Object.entries(E2.plots).map(([k, v]) => [k, pub2(k, v)])), studios: Object.keys(E2.studios).length, now: Date.now() });
+  // 25.10 market: the last 40 completed sales (Land Office, resale, auction) for the marketplace view
+  E2.sales ||= [];
+  const logSale = (id, price, kind) => {
+    E2.sales.push({ id, price, kind, at: Date.now() });
+    if (E2.sales.length > 40) E2.sales.splice(0, E2.sales.length - 40);
+  };
+  const recent = () => E2.sales.slice(-20).reverse();
+  const state = () => ({ t: "est_state", plots: Object.fromEntries(Object.entries(E2.plots).map(([k, v]) => [k, pub2(k, v)])), studios: Object.keys(E2.studios).length, recent: recent(), now: Date.now() });
   const changed = (ids) => {
     d.save();
-    d.broadcast({ t: "est_update", plots: Object.fromEntries(ids.map((k) => [k, E2.plots[k] ? pub2(k, E2.plots[k]) : null])) });
+    d.broadcast({ t: "est_update", plots: Object.fromEntries(ids.map((k) => [k, E2.plots[k] ? pub2(k, E2.plots[k]) : null])), recent: recent() });
   };
   const mine = (uid) => ({ t: "est_mine", owned: Object.entries(E2.plots).filter(([, p]) => p.owner === uid).map(([k, p]) => pub2(k, p)), renting: Object.entries(E2.plots).filter(([, p]) => p.rent?.tenant === uid).map(([k, p]) => pub2(k, p)), studio: E2.studios[uid] || null, passes: (E2.passes[uid] || []).filter((p) => p.until > Date.now()), passport: isPassport(uid) });
   const pushMine = (uid) => {
@@ -57,6 +64,7 @@ function createEstate(d) {
     bank2.transfer("escrow", seller, top.amount - tax, `Plot ${id} sold at auction`);
     if (tax) bank2.transfer("escrow", "treasury", tax, `Land transfer tax 5%: ${id}`);
     transferPlot(id, { id: top.user, name: top.name }, top.amount);
+    logSale(id, top.amount, "auction");
     note(top.user, `You won plot ${id} for ${top.amount.toLocaleString("en-US")} FYC. The title is yours.`);
     note(seller, `Plot ${id} sold at auction for ${top.amount.toLocaleString("en-US")} FYC.`);
     changed([id]);
@@ -119,9 +127,15 @@ function createEstate(d) {
           err(`${soc.name} is for Fyrus passport holders.`);
           return true;
         }
+        // 25.4: the client sends the total it showed (m.max); never charge more than the buyer confirmed
+        const max = m.max == null ? Infinity : +m.max;
         if (!rec) {
           if (!plot.empty) {
             err("A resident lives here. It is not for sale.");
+            return true;
+          }
+          if (!(plot.price <= max)) {
+            err(`The price is ${plot.price.toLocaleString("en-US")} FYC. Check and confirm again.`);
             return true;
           }
           if (!bank2.transfer(u.id, "treasury", plot.price, `Plot ${plot.id} in ${soc.name} (Land Office)`)) {
@@ -129,6 +143,7 @@ function createEstate(d) {
             return true;
           }
           transferPlot(plot.id, u, plot.price);
+          logSale(plot.id, plot.price, "land");
           changed([plot.id]);
           reply({ t: "ok", text: `Plot ${plot.id} in ${soc.name} is yours.` });
           d.news?.("property", `Land Office sold plot ${plot.id} in ${soc.name} for ${plot.price.toLocaleString("en-US")} FYC`);
@@ -145,6 +160,15 @@ function createEstate(d) {
         const price = rec.sale;
         const tax = isPassport(u.id) ? 0 : Math.round(price * TAX);
         const seller = rec.owner;
+        if (!(price + tax <= max)) {
+          err(`The price changed to ${(price + tax).toLocaleString("en-US")} FYC. Check and confirm again.`);
+          reply(state());
+          return true;
+        }
+        if ((bank2.acct(u.id).bal || 0) < price + tax) {
+          err(`You need ${(price + tax).toLocaleString("en-US")} FYC (price + ${tax.toLocaleString("en-US")} FYC transfer tax).`);
+          return true;
+        }
         if (!bank2.transfer(u.id, seller, price, `Plot ${plot.id} bought from ${rec.ownerName}`)) {
           err(`You need ${price.toLocaleString("en-US")} FYC.`);
           return true;
@@ -152,6 +176,7 @@ function createEstate(d) {
         if (tax && !bank2.transfer(u.id, "treasury", tax, `Land transfer tax 5%: ${plot.id}`)) {
         }
         transferPlot(plot.id, u, price);
+        logSale(plot.id, price, "sale");
         note(seller, `Plot ${plot.id} sold to ${u.name} for ${price.toLocaleString("en-US")} FYC.`);
         changed([plot.id]);
         d.news?.("property", `Plot ${plot.id} in ${soc.name} changed hands for ${price.toLocaleString("en-US")} FYC`);

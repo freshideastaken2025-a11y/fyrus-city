@@ -87,7 +87,10 @@
     var renderer = null;
     [{ antialias: true }, { antialias: false, powerPreference: 'low-power' }].some(function (o) { try { o.canvas = canvas; renderer = new T.WebGLRenderer(o); return true; } catch (e) { return false; } });
     if (!renderer) { root.remove(); running = false; return; }
-    renderer.setPixelRatio(Math.min(devicePixelRatio, 1.75)); if (T.sRGBEncoding) renderer.outputEncoding = T.sRGBEncoding;
+    var homeMetricsOn = /(?:^|[?&])devmetrics=1(?:&|$)/.test(location.search), homeFrames = [], homeLast = 0;
+    window.__fyrusHomeMetrics = { stats: function () { var s = { enabled: homeMetricsOn, avgFrameMs: 0, frameP99Ms: 0, calls: null, tris: null, geometries: null, textures: null }; try { s.calls = renderer.info.render.calls; s.tris = renderer.info.render.triangles; s.geometries = renderer.info.memory.geometries; s.textures = renderer.info.memory.textures; } catch (e) {} if (homeFrames.length) { var sorted = homeFrames.slice().sort(function (a, b) { return a - b; }); s.avgFrameMs = Math.round(homeFrames.reduce(function (a, b) { return a + b; }, 0) / homeFrames.length * 100) / 100; s.frameP99Ms = Math.round(sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * .99))] * 100) / 100; s.avgFps = Math.round(1000 / s.avgFrameMs); } return s; } };
+    var phoneQuality = ('ontouchstart' in window) && Math.min(screen.width, screen.height) < 820;
+    renderer.setPixelRatio(Math.min(devicePixelRatio, phoneQuality ? 1.25 : 1.75)); if (T.sRGBEncoding) renderer.outputEncoding = T.sRGBEncoding;
     renderer.toneMapping = T.ACESFilmicToneMapping; renderer.shadowMap.enabled = true; renderer.shadowMap.type = T.PCFSoftShadowMap;
     var scene = new T.Scene(); var camera = new T.PerspectiveCamera(40, 1, .1, 400);
     var hemi = new T.HemisphereLight(0xdbe8ff, 0x3a3226, .9); scene.add(hemi);
@@ -98,18 +101,18 @@
     scene.add(skyDome);
     /* scenery around the plinth: trees and a street lamp */
     (function () { var tm = new T.MeshStandardMaterial({ color: 0x6b4b2e }), lm = new T.MeshStandardMaterial({ color: 0x3f7a34, flatShading: true }), cm = new T.MeshStandardMaterial({ color: 0x2f5a2a, flatShading: true });
-      for (var i = 0; i < 26; i++) { var a = i / 26 * Math.PI * 2 + (i % 3) * .1, r = 30 + (i % 4) * 7; var tr = new T.Mesh(new T.CylinderGeometry(.3, .45, 3, 6), tm); tr.position.set(Math.cos(a) * r, 1.5, Math.sin(a) * r); scene.add(tr); var cr = i % 2 ? new T.Mesh(new T.ConeGeometry(2, 6, 7), cm) : new T.Mesh(new T.IcosahedronGeometry(2.4, 0), lm); cr.position.set(Math.cos(a) * r, i % 2 ? 5.5 : 4.4, Math.sin(a) * r); cr.castShadow = true; scene.add(cr); } })();
-    var sun = new T.DirectionalLight(0xffffff, 1.6); sun.castShadow = true; sun.shadow.mapSize.set(2048, 2048); Object.assign(sun.shadow.camera, { left: -22, right: 22, top: 22, bottom: -22, near: 1, far: 120 }); scene.add(sun, sun.target);
+      for (var i = 0; i < (phoneQuality ? 18 : 26); i++) { var a = i / (phoneQuality ? 18 : 26) * Math.PI * 2 + (i % 3) * .1, r = 30 + (i % 4) * 7; var tr = new T.Mesh(new T.CylinderGeometry(.3, .45, 3, 6), tm); tr.position.set(Math.cos(a) * r, 1.5, Math.sin(a) * r); scene.add(tr); var cr = i % 2 ? new T.Mesh(new T.ConeGeometry(2, 6, 7), cm) : new T.Mesh(new T.IcosahedronGeometry(2.4, 0), lm); cr.position.set(Math.cos(a) * r, i % 2 ? 5.5 : 4.4, Math.sin(a) * r); cr.castShadow = true; scene.add(cr); } })();
+    var sun = new T.DirectionalLight(0xffffff, 1.6); sun.castShadow = true; sun.shadow.mapSize.set(phoneQuality ? 1024 : 2048, phoneQuality ? 1024 : 2048); Object.assign(sun.shadow.camera, { left: -22, right: 22, top: 22, bottom: -22, near: 1, far: 120 }); scene.add(sun, sun.target);
     var ground = new T.Mesh(new T.CircleGeometry(90, 64), new T.MeshStandardMaterial({ color: 0x2c3a2a, roughness: 1 })); ground.rotation.x = -Math.PI / 2; ground.position.y = -.05; ground.receiveShadow = true; scene.add(ground);
     var plinth = new T.Mesh(new T.CylinderGeometry(19, 19.6, .5, 72), new T.MeshStandardMaterial({ color: 0x1b2333, roughness: .5, metalness: .4 })); plinth.position.y = -.25; plinth.receiveShadow = true; scene.add(plinth);
     var halo = new T.Mesh(new T.TorusGeometry(19.3, .06, 6, 140), new T.MeshBasicMaterial({ color: 0xc9a96e })); halo.rotation.x = Math.PI / 2; halo.position.y = .02; scene.add(halo);
     var homeG = new T.Group(); scene.add(homeG);
-    var winMats = [], lockLamp = null, door = null;
+    var winMats = [], lockLamp = null, door = null, doorKnob = null, porchLight = null, entranceGlow = null;
 
     var M = function (c, o) { o = o || {}; o.color = c; return new T.MeshStandardMaterial(o); };
     function add(g, geo, mat, x, y, z, ry) { var m = new T.Mesh(geo, mat); m.position.set(x || 0, y || 0, z || 0); if (ry) m.rotation.y = ry; m.castShadow = true; m.receiveShadow = true; g.add(m); return m; }
     function build() {
-      homeG.clear(); winMats = [];
+      homeG.traverse(function (o) { if (o.geometry) o.geometry.dispose(); if (o.material) { if (Array.isArray(o.material)) o.material.forEach(function (m) { m.dispose(); }); else o.material.dispose(); } }); homeG.clear(); winMats = [];
       var h = homes[idx], wall = M(ext.wall, { roughness: .6 }), roof = M(ext.roof, { roughness: .7 }), trim = M(ext.trim, { roughness: .5 });
       var glass = new T.MeshStandardMaterial({ color: 0x24405e, roughness: .1, metalness: .4, emissive: 0xffc98a, emissiveIntensity: 0 }); winMats.push(glass);
       var plot = 7 + (h.garden || 2) * 2.2;
@@ -168,9 +171,15 @@
       }
       /* stone path from the door to the gate */
       for (var sp = doorZ + 1; sp < plot - .4; sp += 1.1) add(homeG, new T.BoxGeometry(1.4, .06, .8), M(0xd8cfbe, { roughness: .9 }), 0, .23, sp);
+      /* warm path lights: shared low-poly geometry keeps the cinematic cue cheap */
+      var postG = new T.CylinderGeometry(.055, .08, .55, 6), capG = new T.SphereGeometry(.12, 8, 6), postM = M(0x2b2e33, { metalness: .7, roughness: .3 }), glowM = new T.MeshStandardMaterial({ color: 0xffc27a, emissive: 0xff9a3c, emissiveIntensity: .9 }); glowM.name = 'fx-path-glow';
+      for (var pl = doorZ + 1.3; pl < plot - .3; pl += 2.2) { add(homeG, postG, postM, -.95, .52, pl); add(homeG, capG, glowM, -.95, .83, pl); add(homeG, postG, postM, .95, .52, pl + .45); add(homeG, capG, glowM, .95, .83, pl + .45); }
       /* front door + smart lock */
       door = add(homeG, new T.BoxGeometry(1.3, 2.4, .12), M(ext.trim === '#ffffff' ? 0x5a3f35 : ext.trim, { roughness: .5 }), 0, 1.4, doorZ);
+      doorKnob = add(homeG, new T.SphereGeometry(.11, 10, 8), M(0xe8d5a8, { metalness: .8, roughness: .22 }), .38, 1.35, doorZ + .1);
       lockLamp = add(homeG, new T.SphereGeometry(.13, 12, 10), new T.MeshBasicMaterial({ color: locked ? 0xff4d4d : 0x45e0ae }), .5, 1.6, doorZ + .1);
+      porchLight = add(homeG, new T.SphereGeometry(.16, 10, 8), new T.MeshStandardMaterial({ color: 0xffc27a, emissive: 0xff9a3c, emissiveIntensity: locked ? .18 : .7 }), 0, 2.75, doorZ + .16);
+      entranceGlow = new T.PointLight(0xffb36b, .65, 11, 2); entranceGlow.position.set(0, 2.4, doorZ + .5); homeG.add(entranceGlow);
       fitCam(top);
       setHour(hour);
     }
@@ -187,6 +196,7 @@
       if (day < .4 && el2 > -.25) bot.lerp(new T.Color(0xf09a5a), .7 - day);
       skyU.top.value.copy(top); skyU.bot.value.copy(bot); scene.fog = new T.Fog(bot, 90, 260);
       var glow = Math.max(0, 1 - day * 2.6) * 1.3; winMats.forEach(function (m) { m.emissiveIntensity = glow; });
+      var night = Math.max(0, 1 - day * 3); homeG.traverse(function (o) { if (o.material && o.material.name === 'fx-path-glow') o.material.emissiveIntensity = .12 + night * .9; }); if (entranceGlow) entranceGlow.intensity = .08 + night * .75; if (porchLight) porchLight.material.emissiveIntensity = .08 + night * .62;
     }
 
     /* customisation panel */
@@ -210,7 +220,7 @@
       side.appendChild(el('h4', null, ['Smart lock']));
       var lk = el('div', { 'class': 'fx3h-chips' }, [el('button', { 'aria-pressed': String(locked) }, ['🔒 Locked']), el('button', { 'aria-pressed': String(!locked) }, ['🔓 Open'])]);
       lk.children[0].onclick = function () { locked = true; renderSide(); doorAnim = 0; build(); }; lk.children[1].onclick = function () { locked = false; renderSide(); doorAnim = 0; build(); };
-      side.appendChild(lk);
+      side.appendChild(lk); side.appendChild(el('p', { 'aria-live': 'polite', style: 'margin:8px 0 0;color:' + MUTED + ';font-size:11.5px' }, [locked ? 'Entrance closed · red lock light' : 'Entrance open · warm porch light']));
       side.appendChild(el('h4', null, ['Time of day · ' + fmtHour(hour)]));
       var rg = el('input', { type: 'range', min: '5', max: '23.5', step: '.25', value: String(hour), 'aria-label': 'Time of day' }); rg.oninput = function () { setHour(+rg.value); side.querySelectorAll('h4')[6].textContent = 'Time of day · ' + fmtHour(hour); }; side.appendChild(rg);
       if (!exterior) side.appendChild(el('p', { style: 'margin:12px 0 0;color:' + MUTED + ';font-size:11.5px;line-height:1.5' }, ['Colours here are a preview. After you move in, set your outside look in Homes & Keys.']));
@@ -239,6 +249,8 @@
     canvas.addEventListener('pointerdown', function (e) { drag = { x: e.clientX, y: e.clientY, yaw: yaw, pitch: pitch }; auto = false; canvas.setPointerCapture(e.pointerId); });
     canvas.addEventListener('pointermove', function (e) { if (!drag) return; yaw = drag.yaw - (e.clientX - drag.x) * .006; pitch = Math.max(.05, Math.min(1.25, drag.pitch + (e.clientY - drag.y) * .004)); });
     canvas.addEventListener('pointerup', function () { drag = null; });
+    canvas.addEventListener('pointercancel', function () { drag = null; });
+    canvas.addEventListener('lostpointercapture', function () { drag = null; });
     canvas.addEventListener('wheel', function (e) { e.preventDefault(); dist = Math.max(14, Math.min(90, dist * (1 + Math.sign(e.deltaY) * .08))); }, { passive: false });
     canvas.addEventListener('touchmove', function (e) { if (e.touches.length === 2) { var d2 = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY); if (pinch) dist = Math.max(14, Math.min(90, dist * pinch / d2)); pinch = d2; } }, { passive: true });
     canvas.addEventListener('touchend', function () { pinch = 0; });
@@ -247,11 +259,12 @@
     var raf = 0, last = performance.now();
     function frame(now) {
       if (!running) return;
+      if (homeMetricsOn && homeLast) { homeFrames.push(Math.min(250, now - homeLast)); if (homeFrames.length > 180) homeFrames.shift(); } homeLast = now;
       var dt = Math.min(.05, Math.max(0, (now - last) / 1000)); last = Math.max(last, now);
       if (auto) yaw += dt * .18;
       camera.position.set(Math.sin(yaw) * Math.cos(pitch) * dist, targetY + Math.sin(pitch) * dist, Math.cos(yaw) * Math.cos(pitch) * dist);
       camera.lookAt(0, targetY, 0);
-      if (door) { doorAnim = Math.min(1, doorAnim + dt * 1.5); var open = locked ? 0 : 1; door.rotation.y = (open ? -1.2 : 0) * doorAnim + (open ? 0 : 0); door.position.x = open ? -.6 * doorAnim : 0; }
+      if (door) { doorAnim = Math.min(1, doorAnim + dt * 1.5); var open = locked ? 0 : 1; door.rotation.y = (open ? -1.2 : 0) * doorAnim + (open ? 0 : 0); door.position.x = open ? -.6 * doorAnim : 0; if (doorKnob) doorKnob.position.x = .38 - (open ? .6 * doorAnim : 0); if (porchLight) porchLight.material.emissiveIntensity = (locked ? .18 : .7) + Math.sin(now / 260) * .08; if (entranceGlow) entranceGlow.intensity = (locked ? .35 : .8) + Math.sin(now / 260) * .06; }
       if (lockLamp) lockLamp.scale.setScalar(1 + Math.sin(now / 250) * .15);
       renderer.render(scene, camera);
       raf = requestAnimationFrame(frame);
@@ -260,6 +273,7 @@
       if (!running) return; running = false; cancelAnimationFrame(raf);
       removeEventListener('resize', size); removeEventListener('keydown', onKey, true);
       try { scene.traverse(function (o) { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); }); renderer.dispose(); renderer.forceContextLoss && renderer.forceContextLoss(); } catch (e) {}
+      if (window.__fyrusHomeMetrics) window.__fyrusHomeMetrics = null;
       root.remove();
     }
     API.close = finish;

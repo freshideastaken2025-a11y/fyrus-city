@@ -1,0 +1,27 @@
+{
+  "name": "fyrus-city",
+  "private": true,
+  "version": "40.1.0",
+  "description": "Fyrus City — infinite 4D AI city",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "build:check": "node build.mjs --check",
+    "start": "node server.mjs",
+    "test:phase12": "node scripts/phase12-smoke.mjs",
+    "mobile:prepare": "node build.mjs && node scripts/mobile-prepare.mjs",
+    "mobile:assets:check": "node scripts/validate-mobile-assets.mjs",
+    "mobile:sync": "pnpm run mobile:prepare && cap copy",
+    "mobile:open:android": "cap open android",
+    "mobile:open:ios": "cap open ios"
+  },
+  "dependencies": {
+    "@capacitor/android": "^7.6.9",
+    "@capacitor/cli": "^7.6.9",
+    "@capacitor/core": "^7.6.9",
+    "@capacitor/ios": "^7.6.9"
+  }
+}

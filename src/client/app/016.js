@@ -337,6 +337,9 @@ function GL() {
       wall: Ta("#d8d2c6", 0.85),
       stone: Ta("#a8a39a", 0.95),
       lawn: Ta("#7fa356", 1),
+      // 25.5: warm emissive bulbs and a red mailbox (shared materials, no per-house materials)
+      glow: new pt.MeshStandardMaterial({ color: "#fff1c9", emissive: "#ffc861", emissiveIntensity: 1.4, roughness: 0.4 }),
+      mail: Ta("#c23b2e", 0.5, 0.2),
     },
     g = ["#e05a8a", "#ffd23f", "#ff9a3c", "#ffffff", "#b06ad9"].map((x) => Ta(x, 0.8)),
     m = new pt.BoxGeometry(1, 1, 1).translate(0, 0.5, 0);
@@ -395,15 +398,101 @@ function GL() {
         }
       }
     else L(v.lawn, 2 * w - 1, 0.03, 2.4, 0, 0, T);
-    (L(v.stone, 1.4, 0.05, 2.4, 0, 0, w - 1.2), p.add(b));
+    // 25.5 outdoor lights and mailbox (kill switch ?p25off=ext)
+    if (!/(^|,)(ext|all)(,|$)/.test(new URLSearchParams(location.search).get("p25off") || "")) {
+      if (k.lights === "lanterns")
+        for (let S of [-1.75, 1.75]) (L(v.iron, 0.12, 1.75, 0.12, S, 0, w), L(v.glow, 0.3, 0.34, 0.3, S, 1.75, w));
+      else if (k.lights === "lamps")
+        for (let S of [-1, 1]) for (let H of [w - 0.5, w - 2.1]) (L(v.iron, 0.1, 0.62, 0.1, S * 0.95, 0, H), L(v.glow, 0.2, 0.16, 0.2, S * 0.95, 0.62, H));
+      else if (k.lights === "string") {
+        for (let S of [-1, 1]) L(v.iron, 0.08, 2.1, 0.08, S * (w - 0.1), 0, w - 0.1);
+        for (let S = 0; S <= 16; S++) {
+          let H = -w + 0.1 + (S / 16) * (2 * w - 0.2);
+          L(v.glow, 0.13, 0.13, 0.13, H, 1.95 - 0.35 * Math.sin((S / 16) * Math.PI), w - 0.1);
+        }
+      }
+      k.mailbox && (L(v.iron, 0.08, 1, 0.08, 2.4, 0, w + 0.35), L(v.mail, 0.32, 0.26, 0.46, 2.4, 1, w + 0.35));
+    }
+    (L(v.stone, 1.4, 0.05, 2.4, 0, 0, w - 1.2), (TG25 || p).add(b));
+  }
+  // 25.11: customised yards (fence, garden, lights, mailbox, path) are built per block of 20 plots and merged into one
+  // mesh per material, cached by the block's content. An estate update rebuilds only the blocks whose yards changed.
+  // Before: every yard piece was its own mesh (360 customised homes = +29 500 meshes, fps 55 -> 37) and every update
+  // rebuilt all of them (~100 ms). Kill switch ?p25off=merge
+  let TG25 = null,
+    MOFF25 = /(^|,)(merge|all)(,|$)/.test(new URLSearchParams(location.search).get("p25off") || ""),
+    CH25 = new Map(),
+    YS25 = (window.__fyrusYards25 = { blocks: 0, rebuilt: 0, meshes: 0, lastMs: 0, off: MOFF25 });
+  function mg25(G) {
+    G.updateMatrixWorld(!0);
+    let by = new Map();
+    G.traverse((o) => {
+      if (!o.isMesh) return;
+      let k = by.get(o.material);
+      k || by.set(o.material, (k = { list: [], shadow: !1 }));
+      (k.list.push(o), o.castShadow && (k.shadow = !0));
+    });
+    let out = [];
+    by.forEach((k, mat) => {
+      let parts = [],
+        n = 0;
+      k.list.forEach((o) => {
+        let g = o.geometry.index ? o.geometry.toNonIndexed() : o.geometry.clone();
+        (g.applyMatrix4(o.matrixWorld), parts.push(g), (n += g.attributes.position.count));
+      });
+      let pos = new Float32Array(n * 3),
+        nor = new Float32Array(n * 3),
+        at = 0;
+      parts.forEach((g) => {
+        (pos.set(g.attributes.position.array, at * 3),
+          g.attributes.normal && nor.set(g.attributes.normal.array, at * 3),
+          (at += g.attributes.position.count),
+          g.dispose());
+      });
+      let geo = new pt.BufferGeometry();
+      (geo.setAttribute("position", new pt.BufferAttribute(pos, 3)),
+        geo.setAttribute("normal", new pt.BufferAttribute(nor, 3)),
+        geo.computeBoundingSphere());
+      let me = new pt.Mesh(geo, mat);
+      ((me.castShadow = k.shadow), (me.name = "yards25"), (me.matrixAutoUpdate = !1), out.push(me));
+    });
+    return out;
+  }
+  function yards25(want) {
+    let t0 = performance.now();
+    (want.forEach((items, key) => {
+      let sig = JSON.stringify(items.map(([E, Je]) => [E.id, Je])),
+        c = CH25.get(key);
+      if (c && c.sig === sig) return;
+      (c && c.meshes.forEach((me) => (p.remove(me), me.geometry.dispose())), CH25.delete(key));
+      if (!items.length) return;
+      let G = new pt.Group();
+      TG25 = G;
+      try {
+        items.forEach(([E, Je]) => f(E, Je));
+      } finally {
+        TG25 = null;
+      }
+      let meshes = mg25(G);
+      (G.traverse((o) => o.isMesh && o.geometry !== m && o.geometry !== Vx && o.geometry !== Gx && o.geometry.dispose()),
+        meshes.forEach((me) => p.add(me)),
+        CH25.set(key, { sig, meshes }),
+        YS25.rebuilt++);
+    }),
+      CH25.forEach((c, key) => {
+        want.has(key) || (c.meshes.forEach((me) => (p.remove(me), me.geometry.dispose())), CH25.delete(key));
+      }));
+    ((YS25.blocks = CH25.size), (YS25.meshes = p.children.length), (YS25.lastMs = Math.round((performance.now() - t0) * 10) / 10));
   }
   function y(x, k, b = {}) {
-    p.children.slice().forEach((w) => {
-      (p.remove(w),
-        w.traverse((L) => {
-          L.geometry && L.geometry !== m && L.geometry !== Vx && L.geometry !== Gx && L.geometry.dispose();
-        }));
-    });
+    let want25 = MOFF25 ? null : new Map();
+    MOFF25 &&
+      p.children.slice().forEach((w) => {
+        (p.remove(w),
+          w.traverse((L) => {
+            L.geometry && L.geometry !== m && L.geometry !== Vx && L.geometry !== Gx && L.geometry.dispose();
+          }));
+      });
     for (let w of s) {
       let L = AN[w.soc.id];
       (w.plots.forEach((E, T) => {
@@ -441,7 +530,10 @@ function GL() {
           ),
             w.roof.setColorAt(T, u.set(Je ? Je.roof : w.roof.defColor)),
             w.win.setColorAt(T, u.set(Je ? Je.trim : "#3a3f46")),
-            Je && f(E, Je),
+            Je &&
+              (want25
+                ? ((want25.get(w.soc.id + ":" + Math.floor(T / 20)) || want25.set(w.soc.id + ":" + Math.floor(T / 20), []).get(w.soc.id + ":" + Math.floor(T / 20))).push([E, Je]))
+                : f(E, Je)),
             w.pad.setMatrixAt(T, i));
           let Ua = -E.face * (B / 2 - 1.3),
             Ja = (E.n % 2 ? 1 : -1) * (B / 2 - 1.4),
@@ -503,6 +595,7 @@ function GL() {
           ((E.instanceMatrix.needsUpdate = !0), E.instanceColor && (E.instanceColor.needsUpdate = !0));
         }));
     }
+    want25 && yards25(want25);
   }
   return (y({}), { group: t, interacts: e, colliders: a, refresh: y });
 }

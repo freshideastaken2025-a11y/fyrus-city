@@ -1,3 +1,25 @@
+function AT27({ course: c, lesson: l }) {
+  let [qq, sq] = (0, ra.useState)(""),
+    [an, sa] = (0, ra.useState)(null);
+  (0, ra.useEffect)(() => (sa(null), O.on("npc_reply", (x) => x.npc === "teacher:" + c && sa({ text: x.text, source: x.source }))), [c]);
+  return (0, A.jsxs)("div", {
+    className: "mt-3",
+    "data-teacher-ask": c,
+    children: [
+      (0, A.jsxs)("form", {
+        className: "flex gap-1.5",
+        onSubmit: (ev) => {
+          (ev.preventDefault(), qq.trim() && (O.send({ t: "npc_say", npc: "teacher:" + c, text: qq.trim() }), sa({ text: "\u2026", source: "wait" }), sq("")));
+        },
+        children: [
+          (0, A.jsx)("input", { className: "field py-1 text-sm flex-1", "aria-label": "Ask the teacher", placeholder: `Ask the teacher about "${l}"`, value: qq, maxLength: 200, onChange: (ev) => sq(ev.target.value) }),
+          (0, A.jsx)("button", { className: "btn btn-ghost btn-sm", children: "Ask" }),
+        ],
+      }),
+      an && (0, A.jsx)("div", { className: "text-[12px] mt-1", role: "status", "data-teacher-answer": an.source, children: an.text }),
+    ],
+  });
+}
 function NR({ id: t, back: e }) {
   let a = Y(),
     r = a.edu?.courses.find((m) => m.id === t),
@@ -86,6 +108,8 @@ function NR({ id: t, back: e }) {
                 rel: "noopener noreferrer",
                 children: [(0, A.jsx)(sE, {}), " Watch the video"],
               }),
+            // 27.9 ask the course teacher (grounded in this course's lessons; no quiz answers)
+            !AIOFF27 && O.status === "online" && (0, A.jsx)(AT27, { course: r.id, lesson: m.title }),
             m.q &&
               m.opts &&
               (0, A.jsxs)("div", {

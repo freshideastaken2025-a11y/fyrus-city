@@ -1,3 +1,19 @@
+var IXOFF = typeof location !== "undefined" && (new URLSearchParams(location.search).get("p23off") || "").split(",").includes("ix"),
+  IXS = { uses: 0, debounced: 0, cycles: 0, switches: 0, lastAction: "" },
+  VEHOFF = typeof location !== "undefined" && (new URLSearchParams(location.search).get("p23off") || "").split(",").includes("veh"),
+  VEHS = { entries: 0, exits: 0, reentries: 0, peerParked: 0 },
+  INTERPOFF = typeof location !== "undefined" && (new URLSearchParams(location.search).get("p24off") || "").split(",").includes("interp"),
+  INTS = { interp: 0, extrap: 0, corrections: 0 },
+  // 23.3: a layer may wrap an interaction (door / lift transitions); it must call run() exactly once
+  ixRun = (it) => {
+    let run = () => it.use();
+    if (typeof window !== "undefined" && window.__fyrusTransition)
+      try {
+        return window.__fyrusTransition(it, run);
+      } catch (e) {}
+    return run();
+  };
+typeof window !== "undefined" && (window.__fyrusInteract = { version: "24.5", stats: IXS, veh: VEHS, net: INTS, off: IXOFF, game: () => window.__fyrusW, candidates: () => (window.__fyrusW && window.__fyrusW.ixCandidates ? window.__fyrusW.ixCandidates().map((c) => ({ label: c.it.label, action: c.it.action, d: Math.round(c.d * 10) / 10, s: Math.round(c.s * 100) / 100 })) : []) });
 var qg = (t, e) =>
     Math.hypot(t, e) < 72 ? Math.atan2(-t, -e) : e - Math.round(e / sa) * sa >= 0 ? 0 : Math.PI,
   F7 = (t) => Xr.find((e) => e.id === t) || Xr[0],
@@ -94,6 +110,7 @@ var qg = (t, e) =>
           (r === " " && (this.vehicle || this.jump(), e.preventDefault()),
             r === "f" && !this.vehicle && this.active === this.world && Vs(),
             r === "h" && this.toggleHover(),
+            r === "r" && !this.vehicle && this.cycleInteract(),
             r === "v" && this.trip && ot().trip?.kind === "ride" && this.toggleRideView(),
             ["1", "2", "3", "4"].includes(r) && this.doEmote(mR[Number(r) - 1]),
             ["arrowup", "arrowdown", "arrowleft", "arrowright"].includes(r) && e.preventDefault());
@@ -105,6 +122,7 @@ var qg = (t, e) =>
       };
       this.onBlur = () => this.keys.clear();
       this.onPointerDown = (e) => {
+        if (e.isPrimary === !1) return;   // 29.2: a second finger (pinch) must not move the camera
         ((this.userGesture = !0), (this.pointer = { down: !0, x: e.clientX, y: e.clientY, moved: 0 }));
         try {
           this.renderer.domElement.setPointerCapture(e.pointerId);
@@ -113,7 +131,7 @@ var qg = (t, e) =>
       };
       this.drag = null;
       this.onPointerMove = (e) => {
-        if (!this.pointer.down) return;
+        if (!this.pointer.down || e.isPrimary === !1) return;
         let a = e.clientX - this.pointer.x,
           r = e.clientY - this.pointer.y;
         if (this.drag) {
@@ -138,6 +156,7 @@ var qg = (t, e) =>
           ot().showcase && C({ showcase: !1 }));
       };
       this.onPointerUp = (e) => {
+        if (e.isPrimary === !1) return;
         let a = this.pointer.down;
         this.pointer.down = !1;
         let r = this.drag;
@@ -162,7 +181,12 @@ var qg = (t, e) =>
       this.el = e;
       let a = ot();
       ((this.renderer = (() => {
-        let profiles = [
+        let phoneQuality = "ontouchstart" in window && Math.min(screen.width, screen.height) < 820,
+          profiles = phoneQuality ? [
+            { antialias: !1, powerPreference: "low-power", failIfMajorPerformanceCaveat: !1, precision: "mediump" },
+            { antialias: !1, powerPreference: "default" },
+            { antialias: !0, powerPreference: "high-performance" },
+          ] : [
             { antialias: !0, powerPreference: "high-performance" },
             { antialias: !1, powerPreference: "default" },
             { antialias: !1, powerPreference: "low-power", failIfMajorPerformanceCaveat: !1, precision: "mediump" },
@@ -1077,8 +1101,24 @@ var qg = (t, e) =>
       }
     }
     setVehicle(e) {
+      // 23.6 vehicle entry / exit: getting out of a car leaves it parked where it stopped (one parked car, "Get in your
+      // car" re-enters it) and puts the player beside the driver door (or the passenger side / behind it when that spot
+      // is blocked) instead of in the middle of the car. Kill switch ?p23off=veh.
+      let vx = this.vehicle, park = !VEHOFF && vx && (vx.kind === "car" || vx.kind === "drive") && this.active === this.world && !e;
+      if (park) {
+        let R0 = this.player.root, y = R0.rotation.y, P0 = R0.position.clone(), g0 = this.groundAt(P0.x, P0.z),
+          spots = [[-Math.cos(y) * 1.7, Math.sin(y) * 1.7], [Math.cos(y) * 1.7, -Math.sin(y) * 1.7], [-Math.sin(y) * 3, -Math.cos(y) * 3]],
+          sp = spots.find(([dx, dz]) => Math.abs(this.groundAt(P0.x + dx, P0.z + dz) - g0) < 0.35) || spots[0];
+        this.parked && (this.parked.obj.parent && this.parked.obj.parent.remove(this.parked.obj), Rn(this.parked.obj));
+        let ob = vx.obj;
+        (R0.remove(ob), ob.position.copy(P0).setY(g0), ob.rotation.set(0, y, 0), this.world.add(ob));
+        this.parked = { obj: ob, kind: vx.kind, heading: y, at: Date.now() };
+        (R0.position.set(P0.x + sp[0], 0, P0.z + sp[1]), (VEHS.exits += 1));
+        vx.obj = null;
+      }
       if (
         (this.vehicle &&
+          this.vehicle.obj &&
           (this.vehicle.obj.parent && this.vehicle.obj.parent.remove(this.vehicle.obj), Rn(this.vehicle.obj)),
         (this.vehicle = null),
         (this.player.body.visible = !0),
@@ -1095,6 +1135,14 @@ var qg = (t, e) =>
       }
       if (this.active === this.world)
         if (e === "car" || e === "drive") {
+          // 23.6: getting back into the parked car: step to it and take its heading, then the parked copy is removed
+          if (this.parked) {
+            let pk = this.parked, pp = pk.obj.position, me = this.player.root.position;
+            Math.hypot(pp.x - me.x, pp.z - me.z) < 6 &&
+              (me.set(pp.x, me.y, pp.z), (this.player.root.rotation.y = pk.heading), (VEHS.reentries += 1));
+            (pk.obj.parent && pk.obj.parent.remove(pk.obj), Rn(pk.obj), (this.parked = null));
+          }
+          VEHS.entries += 1;
           let a = ot(),
             r = F7(m8() || a.dream.car),
             o = e === "car",
@@ -1458,6 +1506,10 @@ var qg = (t, e) =>
         ...this.marketInteracts,
         ...this.nationInteracts,
         ...this.talkInteracts(this.npcs),
+        ...(window.__fyrusExtraInteracts ? window.__fyrusExtraInteracts() : []),
+        ...(this.parked && !this.vehicle
+          ? [{ pos: this.parked.obj.position, radius: 3.6, label: "Get in your car", action: "vehicle", use: () => C({ vehicle: this.parked.kind, hud: { ...ot().hud, open: !1 } }) }]
+          : []),
       ];
       (this.bots.forEach((o) =>
         e.push({
@@ -1556,7 +1608,7 @@ var qg = (t, e) =>
           for (; h && !c; ) ((c = d.find((u) => u.obj === h)), (h = h.parent));
         }
         if (c) {
-          c.pos.distanceTo(o) < c.radius + 8 ? c.use() : (this.player.target = c.pos.clone());
+          c.pos.distanceTo(o) < c.radius + 8 ? ixRun(c) : (this.player.target = c.pos.clone());
           return;
         }
       }
@@ -1573,14 +1625,11 @@ var qg = (t, e) =>
     }
     useNearest() {
       if (this.trip) return;
-      let e = this.player.root.position,
-        a = null,
-        r = 1e9;
-      for (let o of this.allInteracts()) {
-        let n = Math.hypot(o.pos.x - e.x, o.pos.z - e.z);
-        n < o.radius && n < r && ((r = n), (a = o));
-      }
-      a?.use();
+      let now = performance.now();
+      if (!IXOFF && now - (this.ixLastUse || 0) < 250) return void (IXS.debounced += 1);
+      this.ixLastUse = now;
+      let a = this.pickInteract();
+      a && ((IXS.uses += 1), (IXS.lastAction = a.action || ""), (this.ixCycle = null), ixRun(a));
     }
     sync(e) {
       if (this.disposed) return;
@@ -2073,6 +2122,8 @@ var qg = (t, e) =>
       }
     }
     updateBots(e, a, r) {
+      const camP = this.camera ? this.camera.getWorldPosition(this.__camP || (this.__camP = new W.Vector3())) : null;
+      const BOT_SEP = this.__botSep ?? (this.__botSep = !/(^|,)(sep|all)(,|$)/.test(new URLSearchParams(location.search).get('p30off') || ''));
       let o = this.player.root.position,
         n = r.talk?.id;
       for (let i of this.bots) {
@@ -2105,12 +2156,27 @@ var qg = (t, e) =>
             : i.vel.lerp(d.normalize().multiplyScalar(i.spd), Math.min(1, e * 4));
         } else i.vel.multiplyScalar(0.85);
         s.addScaledVector(i.vel, e);
+        // 30.11 visual review: named citizens walking up to the player stood inside each other (no bot-to-bot spacing).
+        // Keep 0.75 m between bots (cheap box test first; n is small). Kill switch ?p30off=sep
+        if (BOT_SEP) for (let bj of this.bots) {
+          if (bj === i) continue;
+          let q = bj.root.position, hx = s.x - q.x;
+          if (hx >= 0.75 || hx <= -0.75) continue;
+          let hz = s.z - q.z;
+          if (hz >= 0.75 || hz <= -0.75) continue;
+          let dd = Math.sqrt(hx * hx + hz * hz);
+          if (dd < 0.75) { if (dd < 0.001) { hx = Math.cos(i.def.id.length); hz = Math.sin(i.def.id.length); dd = 1; } let push = (0.75 - dd) * 0.5 / dd; s.x += hx * push; s.z += hz * push; }
+        }
         let c = Math.hypot(s.x, s.z);
         c < ds + 0.6 && c > 0.01 && ((s.x *= (ds + 0.6) / c), (s.z *= (ds + 0.6) / c));
-        for (let d of this.colliders) {
-          let h = s.x - d.x,
-            u = s.z - d.z,
-            p = Math.hypot(h, u);
+        // 18.2: bounding-box reject + sqrt instead of Math.hypot for every bot x every collider (~55k calls and ~2 MB of garbage per frame)
+        for (let ci = 0, cl = this.colliders, cn = cl.length; ci < cn; ci++) {
+          let d = cl[ci],
+            h = s.x - d.x;
+          if (h >= d.r || h <= -d.r) continue;
+          let u = s.z - d.z;
+          if (u >= d.r || u <= -d.r) continue;
+          let p = Math.sqrt(h * h + u * u);
           p < d.r && p > 0.001 && ((s.x = d.x + (h / p) * d.r), (s.z = d.z + (u / p) * d.r));
         }
         window.__fyrusCollide && window.__fyrusCollide(s);
@@ -2122,6 +2188,13 @@ var qg = (t, e) =>
           (i.root.userData.groundY = s.y),
           (i.label.visible = r.settings.nameTags && l < 10),
           i.update(e, a));
+        // 30.11 visual review: a citizen who walked up to the player could stand right in front of the lens (half a head
+        // and a big name tag across the bottom of the screen). Hide a citizen while it is within 1.5 m (ground distance) of the camera.
+        if (BOT_SEP && camP) {
+          let cx = s.x - camP.x, cz = s.z - camP.z, near = cx * cx + cz * cz < 2.25 && Math.abs(s.y - camP.y) < 5;
+          near && (i.label.visible = !1);
+          near ? i.root.visible && ((i.root.visible = !1), (i.__camHid = !0)) : i.__camHid && ((i.root.visible = !0), (i.__camHid = !1));
+        }
       }
     }
     updatePeers(e, a, r) {
@@ -2139,20 +2212,72 @@ var qg = (t, e) =>
           i.o)
         ) {
           let u = JSON.stringify(i.o);
-          u !== l.oSig && (l.oSig && l.setOutfit(i.o), (l.oSig = u));
+          if (u !== l.oSig) {
+            // 23.9: the action fields (act / em / emt) ride along in `o`; only a real outfit change rebuilds the outfit
+            let oo = Object.assign({}, i.o);
+            (delete oo.act, delete oo.em, delete oo.emt);
+            let us = JSON.stringify(oo);
+            (l.oSig && us !== l.outSig && l.setOutfit(i.o), (l.outSig = us), (l.oSig = u));
+          }
         }
         (i.photo && l.photoSig !== i.photo.length && ((l.photoSig = i.photo.length), l.setPhoto?.(i.photo)),
           l.setMask?.(!!i.mk));
         let c = i.v ? `${i.v.b}${i.v.c}${i.v.f}` : "";
+        // 23.9: a peer who got out of a car leaves it parked where they say it is (o.act.p = [x, z, heading])
+        let pk = !VEHOFF && i.o && i.o.act && i.o.act.p;
+        if (l.parkedCar && (!pk || l.parkedSig !== pk.join(",")))
+          (l.parkedCar.parent && l.parkedCar.parent.remove(l.parkedCar), Rn(l.parkedCar), (l.parkedCar = null), (l.parkedSig = null));
         (c !== (l.vSig || "") &&
           ((l.vSig = c),
-          l.car && (l.root.remove(l.car), Rn(l.car), (l.car = null)),
+          l.car && pk && !i.v
+            ? (l.root.remove(l.car),
+              l.car.position.set(pk[0], this.groundAt(pk[0], pk[1]), pk[1]),
+              l.car.rotation.set(0, pk[2] || 0, 0),
+              this.active.add(l.car),
+              (l.parkedCar = l.car),
+              (l.parkedSig = pk.join(",")),
+              (l.car = null),
+              (VEHS.peerParked += 1))
+            : l.car && (l.root.remove(l.car), Rn(l.car), (l.car = null)),
           (l.body.visible = !i.v),
           i.v && ((l.car = Rr(i.v.b, i.v.c, !!i.v.f)), l.root.add(l.car))),
           l.root.parent !== this.active && this.active.add(l.root));
+        // 24.5 snapshot interpolation: every server update (a new entry object) is a timed sample; the peer is drawn
+        // slightly in the past (1.3 x the measured update interval, 110-600 ms, so 2 Hz far peers stay smooth) between
+        // the two samples around that time, or extrapolated up to 0.5 s from the last two when updates are late.
+        // Jumps over 50 m (teleports) reset the buffer. Kill switch ?p24off=interp restores the plain lerp.
         let d = l.root.position.clone(),
-          h = i.v ? i.y || 0 : this.groundAt(i.x, i.z);
-        (l.root.position.lerp(new W.Vector3(i.x, h, i.z), Math.min(1, e * 8)),
+          tx = i.x,
+          tz = i.z;
+        if (!INTERPOFF) {
+          let nowT = performance.now(),
+            B = l.nb || (l.nb = []);
+          if (i !== l.lastI) {
+            l.lastI = i;
+            let lb = B[B.length - 1];
+            (lb && Math.hypot(lb.x - i.x, lb.z - i.z) > 50 && (B.length = 0), B.push({ t: nowT, x: i.x, z: i.z }), B.length > 10 && B.shift());
+          }
+          if (B.length >= 2) {
+            let iv = (B[B.length - 1].t - B[0].t) / (B.length - 1),
+              rt = nowT - Math.min(600, Math.max(110, iv * 1.3)),
+              j = B.findIndex((q) => q.t >= rt);
+            if (j === 0) ((tx = B[0].x), (tz = B[0].z));
+            else if (j > 0) {
+              let qa = B[j - 1],
+                qb = B[j],
+                f = (rt - qa.t) / Math.max(1, qb.t - qa.t);
+              ((tx = qa.x + (qb.x - qa.x) * f), (tz = qa.z + (qb.z - qa.z) * f));
+            } else {
+              let qa = B[B.length - 2],
+                qb = B[B.length - 1],
+                ex = Math.min(500, rt - qb.t) / Math.max(1, qb.t - qa.t);
+              ((tx = qb.x + (qb.x - qa.x) * ex), (tz = qb.z + (qb.z - qa.z) * ex), (INTS.extrap += 1));
+            }
+            INTS.interp += 1;
+          }
+        }
+        let h = i.v ? i.y || 0 : this.groundAt(tx, tz);
+        (l.root.position.lerp(new W.Vector3(tx, h, tz), Math.min(1, e * (INTERPOFF ? 8 : 18))),
           (l.speed = d.distanceTo(l.root.position) / Math.max(e, 0.001)),
           (l.root.rotation.y = wu(l.root.rotation.y, i.ry, Math.min(1, e * 10))),
           l.car && $s(l.car, l.speed, e),
@@ -2160,26 +2285,66 @@ var qg = (t, e) =>
       }),
         this.peers.forEach((i, s) => {
           n.has(s) ||
-            (i.root.parent?.remove(i.root),
+            (i.parkedCar && (i.parkedCar.parent?.remove(i.parkedCar), Rn(i.parkedCar), (i.parkedCar = null)),
+            i.root.parent?.remove(i.root),
             this.presence.peers.has(s) || (i.dispose(), this.peers.delete(s)));
         }));
     }
     peerCount() {
       return this.peers.size;
     }
+    // 23.1 interaction controller: one selection used by both the prompt and E / tap. Candidates in range are scored by
+    // distance and by how much the player faces them (what you look at wins), the current target is kept unless another
+    // is clearly better (no flicker), R cycles through several targets, and a use is debounced (key + click once).
+    // Kill switch ?p23off=ix restores the plain nearest-in-range rule.
+    ixCandidates() {
+      let e = this.player.root.position,
+        y = this.player.root.rotation.y,
+        fx = Math.sin(y),
+        fz = Math.cos(y),
+        out = [];
+      for (let n of this.allInteracts()) {
+        let dx = n.pos.x - e.x,
+          dz = n.pos.z - e.z,
+          d = Math.hypot(dx, dz);
+        if (!(d < n.radius)) continue;
+        let face = d > 0.3 ? (dx * fx + dz * fz) / d : 1,
+          s = d / n.radius + (IXOFF ? 0 : 0.6 * (1 - face) * 0.5 + (n.prio || 0));   // 23.5: prio > 0 = background action (e.g. put down)
+        out.push({ it: n, d: d, s: s });
+      }
+      return out.sort((a, b) => a.s - b.s);
+    }
+    pickInteract() {
+      let c = this.ixCandidates();
+      if (!c.length) return ((this.ixT = null), (this.ixCount = 0), null);
+      if (IXOFF) return ((this.ixT = c.slice().sort((a, b) => a.d - b.d)[0].it), (this.ixCount = c.length), this.ixT);
+      let cur = this.ixT && c.find((x) => x.it === this.ixT || (x.it.label === this.ixT.label && x.it.action === this.ixT.action));
+      if (this.ixCycle && this.ixCycle.until > performance.now()) {
+        let k = this.ixCycle.k % c.length;
+        return ((this.ixT = c[k].it), (this.ixCount = c.length), (this.ixIndex = k), this.ixT);
+      }
+      let best = c[0];
+      cur && cur !== best && !cur.it.prio && cur.s - best.s < 0.15 && (best = cur);   // 23.11: background actions never stick
+      return ((this.ixT = best.it), (this.ixCount = c.length), (this.ixIndex = c.indexOf(best)), this.ixT);
+    }
+    cycleInteract() {
+      let c = this.ixCandidates();
+      if (c.length < 2) return;
+      let k = ((this.ixIndex || 0) + 1) % c.length;
+      ((this.ixCycle = { k: k, until: performance.now() + 6e3 }), (IXS.cycles += 1), (this.lastNearby = null), this.updateNearby());
+    }
     updateNearby() {
       if (this.trip) return;
-      let e = this.player.root.position,
-        a = null,
-        r = 1e9;
-      for (let n of this.allInteracts()) {
-        let i = Math.hypot(n.pos.x - e.x, n.pos.z - e.z);
-        i < n.radius && i < r && ((r = i), (a = n));
-      }
-      let o = a ? a.label : "";
+      let a = this.pickInteract(),
+        o = a ? a.label + "|" + this.ixCount + "|" + (this.ixIndex || 0) : "";
       o !== this.lastNearby &&
         ((this.lastNearby = o),
-        C({ nearby: a ? { label: a.label, ownerId: a.ownerId, action: a.action } : null }));
+        (IXS.switches += 1),
+        C({
+          nearby: a
+            ? { label: a.label, ownerId: a.ownerId, action: a.action, count: this.ixCount, index: (this.ixIndex || 0) + 1 }
+            : null,
+        }));
     }
     say(e) {
       this.player.say(e, this.clock.elapsedTime);
@@ -2413,16 +2578,18 @@ var qg = (t, e) =>
         u,
       );
     }
-    startTaxi(e) {
+    // 28.2: the same sky-lane trip also runs the flat-fare Sky Bus (opt: { fare, label, color, slow })
+    startTaxi(e, opt) {
       if (this.trip) return;
       if (this.vehicle) return F("Park your vehicle first (E).", "warn");
       let a = this.player.root.position.clone().setY(0),
         r = new W.Vector3(e.x, 0, e.z),
         o = a.distanceTo(r);
       if (o < 15) return F("You are already there.", "info");
-      let n = Th(o);
-      if (!Jc(n, `Taxi to ${e.name}`)) return;
-      let i = Rr("sedan", "#f4c20d"),
+      let n = opt?.fare ?? Th(o), tl = opt?.label || "Taxi";
+      if (!Jc(n, `${tl} to ${e.name}`)) return;
+      opt && (window.__fyrusBus28 = { rides: (window.__fyrusBus28?.rides || 0) + 1, last: e.name, fare: n });
+      let i = Rr("sedan", opt?.color || "#f4c20d"),
         s = new W.Mesh(
           new W.BoxGeometry(0.7, 0.25, 0.3),
           new W.MeshStandardMaterial({ color: "#111", emissive: "#f4c20d", emissiveIntensity: 0.6 }),
@@ -2431,7 +2598,7 @@ var qg = (t, e) =>
       let l = 22,
         c = 4,
         d = 4,
-        h = Math.max(4, o / 45),
+        h = Math.max(4, o / 45) * (opt?.slow || 1),
         u = c + h + d + 1,
         p = r.clone().sub(a).normalize(),
         v = a.clone().addScaledVector(new W.Vector3(-p.z, 0, p.x), 2.4),
@@ -2466,7 +2633,7 @@ var qg = (t, e) =>
         };
       this.beginTrip(
         "taxi",
-        `Taxi to ${e.name} \xB7 ${n} FYC`,
+        `${tl} to ${e.name} \xB7 ${n} FYC`,
         u,
         g,
         () => {
@@ -2610,6 +2777,13 @@ var qg = (t, e) =>
           "warn",
         );
       if (!Jc(a.fare, a.name)) return;
+      // 28.3 boarding pass (gate from the departures board, seat from the passenger id)
+      if (typeof AIROFF28 === "undefined" || !AIROFF28) {
+        let gi = Lp.indexOf(a), seat = (((V.session?.userId || "x").split("").reduce((k, ch) => k + ch.charCodeAt(0), 0) % 30) + 1) + "ABCDEF"[Date.now() % 6],
+          bp = { flight: a.name, gate: "A" + (gi + 1), seat, at: Date.now() };
+        window.__fyrusAir28 = { passes: [...(window.__fyrusAir28?.passes || []).slice(-4), bp] };
+        F(`Boarding pass: ${a.name} \xB7 Gate ${bp.gate} \xB7 Seat ${seat}. Check-in and security done \u2014 have a good flight!`, "info");
+      }
       let o = Ep.runway,
         n = (u, p) => {
           let v = new W.Vector3(u, 0, 0).applyAxisAngle(new W.Vector3(0, 1, 0), o.ry);

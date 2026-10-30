@@ -226,6 +226,7 @@ function Fy() {
           (0, rr.jsx)("input", {
             ref: h,
             id: "plaza-say",
+            "aria-label": r === "near" ? "Say something to people nearby" : "Message the whole city",
             className:
               "hud-box text-sm px-3 py-2 text-white placeholder-white/50 outline-none focus:border-[var(--accent)] flex-1 min-w-0",
             value: e,
@@ -268,6 +269,37 @@ var wt = P(ct(), 1),
     let e = Ch(t);
     return { x: e.x, z: e.z + (t === "core" ? 12 : 9.5) };
   };
+// 28.3 airport: live departures board (deterministic schedule: every flight leaves every 6 minutes, staggered; you can
+// still board any time, the board is information) and a boarding pass on purchase (023 startFlight). Kill ?p28off=air
+var AIROFF28 = typeof location !== "undefined" && /(^|,)(air|all)(,|$)/.test(new URLSearchParams(location.search).get("p28off") || ""),
+  AIR28 = (i, now) => { let per = 360, off = (i * 90) % per, left = per - ((Math.floor(now / 1e3) - off) % per + per) % per; return { gate: "A" + (i + 1), left, status: left <= 60 ? "Boarding" : left <= 120 ? "Go to gate" : "On time" }; };
+function DEP28() {
+  let [, tick] = (0, A0.useState)(0);
+  (0, A0.useEffect)(() => { let h = setInterval(() => tick((x) => x + 1), 1e3); return () => clearInterval(h); }, []);
+  let now = Date.now();
+  return (0, wt.jsxs)("div", {
+    className: "rounded-md p-2 text-[11.5px] font-mono",
+    style: { background: "rgba(0,0,0,.45)", border: "1px solid rgba(255,214,10,.35)" },
+    "data-departures": Lp.length,
+    role: "table",
+    "aria-label": "Departures",
+    children: [
+      (0, wt.jsx)("div", { className: "font-bold mb-1", style: { color: "#ffd60a" }, children: "DEPARTURES" }),
+      ...Lp.map((u, i) => {
+        let x = AIR28(i, now);
+        return (0, wt.jsxs)("div", { className: "flex gap-2", role: "row", "data-dep": u.id, children: [
+          (0, wt.jsx)("span", { className: "w-8", children: x.gate }),
+          (0, wt.jsx)("span", { className: "flex-1 truncate", children: u.name.replace(/^Fyrus Airlines to /, "") }),
+          (0, wt.jsx)("span", { className: "w-12 text-right", children: `${Math.floor(x.left / 60)}:${String(x.left % 60).padStart(2, "0")}` }),
+          (0, wt.jsx)("span", { className: "w-20 text-right", style: { color: x.status === "Boarding" ? "#7dff9a" : x.status === "Go to gate" ? "#ffd60a" : "#cfd8e3" }, children: x.status }),
+        ] }, u.id);
+      }),
+    ],
+  });
+}
+// 28.2 Sky Bus: flat-fare public transport inside the capital (kill switch ?p28off=bus)
+var BUSOFF28 = typeof location !== "undefined" && /(^|,)(bus|all)(,|$)/.test(new URLSearchParams(location.search).get("p28off") || ""),
+  BUSFARE28 = 3;
 function Uy() {
   let t = Y(),
     e = t.travelOpen,
@@ -321,6 +353,7 @@ function Uy() {
         children: [
           ["metro", "Metro", Zh],
           ["taxi", "Taxi", ci],
+          ...(BUSOFF28 ? [] : [["bus", "Sky Bus", ci]]),
           ["fly", "Fly", Li],
           ["rides", "Joyland", dd],
         ].map(([d, h, u]) =>
@@ -451,6 +484,38 @@ function Uy() {
                   ),
               ],
             }),
+          a === "bus" &&
+            !BUSOFF28 &&
+            (0, wt.jsxs)(wt.Fragment, {
+              children: [
+                (0, wt.jsx)("p", {
+                  className: "text-[12px] text-white/70",
+                  children: `Green Sky Buses stop at every landmark and district gate in the capital. Flat fare ${BUSFARE28} FYC; slower than a taxi.`,
+                }),
+                ...c
+                  .filter((d) => !/^My plot/.test(d.name) && !Hr.some((h) => h.name === d.name) && Math.hypot(d.x, d.z) < 1400)
+                  .map((d) => ({ ...d, d: Math.hypot(d.x - n.x, d.z - n.z) }))
+                  .sort((d, h) => d.d - h.d)
+                  .map((d) =>
+                    (0, wt.jsxs)(
+                      "button",
+                      {
+                        className: "w-full flex items-center gap-2 rounded-md px-2.5 py-2 text-left card-hover",
+                        style: { border: "1px solid rgba(255,255,255,.15)" },
+                        disabled: d.d < 40,
+                        "data-bus-stop": d.name,
+                        onClick: () => o?.startTaxi(d, { fare: BUSFARE28, label: "Sky Bus", color: "#2fbf71", slow: 1.6 }),
+                        children: [
+                          (0, wt.jsx)(ci, {}),
+                          (0, wt.jsx)("span", { className: "flex-1 truncate", children: d.name }),
+                          (0, wt.jsx)("span", { className: "text-[11px] text-white/60", children: `${Math.round(d.d)} m \xB7 ${d.d < 40 ? "here" : BUSFARE28 + " FYC"}` }),
+                        ],
+                      },
+                      d.name,
+                    ),
+                  ),
+              ],
+            }),
           a === "fly" &&
             (() => {
               let d = Math.hypot(n.x - Cn.x, n.z - Cn.z) < 45,
@@ -464,6 +529,7 @@ function Uy() {
                       d ? " You are at the airport \u2014 pick a flight." : "",
                     ],
                   }),
+                  !AIROFF28 && (0, wt.jsx)(DEP28, {}),
                   !d &&
                     (0, wt.jsx)("div", {
                       className: "flex gap-1.5",
@@ -1155,18 +1221,7 @@ var I = P(ct(), 1),
       one: "Digital product",
       desc: "AI agents, tools, prompts, 3D assets, templates \u2014 unlocked instantly after payment.",
     },
-    {
-      id: "physical",
-      label: "Physical",
-      one: "Physical product",
-      desc: "Clothes, sneakers, electronics, watches \u2014 shipped to the buyer with tracking.",
-    },
-    {
-      id: "brand",
-      label: "Brands",
-      one: "Brand flagship",
-      desc: "A brand store with stock and drops. Needs a 2,000 FYC bond.",
-    },
+    // 26.8: physical goods and brand stores (real shipping addresses) are off - FYC are in-game credits only
   ],
   EB = [
     "\u25C6",

@@ -967,6 +967,9 @@ function ww(t) {
       label: t.label,
       residentName: t.residentName,
       canEdit: !!t.canEdit,
+      role: t.role || (t.canEdit ? "resident" : "guest"),
+      layouts: t.layouts || [null, null, null],
+      v: t.v || 0,
       int: t.int,
       lock: t.lock,
     },
@@ -979,7 +982,9 @@ function ww(t) {
     hud: { ...V.hud, open: !1 },
   }),
     F(
-      t.canEdit
+      t.role === "decorator"
+        ? `You are inside ${t.residentName}'s home (${t.label}). They let you decorate: press Decorate to arrange it.`
+        : t.canEdit
         ? "Welcome home. Press Decorate to move furniture, paint walls and change the floor."
         : `You are inside ${t.residentName}'s home (${t.label}).`,
       "info",
@@ -998,20 +1003,66 @@ function BM(t, e) {
 function Rv(t, e) {
   jh() && O.send({ t: "home_key", key: t, ...e });
 }
+function KP(t, e, a) {
+  jh() && O.send({ t: "home_keyperm", key: t, id: e, edit: !!a });
+}
 function AM(t, e) {
   jh() && O.send({ t: "home_unkey", key: t, id: e });
 }
 function zM(t, e) {
   jh() && (C({ homesExt: { ...V.homesExt, [t]: e } }), O.send({ t: "home_ext", key: t, ext: e }));
 }
+// 25.6 decorating: undo history (30 steps; edits within 400 ms - e.g. one drag - coalesce into one step), overlap
+// check for the selected piece. Kill switch ?p25off=decor
+var DOFF25 = typeof location !== "undefined" && /(^|,)(decor|all)(,|$)/.test(new URLSearchParams(location.search).get("p25off") || ""),
+  UH25 = [],
+  UT25 = 0,
+  DS25 = { undos: 0, steps: 0 };
+typeof window !== "undefined" && (window.__fyrusDecor25 = { stats: DS25, off: DOFF25, history: () => UH25.length, undo: () => UZ25(), overlaps: () => OV25() });
+function UZ25() {
+  let a = V.house;
+  if (DOFF25 || !a?.canEdit || !UH25.length) return !1;
+  let p = UH25.pop();
+  UT25 = 0;
+  DS25.undos++;
+  C({ house: { ...a, int: p, dirty: !0 }, decorSel: V.decorSel !== null && V.decorSel < p.items.length ? V.decorSel : null });
+  return !0;
+}
+var NOOV25 = { rug: 1, rugr: 1, prayer: 1, art: 1, mirror: 1 };
+function OV25(t = V.decorSel) {
+  let a = V.house;
+  if (DOFF25 || !a || t === null || t === void 0) return [];
+  let e = a.int.items[t];
+  if (!e || NOOV25[e.k]) return [];
+  let fp = (i) => {
+    let f = $i[i.k] || { w: 1, d: 1 },
+      c = Math.abs(Math.cos((i.r * Math.PI) / 180)),
+      s = Math.abs(Math.sin((i.r * Math.PI) / 180));
+    return { w: f.w * c + f.d * s, d: f.w * s + f.d * c };
+  },
+    A = fp(e);
+  return a.int.items
+    .map((i, n) => ({ i, n }))
+    .filter(({ i, n }) => {
+      if (n === t || NOOV25[i.k]) return !1;
+      let B = fp(i);
+      return Math.abs(i.x - e.x) < (A.w + B.w) / 2 - 0.05 && Math.abs(i.z - e.z) < (A.d + B.d) / 2 - 0.05;
+    })
+    .map(({ i, n }) => ({ n, k: i.k, name: $i[i.k]?.name || i.k }));
+}
 var Qc = (t, e) => {
   let a = V.house;
   if (!a?.canEdit) return;
+  if (!DOFF25) {
+    let now = Date.now();
+    (now - UT25 > 400 && (UH25.push(a.int), UH25.length > 30 && UH25.shift(), DS25.steps++), (UT25 = now));
+  }
   let r = { ...a, ...t(a), dirty: !0 };
   ((r.int = Aw(r.int, a.key)), C({ house: r, ...(e !== void 0 ? { decorSel: e } : {}) }));
 };
 function jM(t) {
-  V.house?.canEdit && (!t && V.house.dirty && Wp(), C({ decorating: t, decorSel: t ? V.decorSel : null }));
+  (t && ((UH25 = []), (UT25 = 0)),
+    V.house?.canEdit && (!t && V.house.dirty && Wp(), C({ decorating: t, decorSel: t ? V.decorSel : null })));
 }
 function Ih(t) {
   C({ decorSel: t });
@@ -1073,7 +1124,7 @@ function jp(t) {
 function Wp(t = !1) {
   let e = V.house;
   if (e?.canEdit) {
-    if (!O.send({ t: "home_int", key: e.key, int: e.int })) {
+    if (!O.send({ t: "home_int", key: e.key, int: e.int, base: e.v || 0 })) {
       t || F("Not connected \u2014 your changes will be saved when the city reconnects.", "warn");
       return;
     }
@@ -1128,6 +1179,16 @@ function FM(t, e, a = 0) {
 function zo(t, e) {
   C({ estateFocus: { soc: t, plot: e }, hud: { open: !0, tab: "estate" } });
 }
+// 25.4 test hook (read-only lookups + opening a plot page, exactly like tapping the plot sign)
+typeof window !== "undefined" &&
+  (window.__fyrusLandOffice = {
+    plot: (id) => _i(id),
+    open: (id) => {
+      let p = _i(id);
+      p && zo(p.soc, id);
+      return !!p;
+    },
+  });
 function Ip() {
   let t = V.estateMine;
   return (
@@ -1157,6 +1218,10 @@ function ad(t, e) {
 function Vh(t, e) {
   C((a) => ({ eduFocus: { tab: t, course: e }, hud: { open: !0, tab: "edu" } }));
 }
+// 28.4 open a course (or the course list) from add-ons, e.g. the campus card
+// 28.5 civic card hooks: open the existing Politics HUD tabs / Nation > Law & Court, and refresh the election state
+typeof window !== "undefined" && ((window.__fyrusCivicOpen = (tab) => (tab === "law" ? C({ nationTab: "law", hud: { open: !0, tab: "nation" } }) : ai(tab || "election"))), (window.__fyrusCivicRefresh = () => O.status === "online" && O.send({ t: "pol_state" })));
+typeof window !== "undefined" && ((window.__fyrusEduOpen = (c) => Vh("explore", c || null)), (window.__fyrusEduList = () => O.status === "online" && O.send({ t: "edu_list" })));
 function Z2(t) {
   let e = { ...V };
   (cr(V.session.userId, t, "Wallet top-up (demo checkout)", e),

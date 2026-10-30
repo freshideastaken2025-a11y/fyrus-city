@@ -42,6 +42,8 @@ var FLOORS = [
 ];
 var FENCES = [{ id: "none", name: "No fence" }, { id: "hedge", name: "Hedge" }, { id: "picket", name: "White picket" }, { id: "iron", name: "Black iron" }, { id: "wall", name: "Low wall" }];
 var GARDENS = [{ id: "lawn", name: "Lawn" }, { id: "flowers", name: "Flower beds" }, { id: "stone", name: "Stone patio" }, { id: "trees", name: "Fruit trees" }];
+// 25.5 outdoor lights and a mailbox
+var LIGHTS = [{ id: "none", name: "No lights" }, { id: "lanterns", name: "Gate lanterns" }, { id: "lamps", name: "Path lamps" }, { id: "string", name: "String lights" }];
 var MAX_ITEMS = 120;
 var PASS_MS = 2 * 36e5;
 var homeKind = (key) => /^(EX|MB|RS)-\d{4}$/.test(key) ? "house" : key.startsWith("studio:") ? "studio" : key.startsWith("home:") ? "home" : "";
@@ -56,7 +58,7 @@ var num = (v, lim) => {
 var DEFAULT_EXT = { wall: "#ffffff", roof: "#5a3f35", trim: "#ffffff", fence: "hedge", garden: "lawn" };
 function cleanExt(e) {
   e = e || {};
-  return { wall: hex(e.wall, DEFAULT_EXT.wall), roof: hex(e.roof, DEFAULT_EXT.roof), trim: hex(e.trim, DEFAULT_EXT.trim), fence: pick(e.fence, FENCES, "hedge"), garden: pick(e.garden, GARDENS, "lawn") };
+  return { wall: hex(e.wall, DEFAULT_EXT.wall), roof: hex(e.roof, DEFAULT_EXT.roof), trim: hex(e.trim, DEFAULT_EXT.trim), fence: pick(e.fence, FENCES, "hedge"), garden: pick(e.garden, GARDENS, "lawn"), lights: pick(e.lights, LIGHTS, "none"), mailbox: e.mailbox === true };
 }
 function cleanInt(v, key) {
   v = v || {};

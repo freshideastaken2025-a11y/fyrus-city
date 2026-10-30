@@ -577,13 +577,26 @@ function u5() {
                 children: [
                   (0, D.jsx)("kbd", {
                     className: "font-mono text-sm w-8 h-8 grid place-items-center rounded font-bold",
-                    style: { background: "#f2f3f5", color: "#111" },
-                    children: "E",
+                    style: { background: "#f2f3f5", color: "#111", minWidth: 32, width: "auto", padding: "0 6px" },
+                    // 23.10: hint follows the last input device (keyboard / touch / gamepad)
+                    children: t.inputMode === "touch" ? "Tap" : t.inputMode === "pad" ? "\u24b6" : "E",
                   }),
                   (0, D.jsx)("span", {
                     className: "text-[15px] font-bold text-white hud-text-shadow truncate",
                     children: t.nearby.label,
                   }),
+                  // 23.1: several things in reach -> show "2/3" and a cycle control (key R, or tap on touch screens)
+                  t.nearby.count > 1 &&
+                    (0, D.jsxs)("span", {
+                      role: "button",
+                      tabIndex: 0,
+                      "aria-label": `Next target (${t.nearby.index} of ${t.nearby.count})`,
+                      onClick: (ev) => (ev.stopPropagation(), _t()?.cycleInteract()),
+                      onKeyDown: (ev) => (ev.key === "Enter" || ev.key === " ") && (ev.preventDefault(), ev.stopPropagation(), _t()?.cycleInteract()),
+                      className: "ml-1 text-[12px] font-bold rounded px-2 py-1",
+                      style: { background: "rgba(255,255,255,.18)", color: "#fff" },
+                      children: [t.nearby.index, "/", t.nearby.count, t.inputMode === "touch" ? " \u00b7 next \u21bb" : t.inputMode === "pad" ? " \u00b7 \u24b7 \u21bb" : " \u00b7 R \u21bb"],
+                    }),
                 ],
               }),
             (t.vehicle === "drive" || t.vehicle === "car") &&

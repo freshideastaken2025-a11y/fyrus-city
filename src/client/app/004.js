@@ -275,6 +275,13 @@ var ov = [
     { id: "stone", name: "Stone patio" },
     { id: "trees", name: "Fruit trees" },
   ],
+  // 25.5 outdoor lights (server: furniture.mjs LIGHTS)
+  Lw25 = [
+    { id: "none", name: "No lights" },
+    { id: "lanterns", name: "Gate lanterns" },
+    { id: "lamps", name: "Path lamps" },
+    { id: "string", name: "String lights" },
+  ],
   gp = [
     { id: "private", name: "Private", sub: "Only you. Visitors can knock." },
     { id: "keys", name: "Friends with keys", sub: "You and the people you give a key to." },
@@ -400,6 +407,8 @@ var tH = (t, e) => 8 + t * e + Math.floor((t - 1) / 2) * 10 + 8,
   As = (t) => ({ x0: t.x0, z0: t.z0, x1: t.x0 + t.cols * t.sp + 16, z1: t.z0 + tH(t.rows, t.sp) }),
   Rl = { x0: Jt.x - 50, z0: Jt.z - 60, x1: Jt.x + 50, z1: Jt.z + 60 },
   eH = [...Gr.map(As), Rl].map((t) => ({ x0: t.x0 - 10, z0: t.z0 - 10, x1: t.x1 + 10, z1: t.z1 + 10 })),
+  // 28.1 districts for add-ons (read-only copy): id, code, name, tagline, colour, ground rectangle, gate
+  __d28 = typeof window !== "undefined" && (window.__fyrusDistricts = () => [...Gr.map((t) => ({ id: t.id, code: t.code, name: t.name, tagline: t.tagline, color: t.color, rect: As(t), gate: t.gate ? { x: t.gate.x, z: t.gate.z } : null })), { id: Jt.id, code: Jt.code, name: Jt.name, tagline: Jt.tagline, color: Jt.color, rect: { ...Rl }, gate: { x: Jt.x, z: Jt.z } }]),
   Bl = (t, e) => eH.some((a) => t > a.x0 && t < a.x1 && e > a.z0 && e < a.z1),
   Ww = (t, e) =>
     Gr.find((a) => {

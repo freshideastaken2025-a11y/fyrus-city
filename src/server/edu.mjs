@@ -134,7 +134,7 @@ function createEdu(d) {
         return true;
       }
       case "edu_staff": {
-        const i = E2.inst[m.inst];
+        const i = own(E2.inst, m.inst);
         if (!i || i.owner !== u.id) {
           err("Only the owner can add teachers.");
           return true;
@@ -173,7 +173,7 @@ function createEdu(d) {
           err("A course needs a title and at least one lesson.");
           return true;
         }
-        const old = m.id ? E2.courses[m.id] : void 0;
+        const old = m.id ? own(E2.courses, m.id) : void 0;
         if (old && old.teacher !== u.id) {
           err("That is not your course.");
           return true;
@@ -188,7 +188,7 @@ function createEdu(d) {
         return true;
       }
       case "edu_enroll": {
-        const c = E2.courses[m.course];
+        const c = own(E2.courses, m.course);
         if (!c) {
           err("No such course.");
           return true;
@@ -223,7 +223,7 @@ function createEdu(d) {
         return true;
       }
       case "edu_done": {
-        const c = E2.courses[m.course];
+        const c = own(E2.courses, m.course);
         const en = c && E2.enr[c.id + "|" + u.id];
         const i = Math.round(+m.lesson);
         if (!c || !en || !(i >= 0 && i < c.lessons.length)) {

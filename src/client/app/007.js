@@ -558,10 +558,6 @@ function Pl(t) {
   C({ shopView: t });
 }
 function h8() {
-  if (!ot().net.age18) {
-    (C({ age18Ask: !0 }), F("Skyline Club is an 18+ lounge. Confirm you are 18 or older to go in.", "info"));
-    return;
-  }
   (C({ scene: { mode: "club" }, nearby: null, vehicle: null }),
     F("Welcome to Skyline Club. Talk to DJ Lumen or Sam at the bar.", "info"),
     Ce(15, "Night out"));
@@ -732,6 +728,13 @@ function $p(t, e, a) {
     F(`${e} \u2014 enjoy!`),
     Ce(10, "Treat yourself"));
 }
+// 22.6 bridge for city layers (street stalls): demo-credit purchases go through the normal $p path (wallet, txn, shop stats, XP)
+typeof window !== "undefined" && (window.__fyrusEconomy = {
+  buy: (shop, label, price) => { let r = V.session?.userId; if (!r) return !1; let b = V.wallets[r] || 0; $p(shop, label, price); return (V.wallets[r] || 0) < b; },
+  balance: () => (V.session?.userId ? V.wallets[V.session.userId] || 0 : 0),
+  fmt: (n) => q(n),
+  toast: (t, e) => F(t, e),
+});
 function Ov(t) {
   let e = V.session.userId;
   C((a) => ({ users: a.users.map((r) => (r.id === e ? { ...r, ...t } : r)) }));

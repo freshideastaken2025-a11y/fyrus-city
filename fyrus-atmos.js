@@ -9,7 +9,7 @@
 (function () {
   'use strict';
   if (window.__fyrusAtmos) return;
-  var API = window.__fyrusAtmos = { version: '1.0.1' };
+  var API = window.__fyrusAtmos = { version: '1.0.2' };
   var T = null, W = null, env = null, U = null, origUpdate = null;
   var S = function () { try { return window.__fyrus.getState(); } catch (e) { return null; } };
   var phone = (function () { try { return ('ontouchstart' in window) && Math.min(screen.width, screen.height) < 820; } catch (e) { return false; } })();
@@ -118,12 +118,18 @@
     var kind = !opts.petals || W.active !== W.world ? null : season === 'spring' && wx !== 'rain' && wx !== 'snow' ? PETAL : season === 'autumn' && wx !== 'snow' ? LEAF : null;
     fx.pet.visible = !!kind; if (!kind) return;
     var M = fx.M, Q = fx.Q, E = fx.E, V = fx.V, Sc = fx.Sc.set(1, 1, 1), col = fx.pet.instanceColor.array, fall = kind === LEAF ? 1.1 : .7;
+    // 30.11 visual review: a leaf drifting through the camera filled a quarter of the screen as a flat orange polygon;
+    // leaves now shrink away inside 1.4 m of the camera (kill switch ?p30off=nearfade)
+    if (fx.NFon === undefined) fx.NFon = !/(^|,)(nearfade|all)(,|$)/.test(new URLSearchParams(location.search).get('p30off') || '');
+    var NF = fx.NFon && W.camera, cp = fx.CP || (fx.CP = new T.Vector3());
+    if (NF) W.camera.getWorldPosition(cp);
     for (var i = 0; i < fx.pd.length; i++) {
       var d = fx.pd[i];
       d.y -= dt * d.sp * fall; d.x += dt * (wind * 2.2 + Math.sin(t * .9 + d.ph) * .6); d.z += dt * (wind * .8 + Math.cos(t * .7 + d.ph) * .5);
       d.rx += dt * (1.5 + d.sp * 2); d.ry += dt * (1 + d.sp);
       var dx = d.x - p.x, dz = d.z - p.z;
       if (d.y < ground(d.x, d.z) || Math.abs(dx) > 30 || Math.abs(dz) > 30) { d.x = p.x + (Math.random() - .5) * 60; d.z = p.z + (Math.random() - .5) * 60; d.y = 6 + Math.random() * 14; }
+      if (NF) { var cx = d.x - cp.x, cy = d.y - cp.y, cz = d.z - cp.z, k = (Math.sqrt(cx * cx + cy * cy + cz * cz) - .6) / .8; k = k < 0 ? 0 : k > 1 ? 1 : k; Sc.set(k, k, k); }
       E.set(d.rx, d.ry, 0); Q.setFromEuler(E); V.set(d.x, d.y, d.z); M.compose(V, Q, Sc); fx.pet.setMatrixAt(i, M);
       var c = kind[Math.floor(d.c * kind.length) % kind.length]; col[i * 3] = c[0]; col[i * 3 + 1] = c[1]; col[i * 3 + 2] = c[2];
     }
@@ -214,6 +220,8 @@
   }
   function after(dt, t, st, pos) {
     if (!U) return;
+    // 22.10: "Live" weather (settings.weather === 'auto', 22.7) -> use the controller's effective weather
+    if (st && st.weather === 'auto') { var wf = window.__fyrusWeather; st = Object.assign({}, st, { weather: (wf && wf.effective) || 'clear' }); }
     var target = snap();
     if (first || !cur) { cur = target; first = false; }
     else lerpState(cur, target, tm.mode === 'lapse' ? 1 - Math.exp(-dt * 8) : 1 - Math.exp(-dt * 1.1));

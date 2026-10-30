@@ -40,6 +40,14 @@ function createHalls(d) {
   setInterval(() => {
     const now = Date.now();
     for (const e of upcoming()) {
+      // 28.10 social events: one "starting soon" note to the host and ticket holders HALL_SOON_MS (10 min) before the start;
+      // flag saved on the event so restarts never repeat it. Kill switch P28_OFF=events.
+      if (!e.started && !e.soon && e.start > now && e.start - now <= +(process.env.HALL_SOON_MS || 6e5) && !/(^|,)(events|all)(,|$)/.test(process.env.P28_OFF || "")) {
+        e.soon = now;
+        d.save();
+        const h = hallById(e.hall), mins = Math.max(1, Math.round((e.start - now) / 6e4));
+        [e.host, ...e.tickets].forEach((t) => note(t, `"${e.title}" starts in ${mins} min in the ${h?.name}. Open Events to go in.`));
+      }
       if (!e.started && e.start <= now) {
         e.started = true;
         d.save();
@@ -66,7 +74,7 @@ function createHalls(d) {
     const u = me.u;
     const reply = (x) => d.send(me.ws, x);
     const err = (text) => reply({ t: "err", text });
-    const ev = m.event ? K.events[String(m.event)] : void 0;
+    const ev = m.event ? own(K.events, String(m.event)) : void 0;
     switch (m.t) {
       case "hall_list":
         reply(list(u.id));

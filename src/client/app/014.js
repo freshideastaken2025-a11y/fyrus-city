@@ -3,7 +3,7 @@ var tN =
   eN =
     Ag +
     `
-uniform vec3 uCam; uniform vec3 uGrass; uniform float uPlaza; uniform vec2 uMarket;
+uniform vec3 uCam; uniform vec3 uGrass; uniform float uPlaza; uniform vec2 uMarket; uniform float uCloud;
 varying vec3 vW;
 void main(){
   vec2 p = vW.xz; float d0 = length(p);
@@ -64,16 +64,35 @@ void main(){
   // lighting
   vec3 light = uAmb + uSunCol * max(uSunDir.y, 0.0);
   col *= light;
-  // wet roads reflect the sky
-  float wetMask = uWet * (0.6 + 0.4 * vnoise(p * 0.35));
-  col = mix(col, col * 0.55 + mix(uSkyHor, uSkyTop, 0.3) * 0.25, wetMask * 0.8);
+  // 22.9 drifting cloud shadows (broken cloud only: none under a clear sky or full overcast)
+  float csAmt = smoothstep(0.15, 0.5, uCloud) * (1.0 - smoothstep(0.86, 1.0, uCloud)) * (1.0 - uNight);
+  if (csAmt > 0.001) { vec2 cq = p * 0.011 + uTime * vec2(0.006, 0.002) * 5.0; float cs = smoothstep(0.5, 0.72, vnoise(cq) * 0.7 + vnoise(cq * 2.3) * 0.3); col *= 1.0 - cs * csAmt * 0.32; }
+  // 22.8 wet surfaces: hard surfaces darken and pick up a view-dependent sky reflection (Fresnel); grass only darkens.
+  // Puddles collect in low noise spots on roads / pavements / plaza once the ground is soaked, mirror the sky, and
+  // show rain ripples (expanding rings in a jittered 0.5 m cell grid) while it is raining (uRain). Dries slowly (019.js).
+  float hard = max(max(step(e, 8.0), inPlaza), inMarket);
+  hard *= 1.0 - smoothstep(0.015, 0.06, col.g - max(col.r, col.b));   // green (grass, verges, lawns) is not a hard surface
+  vec3 Vw = normalize(uCam - vW);
+  float fres = 0.04 + 0.96 * pow(1.0 - clamp(Vw.y, 0.0, 1.0), 5.0);
+  vec3 skyR = mix(uSkyHor, uSkyTop, 0.25 + 0.5 * clamp(Vw.y, 0.0, 1.0));
+  float wetMask = uWet * (0.7 + 0.3 * vnoise(p * 0.35));
+  col *= 1.0 - wetMask * mix(0.18, 0.42, hard);
+  col = mix(col, skyR * (0.35 + 0.65 * (1.0 - uNight)), wetMask * hard * (0.12 + 0.55 * fres));
+  float pdl = smoothstep(0.60, 0.68, vnoise(p * 0.21 + 3.7) * 0.75 + vnoise(p * 1.1) * 0.25) * hard * (1.0 - kerb) * smoothstep(0.45, 0.95, uWet);
+  if (pdl > 0.001) {
+    vec2 rc = floor(p * 2.0); vec2 rf = fract(p * 2.0) - 0.5 - (vec2(h21(rc), h21(rc + 3.1)) - 0.5) * 0.5;
+    float ph = fract(uTime * 1.3 + h21(rc + 7.7)); float rr = ph * 0.45;
+    float ring = exp(-pow((length(rf) - rr) / 0.012, 2.0)) * (1.0 - ph) * (1.0 - ph) * uRain * (1.0 - smoothstep(8.0, 28.0, length(uCam - vW)));
+    vec3 mirror = skyR * (0.45 + 0.55 * (1.0 - uNight)) * (0.55 + 0.45 * fres);
+    col = mix(col, mirror, pdl * 0.8) + ring * pdl * 0.10 * (uAmb + uSunCol * 0.3);
+  }
   // snow cover (less on roads)
   float snowAmt = uSnow * (e < 4.0 ? 0.35 : 0.95) * (0.8 + 0.2 * n);
   col = mix(col, vec3(0.93, 0.95, 1.0) * (uAmb + uSunCol * 0.7), snowAmt);
   // street-lamp light pools at night
   float lampD = length(vec2(e - 5.5, mod(along, 16.0) - 8.0 + 8.0 - 8.0));
   float pool = (1.0 - smoothstep(0.0, 7.5, length(vec2(e - 5.5, mod(along + 8.0, 16.0) - 8.0)))) * step(36.0, d0);
-  col += vec3(1.0, 0.75, 0.45) * pool * uNight * 0.55;
+  col += vec3(1.0, 0.75, 0.45) * pool * uNight * 0.55 * (1.0 + uWet * hard * 0.9);
   col += vec3(1.0, 0.8, 0.55) * inMarket * uNight * 0.18 + vec3(0.9, 0.85, 0.75) * inPlaza * uNight * 0.12;
   gl_FragColor = vec4(applyFog(col, length(vW - uCam)), 1.0);
 }`;
@@ -140,16 +159,20 @@ void main(){
   col += uSunCol * (pow(s, 6.0) * 0.25 + pow(s, 900.0) * 18.0) * day;
   // moon
   vec3 md = normalize(vec3(-uSunDir.x, abs(uSunDir.y) + 0.25, -uSunDir.z));
-  col += vec3(0.85, 0.9, 1.0) * pow(max(dot(d, md), 0.0), 2200.0) * 6.0 * uNight;
-  // clouds
+  col += vec3(0.85, 0.9, 1.0) * pow(max(dot(d, md), 0.0), 2200.0) * 6.0 * uNight * (1.0 - smoothstep(0.5, 0.9, uCloud));
+  // clouds (22.9: overcast sheet when uCloud > 0.7, darker rain bases)
   vec2 cp = d.xz / max(h, 0.06) * 0.7 + vec2(uTime * 0.006, uTime * 0.002);
   float cl = vnoise(cp * 1.2) * 0.55 + vnoise(cp * 2.7) * 0.3 + vnoise(cp * 6.0) * 0.15;
   cl = smoothstep(0.62 - uCloud * 0.45, 0.95, cl) * smoothstep(0.0, 0.18, h);
   vec3 cloudCol = mix(vec3(0.12, 0.14, 0.2), mix(vec3(1.0), uSkyHor, 0.35) * (0.6 + 0.6 * day), day) * (uAmb * 0.8 + uSunCol * 0.5);
+  float ovc = smoothstep(0.7, 1.0, uCloud) * smoothstep(-0.05, 0.12, h);
+  cl = max(cl, ovc * (0.82 + 0.18 * vnoise(cp * 0.8)));
+  cloudCol *= 1.0 - 0.35 * uRain;
   col = mix(col, cloudCol, cl * (0.55 + uCloud * 0.4));
+  col += vec3(0.075, 0.06, 0.05) * uNight * ovc * (1.0 - smoothstep(0.0, 0.6, h));   // city light glowing on low overcast at night
   // stars
   vec2 sp = floor(d.xz / (h + 0.02) * 120.0);
-  float star = step(0.9965, h21(sp)) * smoothstep(0.1, 0.4, h) * uNight * (1.0 - cl);
+  float star = step(0.9965, h21(sp)) * smoothstep(0.1, 0.4, h) * uNight * (1.0 - cl) * (1.0 - smoothstep(0.45, 0.85, uCloud));
   col += vec3(star) * 0.9;
   gl_FragColor = vec4(col, 1.0);
 }`;

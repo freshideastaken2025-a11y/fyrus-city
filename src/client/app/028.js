@@ -40,6 +40,65 @@ function Xs({ value: t, list: e, onChange: a, label: r }) {
   });
 }
 var YR = ["Profile", "Avatar", "HUD", "World", "Graphics & audio", "Privacy", "Account"];
+// 27.13 AI memory privacy: what citizens remember about me, forget one / all, opt out, download a copy
+function AM27() {
+  let [st, sst] = (0, wd.useState)(null),
+    on = O.status === "online",
+    load = () => on && O.send({ t: "ai_mem_list" });
+  (0, wd.useEffect)(() => {
+    let off = O.on("ai_mem", (m) => sst(m));
+    load();
+    return off;
+  }, [on]);
+  let act = (m) => (O.send(m), setTimeout(load, 250)),
+    chars = st?.chars || [],
+    dl = () => {
+      try {
+        let b = new Blob([JSON.stringify({ exported: new Date().toISOString(), optOut: st?.optOut, citizens: chars }, null, 2)], { type: "application/json" }),
+          a = document.createElement("a");
+        ((a.href = URL.createObjectURL(b)), (a.download = "fyrus-ai-memory.json"), a.click(), setTimeout(() => URL.revokeObjectURL(a.href), 1e3));
+      } catch (e) {}
+    },
+    fact = (f) => (f.k === "name" ? `call you ${f.v}` : f.k === "likes" ? `you like ${f.v}` : f.k === "fav" ? `your favourite: ${f.v}` : f.k === "job" ? `you work as ${f.v}` : `${f.k}: ${f.v}`);
+  return (0, tt.jsxs)("div", {
+    className: "card p-4 space-y-2",
+    "data-ai-mem": st ? (st.optOut ? "off" : chars.length) : "wait",
+    children: [
+      (0, tt.jsx)("div", { className: "text-sm font-bold", children: "What AI citizens remember about you" }),
+      (0, tt.jsx)("div", { className: "text-[12px]", style: { color: "var(--muted)" }, children: `Citizens remember only simple things you tell them (your name, likes, job) and forget them after ${st?.keepDays || 90} days without a visit. Conversations themselves are forgotten after 30 minutes. Nothing is sent outside this server.` }),
+      !on && (0, tt.jsx)("div", { className: "text-[12px]", children: "Connect to the city to see this." }),
+      st &&
+        (0, tt.jsx)(Ke, {
+          label: "Let citizens remember me",
+          hint: "Off deletes everything they know and stops remembering",
+          children: (0, tt.jsx)(dc, { label: "AI memory", on: !st.optOut, onChange: (g) => act({ t: "ai_mem_opt", on: g }) }),
+        }),
+      st && !st.optOut && !chars.length && (0, tt.jsx)("div", { className: "text-[12px]", "data-ai-mem-empty": !0, children: "No citizen remembers anything about you." }),
+      ...chars.map((c) =>
+        (0, tt.jsxs)(
+          "div",
+          {
+            className: "flex items-center gap-2 text-[12px]",
+            "data-ai-mem-char": c.id,
+            children: [
+              (0, tt.jsx)("span", { className: "flex-1", children: `${c.name}: ${c.facts.length ? c.facts.map(fact).join(", ") : "only that you met"} \u00B7 ${c.visits} visit${c.visits === 1 ? "" : "s"}` }),
+              (0, tt.jsx)("button", { className: "btn btn-ghost btn-xs", "data-ai-mem-forget": c.id, onClick: () => act({ t: "ai_mem_forget", npc: c.id }), children: "Forget" }),
+            ],
+          },
+          c.id,
+        ),
+      ),
+      st &&
+        (0, tt.jsxs)("div", {
+          className: "flex gap-1.5 flex-wrap",
+          children: [
+            chars.length > 0 && (0, tt.jsx)("button", { className: "btn btn-ghost btn-xs", "data-ai-mem-forget-all": !0, onClick: () => act({ t: "ai_mem_forget" }), children: "Forget everything" }),
+            (0, tt.jsx)("button", { className: "btn btn-ghost btn-xs", "data-ai-mem-download": !0, onClick: dl, children: "Download a copy" }),
+          ],
+        }),
+    ],
+  });
+}
 function ky() {
   let t = Y(),
     e = t.settings,
@@ -317,9 +376,9 @@ function ky() {
               label: "Weather",
               children: (0, tt.jsx)(Bn, {
                 value: e.weather,
-                options: ["clear", "cloudy", "rain", "snow", "heat"],
+                options: ["auto", "clear", "cloudy", "rain", "snow", "heat"],
                 onChange: (g) => v({ weather: g }),
-                labels: { heat: "Heatwave" },
+                labels: { heat: "Heatwave", auto: "Live" },
               }),
             }),
             (0, tt.jsx)(Ke, {
@@ -365,6 +424,51 @@ function ky() {
                 onChange: (g) => v({ quality: g }),
               }),
             }),
+            typeof window !== "undefined" && window.__fyrusQuality && window.__fyrusQuality.profiles &&
+              (0, tt.jsx)(Ke, {
+                label: "Detail profile",
+                hint: "Phones start on Mobile and drop to Lite by themselves if the city runs slowly. Changing it reloads the city.",
+                children: (0, tt.jsx)("div", {
+                  className: "flex gap-1 flex-wrap",
+                  "data-detail-profile": window.__fyrusQuality.name,
+                  children: [["lite", "Lite"], ["mobile", "Mobile"], ["balanced", "Balanced"], ["cinematic", "Cinematic"]].map(([q, l]) =>
+                    (0, tt.jsx)("button", { className: `chip ${window.__fyrusQuality.name === q ? "chip-on" : ""}`, "data-detail": q, onClick: () => window.__fyrusQuality.name !== q && window.__fyrusQuality.set(q), children: l }, q),
+                  ),
+                }),
+              }),
+            typeof window !== "undefined" && window.__fyrusXR29 && !window.__fyrusXR29.off &&
+              (0, tt.jsx)(Ke, {
+                label: "VR headset",
+                hint: "Fyrus is not headset-tested yet. This only shows what your browser reports.",
+                children: (0, tt.jsx)("div", {
+                  className: "text-[12px]",
+                  "data-xr-status": window.__fyrusXR29.state,
+                  children: {
+                    checking: "Checking\u2026",
+                    "no-api": "This browser has no WebXR (VR) support.",
+                    insecure: "VR needs a secure page (https or this computer).",
+                    "no-headset": "WebXR is available, but no VR headset was found.",
+                    "vr-ready": "A VR headset is available. Use the Enter VR (experimental) button \u2014 not headset-tested yet.",
+                  }[window.__fyrusXR29.state] || window.__fyrusXR29.state,
+                }),
+              }),
+            typeof window !== "undefined" && window.__fyrusXR29 && window.__fyrusXR29.state === "vr-ready" && window.__fyrusVRComfort29 && !window.__fyrusVRComfort29.off &&
+              (0, tt.jsx)(Ke, {
+                label: "VR comfort",
+                hint: "Set before entering VR. Saved on this device.",
+                children: (0, tt.jsx)("div", {
+                  className: "flex gap-1 flex-wrap",
+                  "data-vr-comfort": "",
+                  children: [
+                    ["vignette", "Comfort vignette"],
+                    ["teleportOnly", "Teleport only"],
+                    ["snap45", "Snap 45\u00B0"],
+                  ].map(([k, l]) => {
+                    let C = window.__fyrusVRComfort29, on = k === "snap45" ? C.opts.snapDeg === 45 : !!C.opts[k];
+                    return (0, tt.jsx)("button", { className: `chip ${on ? "chip-on" : ""}`, "data-vr-opt": k, onClick: (ev) => { k === "snap45" ? C.set("snapDeg", on ? 30 : 45) : C.set(k, !on); ev.currentTarget.classList.toggle("chip-on"); }, children: l }, k);
+                  }),
+                }),
+              }),
             (0, tt.jsx)(Ke, {
               label: "Live stage audio",
               hint: "Spatial sound from live shows",
@@ -419,6 +523,7 @@ function ky() {
             }),
           ],
         }),
+      o === "Privacy" && (0, tt.jsx)(AM27, {}),
       o === "Account" &&
         (0, tt.jsxs)("div", {
           className: "card p-4 space-y-2",

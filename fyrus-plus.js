@@ -6,7 +6,7 @@
 (function () {
   'use strict';
   if (window.__fyrusPlus) return;
-  window.__fyrusPlus = { version: '1.4.1' };
+  window.__fyrusPlus = { version: '1.4.0' };
 
   var LS = {
     get: function (k, d) { try { var v = localStorage.getItem('fyrusPlus.' + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -601,7 +601,10 @@
     if (!entered && s && s.session && !s.intro && !s.goalOpen && !anyOpen()) {
       entered = true;
       setTimeout(function () {
-        var next = function () { openMood(function () { if (!LS.get('id', null) && !LS.get('idAsked', false)) setTimeout(openIdFlow, 400); }); };
+        // 29.5: phones skip the weather picker on first entry (one fewer full-screen card; Live time stays; the cloud button changes it)
+        var phone29 = (function () { try { return !/(^|,)(mobilehud|all)(,|$)/.test(new URLSearchParams(location.search).get('p29off') || '') && ('ontouchstart' in window) && Math.min(screen.width, screen.height) < 820; } catch (e) { return false; } })();
+        var mood29 = phone29 ? function (cb) { cb && cb(); } : openMood;
+        var next = function () { mood29(function () { if (!LS.get('id', null) && !LS.get('idAsked', false)) setTimeout(openIdFlow, 400); }); };
         var world = window.__fyrusWorld;
         if (world && world.firstVisit && world.firstVisit()) world.playIntro(next); else next();
       }, 600);
@@ -609,7 +612,7 @@
   }
   setInterval(boot, 700);
   // extra layers that are loaded on demand (keeps index.html untouched)
-  ['/fyrus-arena.js?v=1.1.0'].forEach(function (src) {
+  ['/fyrus-arena.js?v=1.0.1'].forEach(function (src) {
     var sc = document.createElement('script'); sc.src = src; sc.defer = true; document.head.appendChild(sc);
   });
 })();

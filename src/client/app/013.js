@@ -343,14 +343,8 @@ function aL(t, e) {
               ? rd("sales", e)
               : `${t.greeting} Ask me about the market, the club, the pool or the games.`;
 }
-/* v47: offline answers come from the Fyrus Brain (fyrus-brain.js) in the visitor's language; the old lines stay as a fallback */
-async function fyBrainReply(t, e) {
-  try {
-    let a = window.__fyrusBrain && (await window.__fyrusBrain.reply(t, e));
-    if (a) return a;
-  } catch {}
-  return aL(t, e);
-}
+var AIOFF27 = typeof location !== "undefined" && /(^|,)(chat|all)(,|$)/.test(new URLSearchParams(location.search).get("p27off") || "");
+typeof window !== "undefined" && (window.__fyrusAI27 = { n: 0, last: null, off: AIOFF27 });
 function Ex() {
   let e = Y().talk,
     [a, r] = (0, di.useState)([{ role: "assistant", content: e.greeting }]),
@@ -386,6 +380,23 @@ function Ex() {
           return ((x[x.length - 1] = { role: "assistant", content: f }), x);
         }),
       m = l ? await tL() : null;
+    // 27.4: online, the city's own dialogue engine answers (rules at once, open talk through the local LLM queue,
+    // fallback otherwise). Only the character id and, for non-core citizens, short public fields are sent.
+    if (!AIOFF27 && O.status === "online") {
+      let rid = "n" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+        ans = await new Promise((res) => {
+          let to = setTimeout(() => (off(), res(null)), 25e3),
+            off = O.on("npc_reply", (x) => {
+              x.rid === rid && (clearTimeout(to), off(), res(x));
+            }),
+            offT = O.on("npc_typing", (x) => {
+              x.rid === rid && (g(x.position > 1 ? `\u2026 (${x.position - 1} ahead of you)` : "\u2026"), offT());
+            });
+          O.send({ t: "npc_say", npc: e.id, rid, text: p, char: /^(maya|zoe|ravi|marco|hiro|kai|aisha|dana|lumen|sam)$/.test(e.id) ? void 0 : { name: e.name, role: e.role, style: e.style, bio: e.bio } });
+        });
+      (g(ans ? ans.text : aL(e, p)), (window.__fyrusAI27.last = ans ? ans.source : "client-timeout"), (window.__fyrusAI27.lastText = ans ? ans.text : null), window.__fyrusAI27.n++, s(!1));
+      return;
+    }
     if (m) {
       let f = ot().users.find((k) => k.id === ot().session?.userId),
         x = [
@@ -410,9 +421,9 @@ The visitor walks up to you.`,
         });
         g(k.text || "\u2026");
       } catch (k) {
-        (k?.code === "not_granted" && ((eL = !0), c(!1)), k?.name !== "AbortError" && g(await fyBrainReply(e, p)));
+        (k?.code === "not_granted" && ((eL = !0), c(!1)), k?.name !== "AbortError" && g(aL(e, p)));
       }
-    } else (await new Promise((f) => setTimeout(f, 450)), g(await fyBrainReply(e, p)));
+    } else (await new Promise((f) => setTimeout(f, 450)), g(aL(e, p)));
     s(!1);
   };
   return (0, Br.jsxs)("div", {
@@ -1106,6 +1117,7 @@ var aa = P(ea(), 1),
     uNight: { value: 0 },
     uSnow: { value: 0 },
     uWet: { value: 0 },
+    uRain: { value: 0 },
     uFog: { value: new aa.Color("#b9d6ef") },
     uFogD: { value: 0.0042 },
     uGrass: { value: new aa.Color("#5b8a3c") },
@@ -1113,7 +1125,7 @@ var aa = P(ea(), 1),
   },
   Ag = `
 uniform float uTime; uniform vec3 uSunDir; uniform vec3 uSunCol; uniform vec3 uAmb; uniform vec3 uSkyTop; uniform vec3 uSkyHor;
-uniform float uNight; uniform float uSnow; uniform float uWet; uniform vec3 uFog; uniform float uFogD;
+uniform float uNight; uniform float uSnow; uniform float uWet; uniform float uRain; uniform vec3 uFog; uniform float uFogD;
 float h21(vec2 p){ p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x * p.y); }
 float vnoise(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f); return mix(mix(h21(i), h21(i + vec2(1, 0)), f.x), mix(h21(i + vec2(0, 1)), h21(i + vec2(1, 1)), f.x), f.y); }
 vec3 applyFog(vec3 col, float d){ return mix(col, uFog, 1.0 - exp(-uFogD * uFogD * d * d)); }

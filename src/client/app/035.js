@@ -436,6 +436,71 @@ var xt = P(ct(), 1),
           minute: "2-digit",
         })
       : "\u2014";
+// 26.12 Economy tab for judges (admins only; the server checks again)
+function EC26() {
+  let t = Y(),
+    m = t.adminEcon,
+    A = m?.audit,
+    row = (k, v, bad) => (0, xt.jsxs)("div", { className: "flex justify-between text-[13px]", children: [(0, xt.jsx)("span", { style: Fo, children: k }), (0, xt.jsx)("b", { className: "tabular", style: bad ? { color: "#ffb3c2" } : void 0, children: v })] });
+  if (!m) return (0, xt.jsx)("div", { className: "text-sm", style: Fo, children: "Loading\u2026" });
+  return (0, xt.jsxs)("div", {
+    className: "space-y-3",
+    "data-admin-econ": !0,
+    children: [
+      A &&
+        (0, xt.jsxs)("div", {
+          className: "card p-3 space-y-0.5",
+          children: [
+            (0, xt.jsx)("div", { className: "text-sm font-bold mb-1", children: "Money supply" }),
+            row("Total in all accounts", q(A.total)),
+            row("Minted \u2212 burned", q(A.minted - A.burned)),
+            row("Drift (must be 0)", String(A.drift), A.drift !== 0),
+            row("Negative balances", String(A.negative), A.negative > 0),
+            row("Treasury / escrow", `${q(A.treasury)} / ${q(A.escrow)}`),
+            row("Minted today", Object.entries(A.mintToday?.by || {}).map(([k, v]) => `${k} ${q(v)}`).join(", ") || "\u2014"),
+            row("Owed wages", `${q(A.owed)} (${A.owedCount})`, A.owed > 0),
+            row("Ledger file", A.ledgerFile?.enabled ? `${A.ledgerFile.lines} lines${A.ledgerFile.errors ? `, ${A.ledgerFile.errors} write errors` : ""}${A.ledgerFile.lostOnStart ? `, ${A.ledgerFile.lostOnStart} lost at last start` : ""}` : "off", !!A.ledgerFile?.errors),
+            row("Large-transfer approvals", `${A.tx?.approved ?? 0} of ${A.tx?.asked ?? 0} asked`),
+          ],
+        }),
+      (0, xt.jsxs)("div", {
+        className: "card p-3 space-y-1",
+        children: [
+          (0, xt.jsxs)("div", { className: "text-sm font-bold", children: ["Farming flags (", m.flags.filter((f) => !f.resolved).length, " open)"] }),
+          !m.flags.length && (0, xt.jsx)("div", { className: "text-[12px]", style: Fo, children: "No flags." }),
+          ...m.flags.map((f) =>
+            (0, xt.jsxs)("div", {
+              className: "text-[12px] flex gap-2 items-center",
+              "data-flag": f.id,
+              children: [
+                (0, xt.jsx)("b", { children: f.name }),
+                (0, xt.jsx)("span", { className: "flex-1", style: Fo, children: `${f.why} \xB7 ${q(f.total)} from ${f.senders.slice(0, 5).join(", ")}${f.senders.length > 5 ? "\u2026" : ""}` }),
+                f.resolved
+                  ? (0, xt.jsx)("span", { style: Fo, children: `reviewed by ${f.resolved.by}` })
+                  : (0, xt.jsx)("button", { className: "btn btn-ghost btn-xs", "data-flag-done": f.id, onClick: () => (O.send({ t: "admin_flag_done", id: f.id }), setTimeout(() => O.send({ t: "admin_econ" }), 300)), children: "Mark reviewed" }),
+              ],
+            }, f.id),
+          ),
+        ],
+      }),
+      (0, xt.jsxs)("div", {
+        className: "card p-3 space-y-0.5",
+        children: [
+          (0, xt.jsx)("div", { className: "text-sm font-bold mb-1", children: "Largest balances" }),
+          ...m.top.map((x) => row(`${x.name}${x.banned ? " (banned)" : ""}${x.strikes ? ` \xB7 ${x.strikes} strikes` : ""}`, q(x.bal))),
+        ],
+      }),
+      (0, xt.jsxs)("div", {
+        className: "card p-3 space-y-0.5",
+        children: [
+          (0, xt.jsx)("div", { className: "text-sm font-bold mb-1", children: "Large transfers" }),
+          !m.big.length && (0, xt.jsx)("div", { className: "text-[12px]", style: Fo, children: "None." }),
+          ...m.big.map((x) => row(`${x.fromName} \u2192 ${x.toName} \xB7 ${x.memo}`, q(x.amount))),
+        ],
+      }),
+    ],
+  });
+}
 function a5() {
   let t = Y(),
     [e, a] = (0, hs.useState)("stats"),
@@ -456,6 +521,7 @@ function a5() {
           }),
         ),
         O.on("admin_errors", (m) => d(m.list)),
+        O.on("admin_econ", (m) => C({ adminEcon: m })),
         O.on("admin_stats_backups", (m) => o((f) => f && { ...f, backups: m.backups })),
       ];
       return (O.send({ t: "admin_stats" }), O.send({ t: "admin_reports" }), () => g.forEach((m) => m()));
@@ -463,7 +529,8 @@ function a5() {
     (0, hs.useEffect)(() => {
       (e === "errors" && O.send({ t: "admin_errors" }),
         e === "reports" && O.send({ t: "admin_reports" }),
-        e === "stats" && O.send({ t: "admin_stats" }));
+        e === "stats" && O.send({ t: "admin_stats" }),
+        e === "econ" && O.send({ t: "admin_econ" }));
     }, [e]),
     !t.net.admin)
   )
@@ -601,12 +668,8 @@ function a5() {
           ["stats", "Overview", ax],
           ["reports", `Reports${r ? ` (${r.openReports})` : ""}`, Fs],
           ["users", "Users", $e],
+          ["econ", "Economy", ax],
           ["errors", "Errors", uE],
-          ["growth", "Growth", ax],
-          ["support", "Help desk", Fs],
-          ["pay", "Payments", ax],
-          ["ai", "AI", ax],
-          ["brain", "Brain", ax],
         ].map(([g, m, f]) =>
           (0, xt.jsxs)(
             "button",
@@ -620,41 +683,6 @@ function a5() {
           ),
         ),
       }),
-      e === "brain" &&
-        (0, xt.jsx)("div", {
-          className: "card p-3",
-          ref: (g) => {
-            g && window.__fyrusBrain && window.__fyrusBrain.mountSheet && window.__fyrusBrain.mountSheet(g);
-          },
-        }),
-      e === "ai" &&
-        (0, xt.jsx)("div", {
-          className: "card p-3",
-          ref: (g) => {
-            g && window.__fyrusBrain && window.__fyrusBrain.mountAdmin && window.__fyrusBrain.mountAdmin(g);
-          },
-        }),
-      e === "pay" &&
-        (0, xt.jsx)("div", {
-          className: "card p-3",
-          ref: (g) => {
-            g && window.__fyrusPay && window.__fyrusPay.mountAdmin(g);
-          },
-        }),
-      e === "support" &&
-        (0, xt.jsx)("div", {
-          className: "card p-3",
-          ref: (g) => {
-            g && window.__fyrusHelp && window.__fyrusHelp.mountAdmin(g);
-          },
-        }),
-      e === "growth" &&
-        (0, xt.jsx)("div", {
-          className: "card p-3",
-          ref: (g) => {
-            g && window.__fyrusGrowth && window.__fyrusGrowth.mount(g);
-          },
-        }),
       e === "stats" &&
         (r
           ? (0, xt.jsxs)(xt.Fragment, {
@@ -745,29 +773,8 @@ function a5() {
                   children: [
                     (0, xt.jsxs)("div", {
                       className: "text-xs font-bold mb-1 flex items-center gap-1.5",
-                      children: [(0, xt.jsx)(ax, {}), " Backups (hourly for 48 h, daily for 14 days)"],
+                      children: [(0, xt.jsx)(ax, {}), " Backups (one per day, last 14 kept on the server)"],
                     }),
-                    r.storage &&
-                      (0, xt.jsxs)("div", {
-                        className: "text-[11px] mb-1.5",
-                        style: Fo,
-                        children: [
-                          "Loaded from ",
-                          r.storage.loadedFrom || "new database",
-                          " \xB7 last save ",
-                          r.storage.savedAt ? new Date(r.storage.savedAt).toLocaleTimeString() : "\u2014",
-                          " \xB7 hourly copies ",
-                          r.storage.hourly || 0,
-                          r.storage.saveErrors ? ` \xB7 save errors ${r.storage.saveErrors}` : "",
-                          r.storage.guarded ? ` \xB7 SAVE GUARD tripped ${r.storage.guarded}x (check fyrus.suspect.json)` : "",
-                          " \xB7 off-site: ",
-                          r.storage.offsiteTo
-                            ? r.storage.offsite && r.storage.offsite.day
-                              ? `e-mailed ${r.storage.offsite.day} to ${r.storage.offsiteTo}`
-                              : `to ${r.storage.offsiteTo}, not sent yet${r.storage.offsite && r.storage.offsite.lastError ? " (" + r.storage.offsite.lastError + ")" : ""}`
-                            : "not set (add BACKUP_EMAIL in Coolify)",
-                        ],
-                      }),
                     r.backups
                       .slice(0, 5)
                       .map((g) =>
@@ -805,24 +812,8 @@ function a5() {
                     (0, xt.jsx)("div", {
                       className: "text-[11px] mt-1.5",
                       style: Fo,
-                      children: "Set BACKUP_EMAIL in Coolify to get a copy by e-mail every day. You can also download one here.",
+                      children: "Keep a copy off the server too (download once a week).",
                     }),
-                    r.modlog &&
-                      r.modlog.length > 0 &&
-                      (0, xt.jsxs)("div", {
-                        className: "text-[11px] mt-2",
-                        style: Fo,
-                        children: [
-                          (0, xt.jsx)("b", { children: "Recent moderation" }),
-                          r.modlog.map((g, i) =>
-                            (0, xt.jsx)(
-                              "div",
-                              { children: `${new Date(g.at).toLocaleString()} \xB7 ${g.byName} (${g.role}) \xB7 ${g.act} ${g.target}${g.hours ? " \xB7 " + g.hours + " h" : ""}${g.note ? " \xB7 " + g.note : ""}` },
-                              i,
-                            ),
-                          ),
-                        ],
-                      }),
                   ],
                 }),
               ],
@@ -925,6 +916,7 @@ function a5() {
             s.map((g) => (0, xt.jsx)(v, { u: g }, g.id)),
           ],
         }),
+      e === "econ" && (0, xt.jsx)(EC26, {}),
       e === "errors" &&
         (0, xt.jsxs)("div", {
           className: "space-y-1.5",
@@ -1277,6 +1269,15 @@ function ZB({ h: t, open: e, toggle: a }) {
                             children: [
                               h.name,
                               (0, kt.jsx)("button", {
+                                className: `ml-1 text-[10px] px-1 rounded ${h.edit ? "chip-on" : ""}`,
+                                "aria-pressed": !!h.edit,
+                                "aria-label": `${h.name} can decorate the interior`,
+                                title: "Can decorate the interior",
+                                "data-keyperm": h.id,
+                                onClick: () => KP(t.key, h.id, !h.edit),
+                                children: h.edit ? "decorates" : "+decorate",
+                              }),
+                              (0, kt.jsx)("button", {
                                 className: "ml-1",
                                 "aria-label": `Take back ${h.name}'s key`,
                                 "data-unkey": h.id,
@@ -1424,6 +1425,32 @@ function ZB({ h: t, open: e, toggle: a }) {
                               h.id,
                             ),
                           ),
+                        ],
+                      }),
+                      (0, kt.jsxs)("div", {
+                        className: "flex gap-1 flex-wrap items-center",
+                        children: [
+                          (0, kt.jsx)("span", { style: or, className: "mr-1", children: "Lights" }),
+                          ...Lw25.map((h) =>
+                            (0, kt.jsx)(
+                              "button",
+                              {
+                                "data-lights": h.id,
+                                "aria-pressed": (i.lights || "none") === h.id,
+                                className: `chip ${(i.lights || "none") === h.id ? "chip-on" : ""}`,
+                                onClick: () => s({ ...i, lights: h.id }),
+                                children: h.name,
+                              },
+                              h.id,
+                            ),
+                          ),
+                          (0, kt.jsx)("button", {
+                            "data-mailbox": "1",
+                            "aria-pressed": !!i.mailbox,
+                            className: `chip ${i.mailbox ? "chip-on" : ""}`,
+                            onClick: () => s({ ...i, mailbox: !i.mailbox }),
+                            children: "Mailbox",
+                          }),
                         ],
                       }),
                       window.__fyrusHome3D &&

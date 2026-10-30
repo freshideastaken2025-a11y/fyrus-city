@@ -985,7 +985,27 @@ function OR() {
               className: "text-[11px] mt-2",
               style: { color: "var(--ink-dim)" },
               children:
-                "Your balance is kept on the Fyrus server, so payments to other citizens are real and safe. FYC is in-city credit (no real money during beta).",
+                "Your balance is kept on the Fyrus server, so payments to other citizens are safe and final.",
+            }),
+            // 26.2 currency rules, shown where people handle money
+            (0, te.jsxs)("details", {
+              className: "text-[11px] mt-1",
+              "data-currency-rules": !0,
+              style: { color: "var(--ink-dim)" },
+              children: [
+                (0, te.jsx)("summary", { className: "cursor-pointer", children: "Currency rules" }),
+                (0, te.jsx)("ul", {
+                  className: "list-disc pl-4 mt-1 space-y-0.5",
+                  children: [
+                    "FYC are in-game credits. They cannot be bought with real money and cannot be sold, cashed out or exchanged for anything outside Fyrus.",
+                    "New citizens get a one-time starting balance. Test credit during the beta is limited per day.",
+                    "Wages, sales and rent move FYC between citizens and the city treasury. Taxes and fees go to the treasury.",
+                    "Transfers to other citizens are final. New accounts can send up to 500 FYC on their first day.",
+                    "Bids, bonds and open orders are held safely in escrow until they settle or are returned.",
+                    "Abuse (duplicate accounts, farming grants, scams) can lead to suspension by the Fyrus Court.",
+                  ].map((x, k) => (0, te.jsx)("li", { children: x }, k)),
+                }),
+              ],
             }),
           ],
         }),
@@ -1031,12 +1051,65 @@ function OR() {
               },
               children: [(0, te.jsx)(Da, {}), " Send"],
             }),
+            // 26.9 large transfers: the server asks for an explicit second approval (valid 60 s)
+            t.txConfirm &&
+              Date.now() - t.txConfirm.at < t.txConfirm.expiresIn &&
+              (0, te.jsxs)("div", {
+                className: "card p-3 space-y-2",
+                role: "alertdialog",
+                "aria-label": "Confirm transfer",
+                "data-tx-confirm": t.txConfirm.id,
+                children: [
+                  (0, te.jsxs)("div", {
+                    className: "text-sm",
+                    children: [
+                      "Send ",
+                      (0, te.jsx)("b", { children: q(t.txConfirm.amount) }),
+                      " to ",
+                      (0, te.jsx)("b", { children: t.txConfirm.toName }),
+                      ` (${t.txConfirm.toNumber})${t.txConfirm.note ? ` \u2014 \u201C${t.txConfirm.note}\u201D` : ""}? Transfers are final.`,
+                    ],
+                  }),
+                  (0, te.jsxs)("div", {
+                    className: "flex gap-1.5",
+                    children: [
+                      (0, te.jsx)("button", {
+                        className: "btn btn-primary btn-sm",
+                        "data-tx-approve": !0,
+                        onClick: () => (O.send({ t: "tx_approve", id: t.txConfirm.id }), C({ txConfirm: null })),
+                        children: "Confirm transfer",
+                      }),
+                      (0, te.jsx)("button", {
+                        className: "btn btn-ghost btn-sm",
+                        "data-tx-cancel": !0,
+                        onClick: () => (O.send({ t: "tx_cancel", id: t.txConfirm.id }), C({ txConfirm: null })),
+                        children: "Cancel",
+                      }),
+                    ],
+                  }),
+                ],
+              }),
           ],
         }),
         (0, te.jsxs)("div", {
           className: "card p-4",
           children: [
             (0, te.jsx)(Te, { kicker: "Ledger", title: "Bank statement" }),
+            // 26.3 export what is loaded as CSV (a local file the player keeps; credits stay in-game)
+            t.bankHist.length > 0 &&
+              (0, te.jsx)("button", {
+                className: "btn btn-ghost btn-xs mb-1",
+                "data-bank-csv": !0,
+                onClick: () => {
+                  let rows = [["id", "date", "direction", "other party", "memo", "amount FYC"]].concat(
+                      t.bankHist.map((l) => [l.id, new Date(l.at).toISOString(), l.dir, l.otherName || l.other, l.memo, (l.dir === "in" ? "" : "-") + l.amount]),
+                    ),
+                    csv = rows.map((r) => r.map((c) => `"${String(c ?? "").replace(/"/g, '""')}"`).join(",")).join("\n"),
+                    a = document.createElement("a");
+                  ((a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }))), (a.download = "fyrus-statement.csv"), a.click(), setTimeout(() => URL.revokeObjectURL(a.href), 1e3));
+                },
+                children: "Export CSV",
+              }),
             t.bankHist.length === 0 &&
               (0, te.jsx)("div", {
                 className: "text-[12px]",
@@ -1081,6 +1154,13 @@ function OR() {
                 l.id,
               ),
             ),
+            t.bankHistMore &&
+              (0, te.jsx)("button", {
+                className: "btn btn-ghost btn-sm w-full mt-1",
+                "data-bank-older": !0,
+                onClick: () => O.send({ t: "bank_hist", before: Math.min(...t.bankHist.map((l) => l.id)) }),
+                children: "Show older",
+              }),
           ],
         }),
       ],

@@ -5,7 +5,7 @@
 (function () {
   'use strict';
   if (window.__fyrusCountry) return;
-  var API = window.__fyrusCountry = { version: '1.4.0' };
+  var API = window.__fyrusCountry = { version: '1.3.0' };
   var GOLD = '#c9a96e', GOLD_HI = '#e8d5a8', IVORY = '#f4efe6', MUTED = '#9aa3b2';
   var LS = {
     get: function (k, d) { try { var v = localStorage.getItem('fyrusCountry.' + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -277,20 +277,6 @@
   function face(g, p) { g.rotation.y = Math.atan2(-p.x, -p.z); }
   /* a simple citizen-sized figure; parts: body, head, legL, legR, armL, armR */
   function figure(T, opt) {
-    var AV = window.__fyrusAvatarClass;
-    if (AV) try {
-      var hx = function (n, d) { return n == null ? d : typeof n === 'string' ? n : '#' + ('000000' + n.toString(16)).slice(-6); };
-      var of = { gender: opt.gender || 'm', hair: opt.hair || (opt.hat ? 'buzz' : 'short'), hairColor: opt.hairColor || '#1a1410', skin: hx(opt.skin, '#d6a77e'), top: hx(opt.cloth, '#1b2a4a'), bottom: hx(opt.legs, '#0a0f1a'), shoes: opt.hat === 'shako' ? '#0a0a0a' : '#1a1a1a', topStyle: opt.top || 'jacket', bottomStyle: 'trousers' };
-      var av = new AV('', '#ffffff', '', false, { acc: 'none', trail: 'none', board: 'classic', outfit: of }, of);
-      av.label.visible = false; av.ring.visible = false;
-      var g2 = av.root, trim2 = M(T, 0xc9a96e, { metal: 1, roughness: .3 });
-      if (opt.hat === 'shako') { cyl(T, av.head, M(T, 0x0a0f1a), .12, .115, .28, 0, .2, 0, 14); cyl(T, av.head, trim2, .125, .125, .04, 0, .08, 0, 14); cyl(T, av.head, trim2, .02, .02, .08, 0, .37, .0, 6); }
-      if (opt.hat === 'cap') { cyl(T, av.head, M(T, 0x1b2a4a), .14, .135, .08, 0, .12, 0, 14); }
-      if (opt.prop === 'guitar') { var gb = box(T, g2, M(T, 0x8a4b22, { roughness: .4 }), .34, .46, .1, .05, 1.1, .2); gb.rotation.z = .5; }
-      if (opt.prop === 'mic') { cyl(T, g2, M(T, 0x111111, { metal: .6 }), .02, .02, 1.4, 0, .7, .45, 6); }
-      g2.userData = { legs: av.legs, arms: av.arms, knees: av.knees, phase: Math.random() * 6, av: av };
-      return g2;
-    } catch (e) {}
     var g = new T.Group(), cloth = M(T, opt.cloth || 0x1b2a4a, { roughness: .6 }), skin = M(T, opt.skin || 0xd6a77e, { roughness: .6 }), trim = M(T, 0xc9a96e, { metal: 1, roughness: .3 });
     var body = cyl(T, g, cloth, .22, .26, .8, 0, 1.25, 0, 10); var head = new T.Mesh(new T.SphereGeometry(.15, 12, 10), skin); head.position.y = 1.82; g.add(head);
     var legs = [], arms = [];
@@ -306,7 +292,7 @@
     g.userData = { legs: legs, arms: arms, phase: Math.random() * 6 };
     return g;
   }
-  function walkPose(f, t, amp) { var u = f.userData, s = Math.sin(t) * amp; u.legs[0].rotation.x = s; u.legs[1].rotation.x = -s; u.arms[0].rotation.x = -s * .8; u.arms[1].rotation.x = s * .8; if (u.knees) { u.knees[0].rotation.x = .05 + Math.max(0, -s) * 1.2; u.knees[1].rotation.x = .05 + Math.max(0, s) * 1.2; } }
+  function walkPose(f, t, amp) { var u = f && f.userData, legs = u && u.legs, arms = u && u.arms; if (!legs || legs.length < 2 || !arms || arms.length < 2) return; var s = Math.sin(t) * amp; legs[0].rotation.x = s; legs[1].rotation.x = -s; arms[0].rotation.x = -s * .8; arms[1].rotation.x = s * .8; }
   function screen(T, w, h) {
     var c = document.createElement('canvas'); c.width = 1024; c.height = Math.round(1024 * h / w);
     var tex = new T.CanvasTexture(c); var mat = new T.MeshBasicMaterial({ map: tex });
@@ -612,6 +598,9 @@
     var g = new T.Group(); g.position.set(p.x, 0, p.z); face(g, p);
     var stone = M(T, 0xb7a990, { roughness: .8, flatShading: true }), dark = M(T, 0x0a0f1a, { roughness: .6 }), gold = M(T, 0xc9a96e, { metal: 1, roughness: .3 });
     var plaza = new T.Mesh(new T.CircleGeometry(36, 48), M(T, 0x8f8574, { roughness: .9 })); plaza.rotation.x = -Math.PI / 2; plaza.position.y = .08; plaza.receiveShadow = true; g.add(plaza);
+    /* cinematic district lighting: shared lantern geometry keeps the sunset plaza readable at low cost */
+    var postG = new T.CylinderGeometry(.08, .12, 2.4, 6), capG = new T.SphereGeometry(.18, 8, 6), postM = M(T, 0x1b2333, { metal: .7, roughness: .3 }), glowM = new T.MeshStandardMaterial({ color: 0xffc27a, emissive: 0xff9a3c, emissiveIntensity: .75 });
+    for (var lantern = 0; lantern < 8; lantern++) { var la = lantern / 8 * Math.PI * 2, lx = Math.cos(la) * 27, lz = Math.sin(la) * 27; cyl(T, g, postM, .08, .12, 2.4, lx, 1.2, lz, 6); var cap = new T.Mesh(capG, glowM); cap.position.set(lx, 2.55, lz); g.add(cap); if (lantern % 2 === 0) { var pl = new T.PointLight(0xffb36b, .22, 18, 2); pl.position.set(lx, 2.3, lz); g.add(pl); } }
     var prof = [new T.Vector2(13.9, 0)]; for (var i = 0; i < 7; i++) { var rr = 14 + i * 2.6, hh = .6 + i * .6; prof.push(new T.Vector2(rr, hh), new T.Vector2(rr + 2.6, hh)); } prof.push(new T.Vector2(14 + 7 * 2.6, 0));
     var tiers = new T.Mesh(new T.LatheGeometry(prof, 20, -Math.PI / 2, Math.PI), stone); tiers.position.set(0, 0, 6); tiers.material.side = T.DoubleSide; tiers.castShadow = true; tiers.receiveShadow = true; g.add(tiers);
     for (var e = 0; e < 7; e++) { var edge = new T.Mesh(new T.TorusGeometry(14 + e * 2.6, .06, 4, 40, Math.PI), M(T, 0xc9a96e, { metal: .8, roughness: .4 })); edge.rotation.x = -Math.PI / 2; edge.rotation.z = Math.PI; edge.position.set(0, .62 + e * .6, 6); g.add(edge); }
@@ -625,7 +614,7 @@
       cone.position.set(-7.5 + k * 5, 7, -8); cone.rotation.x = .25; cone.visible = false; g.add(cone); anim.lights.push({ cone: cone, k: k });
     }
     var cast = [{ prop: 'mic', cloth: 0xc9a96e }, { prop: 'guitar', cloth: 0x2a2f3a }, { prop: 'guitar', cloth: 0x6b2f4a }];
-    cast.forEach(function (o, i) { var f = figure(T, { cloth: o.cloth, legs: 0x0a0f1a, prop: o.prop, skin: [0xd6a77e, 0x8d5a3b, 0xe8c4a0][i], gender: i === 1 ? 'f' : 'm', hair: ['side', 'long', 'curly'][i], top: i === 1 ? 'dress' : 'shirt' }); f.position.set(-5 + i * 5, 1.4, -6); f.rotation.y = 0; f.visible = false; g.add(f); anim.performers.push(f); });
+    cast.forEach(function (o, i) { var f = figure(T, { cloth: o.cloth, legs: 0x0a0f1a, prop: o.prop, skin: [0xd6a77e, 0x8d5a3b, 0xe8c4a0][i] }); f.position.set(-5 + i * 5, 1.4, -6); f.rotation.y = 0; f.visible = false; g.add(f); anim.performers.push(f); });
     var tag = label(T, 'FYRUS ENSEMBLE · AI', '#9aa3b2', 8); tag.position.set(0, 4.6, -6); tag.visible = false; g.add(tag); anim.ensembleTag = tag;
     var lb = label(T, 'SUNSET AMPHITHEATER', GOLD_HI, 18); lb.position.set(0, 17, -10.8); g.add(lb);
     anim.amphGroup = g;
@@ -666,6 +655,7 @@
     g.add(sl);
     var lb = label(T, 'FAMILY PARK · KIDS SAFE ZONE', '#bff0d8', 26); lb.position.set(0, 11, 0); g.add(lb);
     root.add(g);
+    anim.parkGroup = g;
     W.staticInteracts.push({ pos: new T.Vector3(p.x, 0, p.z), radius: 26, label: 'Family Park · Kids mode and Storytime', action: 'park', use: function () { API.openHub('family'); } });
   }
   function buildWorld() {
@@ -710,12 +700,24 @@
   function tick(now) {
     var dt = Math.min(.1, Math.max(0, (now - lastT) / 1000)); lastT = Math.max(lastT, now);
     var T = window.THREE, W = window.__fyrusW, t = now / 1000;
+    if (!T || !W || !W.player || !anim) { requestAnimationFrame(tick); return; }
+    var playerPos = W && W.player && W.player.root && W.player.root.position;
+    var amphPos = anim.amphGroup && anim.amphGroup.position;
+    var paradePos = anim.paradeGroup && anim.paradeGroup.position;
+    var amphNear = !!(playerPos && amphPos && Math.hypot(playerPos.x - amphPos.x, playerPos.z - amphPos.z) < 180);
+    var paradeNear = !!(playerPos && paradePos && Math.hypot(playerPos.x - paradePos.x, playerPos.z - paradePos.z) < 180);
+    var parkPos = anim.parkGroup && anim.parkGroup.position;
+    var parkNear = !!(playerPos && parkPos && Math.hypot(playerPos.x - parkPos.x, playerPos.z - parkPos.z) < 180);
     anim.buses.forEach(function (b) { b.a += b.speed * dt * .35; b.g.position.set(Math.cos(b.a) * b.r, 0, Math.sin(b.a) * b.r); b.g.rotation.y = -b.a; });
-    if (anim.carousel) anim.carousel.rotation.y += dt * .6;
-    anim.swings.forEach(function (s) { s.p.rotation.x = Math.sin(t * 1.6 + s.ph) * .55; });
-    anim.lights.forEach(function (l) {
-      if (l.flag) { var pos = l.flag.geometry.attributes.position, b = l.base; for (var i = 0; i < pos.count; i++) { var x = b[i * 3]; pos.array[i * 3 + 2] = Math.sin(t * 3 + x * 1.6) * .18 * ((x + 1.8) / 3.6); } pos.needsUpdate = true; }
-    });
+    if (parkNear) {
+      if (anim.carousel) anim.carousel.rotation.y += dt * .6;
+      anim.swings.forEach(function (s) { s.p.rotation.x = Math.sin(t * 1.6 + s.ph) * .55; });
+    }
+    if (paradeNear) {
+      anim.lights.forEach(function (l) {
+        if (l.flag) { var pos = l.flag.geometry.attributes.position, b = l.base; for (var i = 0; i < pos.count; i++) { var x = b[i * 3]; pos.array[i * 3 + 2] = Math.sin(t * 3 + x * 1.6) * .18 * ((x + 1.8) / 3.6); } pos.needsUpdate = true; }
+      });
+    }
     var guardLive = liveAt('parade'), stageLive = liveAt('amph');
     anim.guards.forEach(function (f, i) {
       var s = f.userData.slot;

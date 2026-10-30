@@ -1,0 +1,671 @@
+{
+ "generator": "tools/avatar/fyrus20_basemesh.py",
+ "blender": "5.2.3 LTS",
+ "licence": "original procedural work, FYRUS project",
+ "results": [
+  {
+   "sex": "female",
+   "outfit": "casual",
+   "height_m": 1.68,
+   "tris": 21702,
+   "verts": 10947,
+   "bones": 43,
+   "materials": 1,
+   "weights": "heat",
+   "unweighted_verts": 0,
+   "glb": "/Users/citebird/Documents/Codex/fyrus-city-phase18-cinematic/app/assets/characters/fyrus20/fyrus20-base-female.glb",
+   "glb_bytes": 1359868,
+   "previews": {
+    "front": "/Users/citebird/Documents/Codex/fyrus-city-phase18-cinematic/app/assets/characters/fyrus20/fyrus20-base-female-front.png",
+    "side": "/Users/citebird/Documents/Codex/fyrus-city-phase18-cinematic/app/assets/characters/fyrus20/fyrus20-base-female-side.png",
+    "posetest": "/Users/citebird/Documents/Codex/fyrus-city-phase18-cinematic/app/assets/characters/fyrus20/fyrus20-base-female-posetest.png",
+    "posetest34": "/Users/citebird/Documents/Codex/fyrus-city-phase18-cinematic/app/assets/characters/fyrus20/fyrus20-base-female-posetest34.png",
+    "face": "/Users/citebird/Documents/Codex/fyrus-city-phase18-cinematic/app/assets/characters/fyrus20/fyrus20-base-female-face.png"
+   },
+   "eye_verts_coloured": {
+    "-0.033": 15,
+    "0.033": 15
+   },
+   "clips": [
+    [
+     "Idle",
+     90
+    ],
+    [
+     "Walk",
+     33
+    ],
+    [
+     "Jog",
+     23
+    ],
+    [
+     "Run",
+     19
+    ],
+    [
+     "WalkBack",
+     34
+    ],
+    [
+     "StrafeL",
+     30
+    ],
+    [
+     "StrafeR",
+     30
+    ],
+    [
+     "TurnL",
+     30
+    ],
+    [
+     "TurnR",
+     30
+    ],
+    [
+     "Wave",
+     48
+    ],
+    [
+     "Cheer",
+     45
+    ],
+    [
+     "Clap",
+     36
+    ],
+    [
+     "Bow",
+     60
+    ],
+    [
+     "Point",
+     45
+    ],
+    [
+     "Laugh",
+     45
+    ]
+   ],
+   "keyvals_at_face_render": {
+    "Basis": 0.0,
+    "Blink": 0.0,
+    "Smile": 0.0,
+    "MouthOpen": 0.0,
+    "BrowsUp": 0.0,
+    "Sad": 0.0
+   },
+   "lods": {
+    "a2": {
+     "tris": 6000,
+     "bytes": 222268
+    },
+    "a3": {
+     "tris": 1200,
+     "bytes": 56868
+    }
+   },
+   "shape_keys": [
+    "Blink",
+    "Smile",
+    "MouthOpen",
+    "BrowsUp",
+    "Sad"
+   ],
+   "budget_A1_ok": true
+  },
+  {
+   "sex": "female",
+   "outfit": "formal",
+   "height_m": 1.68,
+   "tris": 22422,
+   "verts": 11343,
+   "bones": 43,
+   "materials": 1,
+   "weights": "heat",
+   "unweighted_verts": 0,
+   "glb": "/Users/citebird/Documents/Codex/fyrus-city-phase18-cinematic/app/assets/characters/fyrus20/fyrus20-female-formal.glb",
+   "glb_bytes": 1392148,
+   "previews": {
+    "front": "/Users/citebird/Documents/Codex/fyrus-city-phase18-cinematic/app/assets/characters/fyrus20/fyrus20-female-formal-front.png",
+    "side": "/Users/citebird/Documents/Codex/fyrus-city-phase18-cinematic/app/assets/characters/fyrus20/fyrus20-female-formal-side.png",
+    "face": "/Users/citebird/Documents/Codex/fyrus-city-phase18-cinematic/app/assets/characters/fyrus20/fyrus20-female-formal-face.png"
+   },
+   "eye_verts_coloured": {
+    "0.033": 15,
+    "-0.033": 15
+   },
+   "clips": [
+    [
+     "Idle",
+     90
+    ],
+    [
+     "Walk",
+     33
+    ],
+    [
+     "Jog",
+     23
+    ],
+    [
+     "Run",
+     19
+    ],
+    [
+     "WalkBack",
+     34
+    ],
+    [
+     "StrafeL",
+     30
+    ],
+    [
+     "StrafeR",
+     30
+    ],
+    [
+     "TurnL",
+     30
+    ],
+    [
+     "TurnR",
+     30
+    ],
+    [
+     "Wave",
+     48
+    ],
+    [
+     "Cheer",
+     45
+    ],
+    [
+     "Clap",
+     36
+    ],
+    [
+     "Bow",
+     60
+    ],
+    [
+     "Point",
+     45
+    ],
+    [
+     "Laugh",
+     45
+    ]
+   ],
+   "keyvals_at_face_render": {
+    "Basis": 0.0,
+    "Blink": 0.0,
+    "Smile": 0.0,
+    "MouthOpen": 0.0,
+    "BrowsUp": 0.0,
+    "Sad": 0.0
+   },
+   "lods": {
+    "a2": {
+     "tris": 5999,
+     "bytes": 224224
+    },
+    "a3": {
+     "tris": 1199,
+     "bytes": 57868
+    }
+   },
+   "shape_keys": [
+    "Blink",
+    "Smile",
+    "MouthOpen",
+    "BrowsUp",
+    "Sad"
+   ],
+   "budget_A1_ok": true
+  },
+  {
+   "sex": "female",
+   "outfit": "sport",
+   "height_m": 1.68,
+   "tris": 21702,
+   "verts": 10947,
+   "bones": 43,
+   "materials": 1,
+   "weights": "heat",
+   "unweighted_verts": 0,
+   "glb": "/Users/citebird/Documents/Codex/fyrus-city-phase18-cinematic/app/assets/characters/fyrus20/fyrus20-female-sport.glb",
+   "glb_bytes": 1359868,
+   "previews": {
+    "front": "/Users/citebird/Documents/Codex/fyrus-city-phase18-cinematic/app/assets/characters/fyrus20/fyrus20-female-sport-front.png",
+    "side": "/Users/citebird/Documents/Codex/fyrus-city-phase18-cinematic/app/assets/characters/fyrus20/fyrus20-female-sport-side.png",
+    "face": "/Users/citebird/Documents/Codex/fyrus-city-phase18-cinematic/app/assets/characters/fyrus20/fyrus20-female-sport-face.png"
+   },
+   "eye_verts_coloured": {
+    "-0.033": 15,
+    "0.033": 15
+   },
+   "clips": [
+    [
+     "Idle",
+     90
+    ],
+    [
+     "Walk",
+     33
+    ],
+    [
+     "Jog",
+     23
+    ],
+    [
+     "Run",
+     19
+    ],
+    [
+     "WalkBack",
+     34
+    ],
+    [
+     "StrafeL",
+     30
+    ],
+    [
+     "StrafeR",
+     30
+    ],
+    [
+     "TurnL",
+     30
+    ],
+    [
+     "TurnR",
+     30
+    ],
+    [
+     "Wave",
+     48
+    ],
+    [
+     "Cheer",
+     45
+    ],
+    [
+     "Clap",
+     36
+    ],
+    [
+     "Bow",
+     60
+    ],
+    [
+     "Point",
+     45
+    ],
+    [
+     "Laugh",
+     45
+    ]
+   ],
+   "keyvals_at_face_render": {
+    "Basis": 0.0,
+    "Blink": 0.0,
+    "Smile": 0.0,
+    "MouthOpen": 0.0,
+    "BrowsUp": 0.0,
+    "Sad": 0.0
+   },
+   "lods": {
+    "a2": {
+     "tris": 6000,
+     "bytes": 222268
+    },
+    "a3": {
+     "tris": 1200,
+     "bytes": 56868
+    }
+   },
+   "shape_keys": [
+    "Blink",
+    "Smile",
+    "MouthOpen",
+    "BrowsUp",
+    "Sad"
+   ],
+   "budget_A1_ok": true
+  },
+  {
+   "sex": "male",
+   "outfit": "casual",
+   "height_m": 1.8,
+   "tris": 20726,
+   "verts": 10414,
+   "bones": 43,
+   "materials": 1,
+   "weights": "heat",
+   "unweighted_verts": 0,
+   "glb": "/Users/citebird/Documents/Codex/fyrus-city-phase18-cinematic/app/assets/characters/fyrus20/fyrus20-base-male.glb",
+   "glb_bytes": 1305896,
+   "previews": {
+    "front": "/Users/citebird/Documents/Codex/fyrus-city-phase18-cinematic/app/assets/characters/fyrus20/fyrus20-base-male-front.png",
+    "side": "/Users/citebird/Documents/Codex/fyrus-city-phase18-cinematic/app/assets/characters/fyrus20/fyrus20-base-male-side.png",
+    "posetest": "/Users/citebird/Documents/Codex/fyrus-city-phase18-cinematic/app/assets/characters/fyrus20/fyrus20-base-male-posetest.png",
+    "posetest34": "/Users/citebird/Documents/Codex/fyrus-city-phase18-cinematic/app/assets/characters/fyrus20/fyrus20-base-male-posetest34.png",
+    "face": "/Users/citebird/Documents/Codex/fyrus-city-phase18-cinematic/app/assets/characters/fyrus20/fyrus20-base-male-face.png"
+   },
+   "eye_verts_coloured": {
+    "-0.035": 15,
+    "0.035": 15
+   },
+   "clips": [
+    [
+     "Idle",
+     90
+    ],
+    [
+     "Walk",
+     33
+    ],
+    [
+     "Jog",
+     23
+    ],
+    [
+     "Run",
+     19
+    ],
+    [
+     "WalkBack",
+     34
+    ],
+    [
+     "StrafeL",
+     30
+    ],
+    [
+     "StrafeR",
+     30
+    ],
+    [
+     "TurnL",
+     30
+    ],
+    [
+     "TurnR",
+     30
+    ],
+    [
+     "Wave",
+     48
+    ],
+    [
+     "Cheer",
+     45
+    ],
+    [
+     "Clap",
+     36
+    ],
+    [
+     "Bow",
+     60
+    ],
+    [
+     "Point",
+     45
+    ],
+    [
+     "Laugh",
+     45
+    ]
+   ],
+   "keyvals_at_face_render": {
+    "Basis": 0.0,
+    "Blink": 0.0,
+    "Smile": 0.0,
+    "MouthOpen": 0.0,
+    "BrowsUp": 0.0,
+    "Sad": 0.0
+   },
+   "lods": {
+    "a2": {
+     "tris": 6000,
+     "bytes": 220280
+    },
+    "a3": {
+     "tris": 1200,
+     "bytes": 56000
+    }
+   },
+   "shape_keys": [
+    "Blink",
+    "Smile",
+    "MouthOpen",
+    "BrowsUp",
+    "Sad"
+   ],
+   "budget_A1_ok": true
+  },
+  {
+   "sex": "male",
+   "outfit": "formal",
+   "height_m": 1.8,
+   "tris": 20726,
+   "verts": 10414,
+   "bones": 43,
+   "materials": 1,
+   "weights": "heat",
+   "unweighted_verts": 0,
+   "glb": "/Users/citebird/Documents/Codex/fyrus-city-phase18-cinematic/app/assets/characters/fyrus20/fyrus20-male-formal.glb",
+   "glb_bytes": 1305896,
+   "previews": {
+    "front": "/Users/citebird/Documents/Codex/fyrus-city-phase18-cinematic/app/assets/characters/fyrus20/fyrus20-male-formal-front.png",
+    "side": "/Users/citebird/Documents/Codex/fyrus-city-phase18-cinematic/app/assets/characters/fyrus20/fyrus20-male-formal-side.png",
+    "face": "/Users/citebird/Documents/Codex/fyrus-city-phase18-cinematic/app/assets/characters/fyrus20/fyrus20-male-formal-face.png"
+   },
+   "eye_verts_coloured": {
+    "-0.035": 15,
+    "0.035": 15
+   },
+   "clips": [
+    [
+     "Idle",
+     90
+    ],
+    [
+     "Walk",
+     33
+    ],
+    [
+     "Jog",
+     23
+    ],
+    [
+     "Run",
+     19
+    ],
+    [
+     "WalkBack",
+     34
+    ],
+    [
+     "StrafeL",
+     30
+    ],
+    [
+     "StrafeR",
+     30
+    ],
+    [
+     "TurnL",
+     30
+    ],
+    [
+     "TurnR",
+     30
+    ],
+    [
+     "Wave",
+     48
+    ],
+    [
+     "Cheer",
+     45
+    ],
+    [
+     "Clap",
+     36
+    ],
+    [
+     "Bow",
+     60
+    ],
+    [
+     "Point",
+     45
+    ],
+    [
+     "Laugh",
+     45
+    ]
+   ],
+   "keyvals_at_face_render": {
+    "Basis": 0.0,
+    "Blink": 0.0,
+    "Smile": 0.0,
+    "MouthOpen": 0.0,
+    "BrowsUp": 0.0,
+    "Sad": 0.0
+   },
+   "lods": {
+    "a2": {
+     "tris": 6000,
+     "bytes": 220280
+    },
+    "a3": {
+     "tris": 1200,
+     "bytes": 56000
+    }
+   },
+   "shape_keys": [
+    "Blink",
+    "Smile",
+    "MouthOpen",
+    "BrowsUp",
+    "Sad"
+   ],
+   "budget_A1_ok": true
+  },
+  {
+   "sex": "male",
+   "outfit": "sport",
+   "height_m": 1.8,
+   "tris": 20726,
+   "verts": 10414,
+   "bones": 43,
+   "materials": 1,
+   "weights": "heat",
+   "unweighted_verts": 0,
+   "glb": "/Users/citebird/Documents/Codex/fyrus-city-phase18-cinematic/app/assets/characters/fyrus20/fyrus20-male-sport.glb",
+   "glb_bytes": 1305896,
+   "previews": {
+    "front": "/Users/citebird/Documents/Codex/fyrus-city-phase18-cinematic/app/assets/characters/fyrus20/fyrus20-male-sport-front.png",
+    "side": "/Users/citebird/Documents/Codex/fyrus-city-phase18-cinematic/app/assets/characters/fyrus20/fyrus20-male-sport-side.png",
+    "face": "/Users/citebird/Documents/Codex/fyrus-city-phase18-cinematic/app/assets/characters/fyrus20/fyrus20-male-sport-face.png"
+   },
+   "eye_verts_coloured": {
+    "-0.035": 15,
+    "0.035": 15
+   },
+   "clips": [
+    [
+     "Idle",
+     90
+    ],
+    [
+     "Walk",
+     33
+    ],
+    [
+     "Jog",
+     23
+    ],
+    [
+     "Run",
+     19
+    ],
+    [
+     "WalkBack",
+     34
+    ],
+    [
+     "StrafeL",
+     30
+    ],
+    [
+     "StrafeR",
+     30
+    ],
+    [
+     "TurnL",
+     30
+    ],
+    [
+     "TurnR",
+     30
+    ],
+    [
+     "Wave",
+     48
+    ],
+    [
+     "Cheer",
+     45
+    ],
+    [
+     "Clap",
+     36
+    ],
+    [
+     "Bow",
+     60
+    ],
+    [
+     "Point",
+     45
+    ],
+    [
+     "Laugh",
+     45
+    ]
+   ],
+   "keyvals_at_face_render": {
+    "Basis": 0.0,
+    "Blink": 0.0,
+    "Smile": 0.0,
+    "MouthOpen": 0.0,
+    "BrowsUp": 0.0,
+    "Sad": 0.0
+   },
+   "lods": {
+    "a2": {
+     "tris": 6000,
+     "bytes": 220280
+    },
+    "a3": {
+     "tris": 1200,
+     "bytes": 56000
+    }
+   },
+   "shape_keys": [
+    "Blink",
+    "Smile",
+    "MouthOpen",
+    "BrowsUp",
+    "Sad"
+   ],
+   "budget_A1_ok": true
+  }
+ ]
+}

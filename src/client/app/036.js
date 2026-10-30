@@ -1219,6 +1219,7 @@ function i5() {
                 children: [
                   "Hospital, police, fire, post, library, shops, Food Street and places of worship. Work shifts to earn FYC.",
                   e ? ` Today: ${e.shifts}/${e.cap} shifts \xB7 ${q(e.earned)}.` : "",
+                  e?.career && !e.career.off ? ` Career: ${e.career.name} (${e.career.shifts} shifts${e.career.pct ? `, +${e.career.pct}% pay` : ""})${e.career.next ? ` \xB7 next: ${e.career.next.name} after ${e.career.next.needShifts} more shift${e.career.next.needShifts === 1 ? "" : "s"}${e.career.next.needCerts ? ` and ${e.career.next.needCerts} more course certificate${e.career.next.needCerts === 1 ? "" : "s"}` : ""}.` : " \xB7 top level."}` : "",
                 ],
               }),
             ],

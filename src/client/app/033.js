@@ -1036,6 +1036,7 @@ function Yy() {
           children: [
             ["societies", "Societies"],
             ["mine", "My properties"],
+            ...(MKOFF25 ? [] : [["market", "Market"]]),
             ["passes", "Royal Sky passes"],
           ].map(([v, g]) =>
             (0, Q.jsx)(
@@ -1058,9 +1059,110 @@ function Yy() {
               children: [
                 i === "societies" && (0, Q.jsx)(AB, { open: r }),
                 i === "mine" && (0, Q.jsx)(WB, { open: n }),
+                i === "market" && !MKOFF25 && (0, Q.jsx)(MK25, { open: n }),
                 i === "passes" && (0, Q.jsx)(IB, {}),
               ],
             }),
+    ],
+  });
+}
+// 25.10 property marketplace: every citizen listing across the societies (sale / auction / rent) in one sortable,
+// filterable list, plus recent completed sales. Kill switch ?p25off=market
+var MKOFF25 = typeof location !== "undefined" && /(^|,)(market|all)(,|$)/.test(new URLSearchParams(location.search).get("p25off") || "");
+function MK25({ open: t }) {
+  let e = Y(),
+    a = e.estate?.plots || {},
+    me = e.net.id,
+    [f, sf] = (0, $r.useState)("all"),
+    [so, sso] = (0, $r.useState)("low"),
+    now = Date.now(),
+    rows = Object.entries(a)
+      .map(([id, p]) => {
+        let kind = p.sale ? "sale" : p.auction ? "auction" : p.rent && !p.rent.tenant ? "rent" : null;
+        if (!kind) return null;
+        let price = kind === "sale" ? p.sale : kind === "auction" ? p.auction.top || p.auction.start : p.rent.price,
+          pl = _i(id);
+        return { id, kind, price, mine: p.owner === me, soc: pl ? Mh(pl.soc)?.name : "", ends: p.auction?.endsAt, sea: pl?.seaFront };
+      })
+      .filter((r) => r && (f === "all" || r.kind === f))
+      .sort((x, y) => (so === "low" ? x.price - y.price : so === "high" ? y.price - x.price : (x.ends || 1 / 0) - (y.ends || 1 / 0))),
+    rec = e.estate?.recent || [],
+    ago = (ms) => (ms < 6e4 ? "just now" : ms < 36e5 ? `${Math.round(ms / 6e4)} min ago` : ms < 864e5 ? `${Math.round(ms / 36e5)} h ago` : `${Math.round(ms / 864e5)} d ago`),
+    lbl = { sale: "For sale", auction: "Auction", rent: "For rent" };
+  return (0, Q.jsxs)("div", {
+    className: "space-y-2",
+    "data-market": !0,
+    children: [
+      (0, Q.jsxs)("div", {
+        className: "flex gap-1 flex-wrap items-center text-[11px]",
+        children: [
+          ...[
+            ["all", "All"],
+            ["sale", "For sale"],
+            ["auction", "Auctions"],
+            ["rent", "For rent"],
+          ].map(([v, g]) =>
+            (0, Q.jsx)("button", { className: `chip ${f === v ? "chip-on" : ""}`, "data-mk-filter": v, "aria-pressed": f === v, onClick: () => sf(v), children: g }, v),
+          ),
+          (0, Q.jsx)("span", { className: "ml-2", style: _r, children: "Sort:" }),
+          ...[
+            ["low", "Cheapest"],
+            ["high", "Dearest"],
+            ["ends", "Ending soon"],
+          ].map(([v, g]) =>
+            (0, Q.jsx)("button", { className: `chip ${so === v ? "chip-on" : ""}`, "data-mk-sort": v, "aria-pressed": so === v, onClick: () => sso(v), children: g }, v),
+          ),
+        ],
+      }),
+      rows.length === 0
+        ? (0, Q.jsx)("div", { className: "text-[12px]", style: _r, children: "No citizen listings right now. Land Office plots are in each society." })
+        : (0, Q.jsx)("div", {
+            className: "space-y-1",
+            children: rows.slice(0, 80).map((r) =>
+              (0, Q.jsxs)(
+                "button",
+                {
+                  "data-mk-row": r.id,
+                  className: "w-full text-left rounded-md px-2.5 py-1.5 flex items-center gap-2 text-[13px] card-hover",
+                  style: { border: "1px solid var(--line)" },
+                  onClick: () => t(r.id),
+                  children: [
+                    (0, Q.jsx)("b", { className: "font-mono", children: r.id }),
+                    (0, Q.jsx)("span", { className: "truncate", style: _r, children: r.soc }),
+                    r.sea && (0, Q.jsx)("span", { className: "text-[10px]", style: { color: "#45e0ae" }, children: "sea-front" }),
+                    r.mine && (0, Q.jsx)("span", { className: "text-[10px]", style: { color: ic.mine }, children: "yours" }),
+                    (0, Q.jsx)("span", {
+                      className: "flex-1 text-right tabular",
+                      children: `${lbl[r.kind]} \xB7 ${q(r.price)}${r.kind === "rent" ? "/mo" : ""}${r.ends ? ` \xB7 ends ${r.ends - now > 0 ? `in ${Math.max(1, Math.round((r.ends - now) / 6e4))} min` : "now"}` : ""}`,
+                    }),
+                  ],
+                },
+                r.id,
+              ),
+            ),
+          }),
+      rec.length > 0 &&
+        (0, Q.jsxs)("div", {
+          "data-mk-recent": rec.length,
+          children: [
+            (0, Q.jsx)("div", { className: "text-[11px] font-bold tracking-wide mb-1 mt-2", style: _r, children: "RECENT SALES" }),
+            ...rec.slice(0, 10).map((s, k) =>
+              (0, Q.jsxs)(
+                "div",
+                {
+                  className: "text-[12px] flex gap-2",
+                  children: [
+                    (0, Q.jsx)("b", { className: "font-mono", children: s.id }),
+                    (0, Q.jsx)("span", { style: _r, children: s.kind === "land" ? "Land Office" : s.kind === "auction" ? "auction" : "resale" }),
+                    (0, Q.jsx)("span", { className: "flex-1 text-right tabular", children: q(s.price) }),
+                    (0, Q.jsx)("span", { style: _r, children: ago(now - s.at) }),
+                  ],
+                },
+                k,
+              ),
+            ),
+          ],
+        }),
     ],
   });
 }
@@ -1211,6 +1313,7 @@ function zB({ soc: t, back: e, open: a }) {
   let r = Y(),
     o = Mh(t),
     [n, i] = (0, $r.useState)("available"),
+    [so, sso] = (0, $r.useState)("num"),
     s = (0, $r.useMemo)(() => (o ? Al(o) : []), [t]);
   if (!o) return null;
   let l = r.estate?.plots || {},
@@ -1219,6 +1322,16 @@ function zB({ soc: t, back: e, open: a }) {
       let g = df(v, l[v.id], c).key;
       return n === "all" || (n === "available" ? ["land", "sale", "auction", "rent"].includes(g) : g === n);
     }),
+    // 25.2 sort: plot number, cheapest or dearest asking price (Land Office price, sale price, top bid / start, rent)
+    pz = (v) => {
+      let x = l[v.id];
+      return x ? x.sale || x.auction?.top || x.auction?.start || (x.rent && !x.rent.tenant ? x.rent.price : 1 / 0) : v.empty ? v.price : 1 / 0;
+    };
+  if (so !== "num") {
+    let k = (v) => (so === "low" || pz(v) === 1 / 0 ? pz(v) : -pz(v));
+    d = d.slice().sort((v, g) => (k(v) === k(g) ? 0 : k(v) < k(g) ? -1 : 1));
+  }
+  let
     h = 10,
     u = o.cols * h,
     p = o.rows * h;
@@ -1296,6 +1409,25 @@ function zB({ soc: t, back: e, open: a }) {
             v,
           ),
         ),
+      }),
+      (0, Q.jsxs)("div", {
+        className: "flex gap-1 flex-wrap items-center text-[11px]",
+        role: "group",
+        "aria-label": "Sort plots",
+        children: [
+          (0, Q.jsx)("span", { style: _r, children: "Sort:" }),
+          ...[
+            ["num", "Plot no."],
+            ["low", "Cheapest"],
+            ["high", "Dearest"],
+          ].map(([v, g]) =>
+            (0, Q.jsx)(
+              "button",
+              { className: `chip ${so === v ? "chip-on" : ""}`, "data-sort": v, "aria-pressed": so === v, onClick: () => sso(v), children: g },
+              v,
+            ),
+          ),
+        ],
       }),
       (0, Q.jsxs)("div", {
         className: "space-y-1",

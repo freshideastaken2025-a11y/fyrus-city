@@ -1,3 +1,166 @@
+// 26.7 business on a plot: register (owner / tenant), menu, balance, withdraw, close; customers buy from the menu.
+// Kill switch ?p25off=biz
+var BZOFF26 = typeof location !== "undefined" && /(^|,)(biz|all)(,|$)/.test(new URLSearchParams(location.search).get("p25off") || ""),
+  BZKINDS26 = ["cafe", "shop", "studio", "services", "food", "crafts"];
+// 27.10 AI clerk: customers ask the clerk (npc_say "biz:<id>"); the owner staffs it, sets hours and reads reports
+function BZC27({ biz: b }) {
+  let [qq, sq] = (0, $r.useState)(""),
+    [an, sa] = (0, $r.useState)(null);
+  (0, $r.useEffect)(() => (sa(null), O.on("npc_reply", (x) => x.npc === "biz:" + b.id && sa({ text: x.text, source: x.source }))), [b.id]);
+  if (typeof AIOFF27 !== "undefined" && AIOFF27) return null;
+  return (0, Q.jsxs)("div", {
+    "data-biz-clerk": b.id,
+    children: [
+      (0, Q.jsxs)("form", {
+        className: "flex gap-1.5",
+        onSubmit: (ev) => {
+          (ev.preventDefault(), qq.trim() && O.status === "online" && (O.send({ t: "npc_say", npc: "biz:" + b.id, text: qq.trim() }), sa({ text: "\u2026", source: "wait" }), sq("")));
+        },
+        children: [
+          (0, Q.jsx)("input", { className: "field py-1 text-sm flex-1", "aria-label": `Ask ${b.clerk.name}`, placeholder: `Ask ${b.clerk.name}, the AI clerk`, value: qq, maxLength: 200, onChange: (ev) => sq(ev.target.value) }),
+          (0, Q.jsx)("button", { className: "btn btn-ghost btn-sm", children: "Ask" }),
+        ],
+      }),
+      an && (0, Q.jsx)("div", { className: "text-[12px] mt-1", role: "status", "data-biz-answer": an.source, children: an.text }),
+    ],
+  });
+}
+function BZS27({ biz: b, here: h }) {
+  let c = b.clerk,
+    [nm, snm] = (0, $r.useState)(c?.name || "Clerk"),
+    [ho, sho] = (0, $r.useState)(c?.hours ? String(c.hours.open) : ""),
+    [hc, shc] = (0, $r.useState)(c?.hours ? String(c.hours.close) : ""),
+    [pz, spz] = (0, $r.useState)(h?.perms?.prices || "approve"),
+    send = (m) => O.send(m),
+    hrs = ho !== "" && hc !== "" ? { open: +ho, close: +hc } : null;
+  return (0, Q.jsxs)("div", {
+    className: "space-y-1 pt-1",
+    "data-biz-staff": c ? "on" : "off",
+    children: [
+      (0, Q.jsx)("div", { className: "text-[11px] font-bold", style: _r, children: "AI CLERK \u00B7 answers customers, keeps hours, reports sales; never moves money" }),
+      (0, Q.jsxs)("div", {
+        className: "flex gap-1 flex-wrap items-center",
+        children: [
+          (0, Q.jsx)("input", { className: "field py-0.5 text-sm w-24", "aria-label": "Clerk name", "data-biz-clerk-name": !0, maxLength: 20, value: nm, onChange: (e) => snm(e.target.value) }),
+          (0, Q.jsx)("input", { className: "field py-0.5 text-sm w-12", "aria-label": "Opens at hour", placeholder: "9", inputMode: "numeric", value: ho, onChange: (e) => sho(e.target.value) }),
+          (0, Q.jsx)("input", { className: "field py-0.5 text-sm w-12", "aria-label": "Closes at hour", placeholder: "18", inputMode: "numeric", value: hc, onChange: (e) => shc(e.target.value) }),
+          (0, Q.jsx)("button", { className: "btn btn-primary btn-xs", "data-biz-hire": !0, onClick: () => send({ t: "biz_staff", id: b.id, on: !0, name: nm, hours: hrs, prices: pz }), children: c ? "Update clerk" : "Staff with AI clerk" }),
+          (0, Q.jsxs)("label", { className: "text-[11px] flex items-center gap-1", children: [(0, Q.jsx)("input", { type: "checkbox", "data-biz-price-ideas": !0, checked: pz !== "off", onChange: (e) => spz(e.target.checked ? "approve" : "off") }), "Price ideas (you approve)"] }),
+          c && (0, Q.jsx)("button", { className: "btn btn-ghost btn-xs", "data-biz-report": !0, onClick: () => send({ t: "biz_report", id: b.id }), children: "Report now" }),
+          c && (0, Q.jsx)("button", { className: "btn btn-ghost btn-xs", "data-biz-fire": !0, onClick: () => send({ t: "biz_staff", id: b.id, on: !1 }), children: "Remove clerk" }),
+        ],
+      }),
+      ...(h?.pending || []).map((x) =>
+        (0, Q.jsxs)("div", {
+          className: "flex items-center gap-1.5 text-[12px]",
+          "data-biz-proposal": x.pid,
+          children: [
+            (0, Q.jsx)("span", { className: "flex-1", children: `${c?.name || "Clerk"} suggests ${x.name}: ${x.from} \u2192 ${x.to} FYC (${x.why})` }),
+            (0, Q.jsx)("button", { className: "btn btn-primary btn-xs", "data-biz-approve": x.pid, onClick: () => send({ t: "biz_approve", id: b.id, pid: x.pid, ok: !0 }), children: "Approve" }),
+            (0, Q.jsx)("button", { className: "btn btn-ghost btn-xs", "data-biz-reject": x.pid, onClick: () => send({ t: "biz_approve", id: b.id, pid: x.pid, ok: !1 }), children: "Reject" }),
+          ],
+        }, x.pid),
+      ),
+      ...(h?.reports || []).slice(0, 3).map((x, k) => (0, Q.jsx)("div", { className: "text-[11px]", style: _r, "data-biz-report-line": k, children: x.text }, x.at)),
+    ],
+  });
+}
+function BZ26({ plot: r, holder: hd }) {
+  let a = Y(),
+    biz = a.bizAll?.[r.id] || null,
+    here = a.bizHere?.plot === r.id ? a.bizHere.biz : null,
+    mineHere = !!biz && biz.owner === a.net.id,
+    [nm, snm] = (0, $r.useState)(""),
+    [kd, skd] = (0, $r.useState)("cafe"),
+    [mn, smn] = (0, $r.useState)(null);
+  (0, $r.useEffect)(() => {
+    O.status === "online" && O.send({ t: "biz_state", plot: r.id });
+  }, [r.id, biz?.id]);
+  if (!biz && !hd) return null;
+  let menu = mn ?? (biz?.menu || []).map((x) => ({ name: x.name, price: String(x.price) })),
+    send = (m) => O.send(m);
+  return (0, Q.jsxs)("div", {
+    className: "card p-3 space-y-2",
+    "data-biz": biz ? biz.id : "none",
+    children: [
+      (0, Q.jsx)("div", { className: "text-sm font-bold", children: biz ? `${biz.name} \xB7 ${biz.kind}` : "Start a business here" }),
+      !biz &&
+        hd &&
+        (0, Q.jsxs)("div", {
+          className: "flex gap-1.5 flex-wrap items-center",
+          children: [
+            (0, Q.jsx)("input", { className: "field py-1 text-sm flex-1", "data-biz-name": !0, placeholder: "Business name", maxLength: 32, value: nm, onChange: (e) => snm(e.target.value) }),
+            (0, Q.jsx)("select", {
+              className: "field py-1 text-sm",
+              "aria-label": "Kind of business",
+              value: kd,
+              onChange: (e) => skd(e.target.value),
+              children: BZKINDS26.map((x) => (0, Q.jsx)("option", { value: x, children: x }, x)),
+            }),
+            (0, Q.jsx)("button", { className: "btn btn-primary btn-sm", "data-biz-register": !0, onClick: () => send({ t: "biz_register", plot: r.id, name: nm, kind: kd }), children: "Register \xB7 500 FYC" }),
+          ],
+        }),
+      biz &&
+        !mineHere &&
+        (0, Q.jsxs)("div", {
+          className: "space-y-1",
+          children: [
+            (0, Q.jsx)("div", { className: "text-[12px]", style: _r, children: (biz.open === false ? (biz.clerk?.hours ? `Closed right now. Open ${biz.clerk.hours.open}:00\u2013${biz.clerk.hours.close}:00.` : "Closed right now.") : `Run by ${biz.ownerName}. Stand at the plot to buy.`) + (biz.clerk ? ` AI clerk: ${biz.clerk.name}.` : "") }),
+            biz.clerk && (0, Q.jsx)(BZC27, { biz }),
+            ...(biz.menu || []).map((x) =>
+              (0, Q.jsxs)(
+                "div",
+                {
+                  className: "flex items-center gap-2 text-[13px]",
+                  children: [
+                    (0, Q.jsx)("span", { className: "flex-1", children: x.name }),
+                    (0, Q.jsx)("span", { className: "tabular", children: q(x.price) }),
+                    (0, Q.jsx)("button", { className: "btn btn-ghost btn-xs", "data-biz-buy": x.i, disabled: biz.open === false, onClick: () => send({ t: "biz_buy", id: biz.id, item: x.i, price: x.price }), children: "Buy" }),
+                  ],
+                },
+                x.i,
+              ),
+            ),
+          ],
+        }),
+      mineHere &&
+        (0, Q.jsxs)("div", {
+          className: "space-y-1.5",
+          children: [
+            (0, Q.jsx)("div", {
+              className: "text-[12px]",
+              "data-biz-balance": here?.balance ?? "",
+              children: `Business account: ${q(here?.balance ?? 0)} \xB7 ${here?.sales ?? 0} sales \xB7 5% sales tax goes to the treasury`,
+            }),
+            ...menu.map((x, k) =>
+              (0, Q.jsxs)(
+                "div",
+                {
+                  className: "flex gap-1",
+                  children: [
+                    (0, Q.jsx)("input", { className: "field py-0.5 text-sm flex-1", "aria-label": `Offer ${k + 1} name`, value: x.name, maxLength: 40, onChange: (e) => smn(menu.map((y, j) => (j === k ? { ...y, name: e.target.value } : y))) }),
+                    (0, Q.jsx)("input", { className: "field py-0.5 text-sm w-20", "aria-label": `Offer ${k + 1} price`, inputMode: "numeric", value: x.price, onChange: (e) => smn(menu.map((y, j) => (j === k ? { ...y, price: e.target.value } : y))) }),
+                    (0, Q.jsx)("button", { className: "btn btn-ghost btn-xs", "aria-label": `Remove offer ${k + 1}`, onClick: () => smn(menu.filter((y, j) => j !== k)), children: "\xD7" }),
+                  ],
+                },
+                k,
+              ),
+            ),
+            (0, Q.jsxs)("div", {
+              className: "flex gap-1.5 flex-wrap",
+              children: [
+                menu.length < 8 && (0, Q.jsx)("button", { className: "btn btn-ghost btn-xs", "data-biz-add": !0, onClick: () => smn([...menu, { name: "", price: "" }]), children: "+ Offer" }),
+                (0, Q.jsx)("button", { className: "btn btn-primary btn-xs", "data-biz-save": !0, onClick: () => (send({ t: "biz_menu", id: biz.id, menu: menu.map((x) => ({ name: x.name, price: +x.price })) }), smn(null)), children: "Save menu" }),
+                (0, Q.jsx)("button", { className: "btn btn-ghost btn-xs", "data-biz-withdraw": !0, disabled: !(here?.balance > 0), onClick: () => send({ t: "biz_withdraw", id: biz.id, amount: here.balance }), children: "Withdraw all" }),
+                (0, Q.jsx)("button", { className: "btn btn-ghost btn-xs", "data-biz-close": !0, onClick: () => send({ t: "biz_close", id: biz.id }), children: "Close business" }),
+              ],
+            }),
+            (0, Q.jsx)(BZS27, { biz, here }, biz.id + ":" + (biz.clerk ? 1 : 0)),
+          ],
+        }),
+    ],
+  });
+}
 function jB({ id: t, back: e }) {
   let a = Y(),
     r = _i(t),
@@ -8,7 +171,21 @@ function jB({ id: t, back: e }) {
     [d, h] = (0, $r.useState)("24"),
     [u, p] = (0, $r.useState)(""),
     [v, g] = (0, $r.useState)(o?.style ?? 0),
-    [m, f] = (0, $r.useState)(o?.sign || "");
+    [m, f] = (0, $r.useState)(o?.sign || ""),
+    [cf, scf] = (0, $r.useState)(!1);
+  // 25.4: a purchase needs a confirm step; it is reset when the plot or its price changes
+  (0, $r.useEffect)(() => scf(!1), [t, o?.sale, o?.owner]);
+  // 25.2: outline the open plot in the world (fyrus-plotsel25.js); released when the panel closes or changes plot
+  (0, $r.useEffect)(() => {
+    try {
+      r && window.__fyrusPlotSel25?.select({ id: r.id, x: r.x, z: r.z, size: r.size, face: r.face, key: df(r, o, n).key });
+    } catch {}
+    return () => {
+      try {
+        window.__fyrusPlotSel25?.select(null);
+      } catch {}
+    };
+  }, [t, o?.owner, o?.sale, !!o?.auction, o?.rent?.tenant, !!o?.rent]);
   if (!r)
     return (0, Q.jsx)("div", {
       children: (0, Q.jsxs)("button", {
@@ -118,7 +295,8 @@ function jB({ id: t, back: e }) {
           id: "est-buy",
           className: "btn btn-primary btn-sm",
           disabled: w,
-          onClick: () => O.send({ t: "est_buy", plot: r.id }),
+          "aria-expanded": cf,
+          onClick: () => scf(!cf),
           children: [(0, Q.jsx)(ho, {}), " Buy from the Land Office \xB7 ", q(r.price)],
         }),
       !k &&
@@ -127,7 +305,8 @@ function jB({ id: t, back: e }) {
           id: "est-buy",
           className: "btn btn-primary btn-sm",
           disabled: w,
-          onClick: () => O.send({ t: "est_buy", plot: r.id }),
+          "aria-expanded": cf,
+          onClick: () => scf(!cf),
           children: [
             (0, Q.jsx)(ho, {}),
             " Buy from ",
@@ -137,6 +316,56 @@ function jB({ id: t, back: e }) {
             Ki() ? "" : " + 5% tax",
           ],
         }),
+      cf &&
+        !k &&
+        ((!o && r.empty) || o?.sale) &&
+        (() => {
+          let pr = o?.sale || r.price,
+            tx = o?.sale && !Ki() ? Math.round(pr * 0.05) : 0,
+            tot = pr + tx,
+            bal = a.bank?.bal ?? a.wallets?.[a.session?.userId] ?? 0,
+            ok = bal >= tot;
+          return (0, Q.jsxs)("div", {
+            className: "card p-3 space-y-1.5",
+            "data-buy-confirm": r.id,
+            role: "group",
+            "aria-label": `Confirm purchase of plot ${r.id}`,
+            children: [
+              (0, Q.jsxs)("div", {
+                className: "text-[13px]",
+                children: [
+                  "Plot ",
+                  (0, Q.jsx)("b", { children: r.id }),
+                  ": ",
+                  q(pr),
+                  tx ? ` + ${q(tx)} transfer tax` : "",
+                  " = ",
+                  (0, Q.jsx)("b", { children: q(tot) }),
+                ],
+              }),
+              (0, Q.jsx)("div", {
+                className: "text-[12px]",
+                style: ok ? _r : { color: "var(--ember-hi)" },
+                children: ok
+                  ? `Your balance after: ${q(bal - tot)}. Credits are in-game only.`
+                  : `You have ${q(bal)}. You need ${q(tot - bal)} more.`,
+              }),
+              (0, Q.jsxs)("div", {
+                className: "flex gap-1.5",
+                children: [
+                  (0, Q.jsx)("button", {
+                    id: "est-buy-confirm",
+                    className: "btn btn-primary btn-sm",
+                    disabled: !ok || w,
+                    onClick: () => (O.send({ t: "est_buy", plot: r.id, max: tot }), scf(!1)),
+                    children: `Confirm \xB7 pay ${q(tot)}`,
+                  }),
+                  (0, Q.jsx)("button", { className: "btn btn-ghost btn-sm", onClick: () => scf(!1), children: "Cancel" }),
+                ],
+              }),
+            ],
+          });
+        })(),
       !k &&
         o?.auction &&
         (0, Q.jsxs)("div", {
@@ -217,6 +446,7 @@ function jB({ id: t, back: e }) {
             }),
           ],
         }),
+      !BZOFF26 && (0, Q.jsx)(BZ26, { plot: r, holder: k || b }),
       k &&
         (0, Q.jsxs)("div", {
           className: "card p-3 space-y-2",
