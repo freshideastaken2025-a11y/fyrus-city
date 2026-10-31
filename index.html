@@ -1127,6 +1127,9 @@ var bh = "fyrus.net.token",
           });
           break;
         }
+        case "bank_air":
+          try { window.__fyrusAirNet && window.__fyrusAirNet(e); } catch {}
+          break;
         case "bank_hist":
           C({ bankHist: e.before ? [...ot().bankHist, ...e.list.filter((x) => !ot().bankHist.some((y) => y.id === x.id))] : e.list, bankHistMore: !!e.more });
           break;
@@ -5580,6 +5583,8 @@ function cr(t, e, a, r, serverDoesIt) {
     (r.wallets = { ...r.wallets, [t]: Math.round(((r.wallets[t] || 0) + e) * 100) / 100 }),
     (r.txns = [...r.txns, { id: va("t"), userId: t, amount: e, label: a, at: Date.now() }]));
 }
+// 35: the airport add-on pays tickets through the same wallet debit (one call = one charge)
+typeof window !== "undefined" && (window.__fyrusPay = (t, e) => Jc(t, e));
 function Jc(t, e) {
   let a = V.session?.userId;
   if (!a) return !1;
@@ -28690,7 +28695,7 @@ var qg = (t, e) =>
       let a = Lp.find((u) => u.id === e);
       if (!a) return;
       let r = this.player.root.position;
-      if (Math.hypot(r.x - Cn.x, r.z - Cn.z) > 45)
+      if (Math.hypot(r.x - (window.__fyrusAirCurb || Cn).x, r.z - (window.__fyrusAirCurb || Cn).z) > (window.__fyrusAirCurb ? 60 : 45)) // 35: FCI terminal curb
         return F(
           "Flights board at Fyrus International Airport. Take a taxi or the Metro there first.",
           "warn",
@@ -28703,7 +28708,7 @@ var qg = (t, e) =>
         window.__fyrusAir28 = { passes: [...(window.__fyrusAir28?.passes || []).slice(-4), bp] };
         F(`Boarding pass: ${a.name} \xB7 Gate ${bp.gate} \xB7 Seat ${seat}. Check-in and security done \u2014 have a good flight!`, "info");
       }
-      let o = Ep.runway,
+      let o = window.__fyrusAirRunway || Ep.runway, // 35: FCI runway 18/36 when the airport add-on is on
         n = (u, p) => {
           let v = new W.Vector3(u, 0, 0).applyAxisAngle(new W.Vector3(0, 1, 0), o.ry);
           return new W.Vector3(o.x + v.x, p, o.z + v.z);
@@ -28764,7 +28769,7 @@ var qg = (t, e) =>
         h,
         () => {
           this.runway && (this.runway.plane.visible = !0);
-          let u = e === "scenic" ? Cn : a.to;
+          let u = e === "scenic" ? window.__fyrusAirCurb || Cn : a.to;
           (this.player.root.position.set(u.x, 0, u.z),
             F(
               e === "scenic"
@@ -41781,7 +41786,7 @@ function Uy() {
             }),
           a === "fly" &&
             (() => {
-              let d = Math.hypot(n.x - Cn.x, n.z - Cn.z) < 45,
+              let d = Math.hypot(n.x - (window.__fyrusAirCurb || Cn).x, n.z - (window.__fyrusAirCurb || Cn).z) < (window.__fyrusAirCurb ? 60 : 45),
                 h = Ki();
               return (0, wt.jsxs)(wt.Fragment, {
                 children: [
@@ -41801,7 +41806,7 @@ function Uy() {
                         onClick: () => o?.startTaxi({ ...Cn, name: "Fyrus International Airport" }),
                         children: [
                           "Taxi to the airport \xB7 ",
-                          Th(Math.hypot(n.x - Cn.x, n.z - Cn.z)),
+                          Th(Math.hypot(n.x - (window.__fyrusAirCurb || Cn).x, n.z - (window.__fyrusAirCurb || Cn).z)),
                           " FYC",
                         ],
                       }),
@@ -51763,15 +51768,17 @@ react/cjs/react-jsx-runtime.production.js:
 <script src="/fyrus-perf.js?v=1.1.0-p16" defer></script>
 <script src="/fyrus-atmos.js?v=30.11" defer></script>
 <script src="/fyrus-hud.js?v=1.0.1" defer></script>
-<script src="/fyrus-vectorbay.js?v=1.0.2" defer></script>
+<script src="/fyrus-vectorbay.js?v=1.0.3" defer></script>
 <!-- PHASE 20: camera collision for the city world (kill switch ?p20off=camcol) -->
 <!-- 32.1 procedural human characters (code-generated meshes); kill switch ?h32off=1 -->
 <script src="/fyrus-human32.js?v=33.5" defer></script>
+<!-- 35 international airports (code-generated terminals, aircraft, flights); kill switch ?a35off=1 -->
+<script src="/fyrus-airport35.js?v=35.7" defer></script>
 <script src="/fyrus-camera20.js?v=20.11" defer></script>
 <!-- PHASE 20: Phase 20 avatars for other players (feature flag ?f20net=1, default off; kill switch ?p20off=net) -->
 <script src="/fyrus-avatar20-net.js?v=20.16" defer></script>
 <!-- PHASE 21: street furniture & signage (kill switch ?p21off=all) -->
-<script src="/fyrus-city21.js?v=23.2" defer></script>
+<script src="/fyrus-city21.js?v=23.3" defer></script>
 <script src="/fyrus-peds22.js?v=33.2" defer></script>
 <script src="/fyrus-sched22.js?v=22.4" defer></script>
 <script src="/fyrus-shops22.js?v=33.2" defer></script>
@@ -51806,7 +51813,10 @@ react/cjs/react-jsx-runtime.production.js:
 <script src="/fyrus-vrteleport29.js?v=29.10" defer></script>
 <script src="/fyrus-vrcomfort29.js?v=29.11" defer></script>
 <script src="/fyrus-gltf-loader.js?v=1.0.0" defer></script>
+<!-- DEMO-ONLY (fyrus-city-avatar-local-demo): Phase 5.7 avatars for the local player; loads before fyrus-avatar.js so the old premium layer steps aside -->
+<script src="/fyrus-avatar-demo.js?v=demo-1.1.0-p17" defer></script>
 <!-- PHASE 16 DEV-ONLY: benchmark harness, inert unless the URL has ?bench=<run> -->
+<script src="/fyrus-bench.js?v=35.1" defer></script>
 <script src="/fyrus-avatar.js?v=1.0.0" defer></script>
 <script src="/fyrus-avatar-creator.js?v=1.0.0" defer></script>
 

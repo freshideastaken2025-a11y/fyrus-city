@@ -518,7 +518,7 @@ function Uy() {
             }),
           a === "fly" &&
             (() => {
-              let d = Math.hypot(n.x - Cn.x, n.z - Cn.z) < 45,
+              let d = Math.hypot(n.x - (window.__fyrusAirCurb || Cn).x, n.z - (window.__fyrusAirCurb || Cn).z) < (window.__fyrusAirCurb ? 60 : 45),
                 h = Ki();
               return (0, wt.jsxs)(wt.Fragment, {
                 children: [
@@ -538,7 +538,7 @@ function Uy() {
                         onClick: () => o?.startTaxi({ ...Cn, name: "Fyrus International Airport" }),
                         children: [
                           "Taxi to the airport \xB7 ",
-                          Th(Math.hypot(n.x - Cn.x, n.z - Cn.z)),
+                          Th(Math.hypot(n.x - (window.__fyrusAirCurb || Cn).x, n.z - (window.__fyrusAirCurb || Cn).z)),
                           " FYC",
                         ],
                       }),

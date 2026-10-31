@@ -177,6 +177,51 @@ function createBank(d) {
         reply({ t: "bank_hist", list: history(u.id) });
         return true;
       }
+      case "bank_air": {
+        // 35.2 airline tickets: fares come from this table (never from the client); one booking per ticket id
+        // (a retried or duplicated request is answered with the same ticket and is never charged twice); one active
+        // ticket per citizen; status only moves forward.
+        const AIR = { FY401: [60, 150, "FCI", "VBX", "A1"], FY402: [60, 150, "VBX", "FCI", "B2"], FY100: [40, 90, "FCI", "FCI", "A6"], FY200: [40, 90, "VBX", "VBX", "B1"] };
+        const ACTIVE = new Set(["booked", "checked", "cleared", "inflight"]);
+        const a = acct(u.id), air = (a.air ||= { cur: null, hist: [], ids: [] });
+        const op = String(m.op || "get"), id = String(m.id || "");
+        const send = (x) => reply({ t: "bank_air", op, id, ...x, ticket: air.cur });
+        if (op === "get") return send({ ok: true }), true;
+        if (op === "book") {
+          if (!/^T[A-Z0-9]{6,24}$/.test(id)) return send({ ok: false, reason: "id" }), true;
+          if (air.ids.includes(id)) return send({ ok: true, again: true }), true;
+          if (air.cur && ACTIVE.has(air.cur.status)) return send({ ok: false, reason: "active" }), true;
+          const r = AIR[String(m.route)];
+          if (!r) return send({ ok: false, reason: "route" }), true;
+          if (a.banned) return send({ ok: false, reason: "banned" }), true;
+          const cls = m.cls === "business" ? "business" : "economy", fare = cls === "business" ? r[1] : r[0];
+          if (!transfer(u.id, "treasury", fare, `Fyrus Airlines ${m.route} ${r[2]}-${r[3]} ticket ${id}`)) return send({ ok: false, reason: "funds" }), true;
+          let h = 0;
+          for (const ch of id) h = (h * 31 + ch.charCodeAt(0)) | 0;
+          h = Math.abs(h);
+          const seat = cls === "business" ? 1 + (h % 3) + "ACDF"[h % 4] : 8 + (h % 22) + "ABCDEF"[h % 6];
+          if (air.cur) air.hist = [...air.hist, air.cur].slice(-20);
+          air.cur = { id, flight: String(m.route), route: String(m.route), from: r[2], to: r[3], cls, fare, gate: r[4], seat, status: "booked", bookedAt: Date.now(), srv: true };
+          air.ids = [...air.ids, id].slice(-200);
+          d.save(true);
+          return send({ ok: true }), true;
+        }
+        if (op === "set") {
+          const NEXT = { booked: ["checked", "cancelled"], checked: ["cleared", "inflight"], cleared: ["inflight"], inflight: ["arrived"], arrived: ["done"] };
+          const c = air.cur, to = String(m.status || "");
+          if (!c || c.id !== id) return send({ ok: false, reason: "none" }), true;
+          if (!(NEXT[c.status] || []).includes(to)) return send({ ok: false, reason: "state" }), true;
+          c.status = to;
+          c[to + "At"] = Date.now();
+          if (to === "done" || to === "cancelled") {
+            air.hist = [...air.hist, c].slice(-20);
+            air.cur = null;
+          }
+          d.save();
+          return send({ ok: true }), true;
+        }
+        return true;
+      }
       case "bank_op": {
         const amt = r2(+m.amount || 0);
         const label = d.clean(m.label, 100) || "City payment";

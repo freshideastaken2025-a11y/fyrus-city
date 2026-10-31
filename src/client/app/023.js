@@ -2771,7 +2771,7 @@ var qg = (t, e) =>
       let a = Lp.find((u) => u.id === e);
       if (!a) return;
       let r = this.player.root.position;
-      if (Math.hypot(r.x - Cn.x, r.z - Cn.z) > 45)
+      if (Math.hypot(r.x - (window.__fyrusAirCurb || Cn).x, r.z - (window.__fyrusAirCurb || Cn).z) > (window.__fyrusAirCurb ? 60 : 45)) // 35: FCI terminal curb
         return F(
           "Flights board at Fyrus International Airport. Take a taxi or the Metro there first.",
           "warn",
@@ -2784,7 +2784,7 @@ var qg = (t, e) =>
         window.__fyrusAir28 = { passes: [...(window.__fyrusAir28?.passes || []).slice(-4), bp] };
         F(`Boarding pass: ${a.name} \xB7 Gate ${bp.gate} \xB7 Seat ${seat}. Check-in and security done \u2014 have a good flight!`, "info");
       }
-      let o = Ep.runway,
+      let o = window.__fyrusAirRunway || Ep.runway, // 35: FCI runway 18/36 when the airport add-on is on
         n = (u, p) => {
           let v = new W.Vector3(u, 0, 0).applyAxisAngle(new W.Vector3(0, 1, 0), o.ry);
           return new W.Vector3(o.x + v.x, p, o.z + v.z);
@@ -2845,7 +2845,7 @@ var qg = (t, e) =>
         h,
         () => {
           this.runway && (this.runway.plane.visible = !0);
-          let u = e === "scenic" ? Cn : a.to;
+          let u = e === "scenic" ? window.__fyrusAirCurb || Cn : a.to;
           (this.player.root.position.set(u.x, 0, u.z),
             F(
               e === "scenic"

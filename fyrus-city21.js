@@ -127,7 +127,8 @@
     var p = W.player.root.position, R = 170, m = new T.Matrix4(), q = new T.Quaternion(), up = new T.Vector3(0, 1, 0), one = new T.Vector3(1, 1, 1), v = new T.Vector3();
     var n = { seat: 0, back: 0, legs: 0, pbox: 0, shrub: 0, boll: 0 }; SEATS.length = 0;
     function put(k, x, y, z, ang) { if (n[k] >= F[k].instanceMatrix.count) return; q.setFromAxisAngle(up, ang); m.compose(v.set(x, y, z), q, one); F[k].setMatrixAt(n[k]++, m); }
-    function ok(x, z) { if (x * x + z * z < 62 * 62) return false; var g = W.groundAt ? W.groundAt(x, z) : 0; return g < 0.3; }
+    function ok(x, z) { if (x * x + z * z < 62 * 62) return false; if (window.__fyrusNoProps && window.__fyrusNoProps(x, z)) return false;   // 35: airports keep their apron clear
+      var g = W.groundAt ? W.groundAt(x, z) : 0; return g < 0.3; }
     function bench(x, z, ang) {
       var y = W.groundAt ? W.groundAt(x, z) : 0; put('seat', x, y, z, ang); put('back', x, y, z, ang);
       SEATS.push({ x: x, y: y, z: z, ang: ang, id: Math.round(x * 10) + ':' + Math.round(z * 10) });   // 23.2 sittable
@@ -345,7 +346,7 @@
       var jx = i * 64 + 32, jz = j * 64 + 32;
       if (Math.hypot(jx - p.x, jz - p.z) > R || jx * jx + jz * jz < 62 * 62 || np >= 298) continue;
       [[1, 1], [-1, -1]].forEach(function (c) {
-        var x = jx + c[0] * 4.6, z = jz + c[1] * 4.6, y = W.groundAt ? W.groundAt(x, z) : 0; if (y > 0.3) return;
+        var x = jx + c[0] * 4.6, z = jz + c[1] * 4.6, y = W.groundAt ? W.groundAt(x, z) : 0; if (y > 0.3 || (window.__fyrusNoProps && window.__fyrusNoProps(x, z))) return;
         m.compose(v.set(x, y, z), q.identity(), one); SG.pole.setMatrixAt(np++, m);
         // one head facing traffic along x (for the x axis) and one facing along z
         [['x', Math.PI / 2], ['z', 0]].forEach(function (h) {
@@ -385,6 +386,7 @@
       var sx = ((gx + gz) & 1) ? 1 : -1, sz = (gx & 1) ? 1 : -1;      // vary the corner per junction
       var x = jx + sx * 5.0, z = jz + sz * 5.0, y = W.groundAt ? W.groundAt(x, z) : 0;
       if (y > 0.5) continue;                                            // something built here (not plain pavement)
+      if (window.__fyrusNoProps && window.__fyrusNoProps(x, z)) continue;   // 35: no street signs on an airport
       M.makeTranslation(x, y, z); poles.setMatrixAt(n, M); caps.setMatrixAt(n, M);
       var ew = ((gz % 8) + 8) % 8, ns = 8 + ((gx % 8) + 8) % 8;
       // plate along x (names the east-west street at z = jz) and plate along z (north-south street at x = jx)

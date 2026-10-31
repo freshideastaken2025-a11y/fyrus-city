@@ -459,7 +459,8 @@
         if (L2.dP > 0 && Math.hypot(x2 - 235, z2 + 330) < 120 && rnd() < .8) continue;
         if (fbm(x2 * .01 + 11, z2 * .01, 2) < .47 && L2.d > 60) continue;
         if (rectsAt(x2, z2) && pushOut(null, x2, z2, 1)) continue;
-        if (rnd() < .45) cyp.push([x2, y2 - .3, z2, 0, R(1, 1.8), 1, R(1, 1.5)]); else ol.push([x2, y2 - .3, z2, R(0, 6.28), R(1.2, 2.4)]);
+        var keep = !(window.__fyrusNoProps && window.__fyrusNoProps(x2 + OX, z2 + OZ));   /* 35: none on the airport platform (same random sequence) */
+        if (rnd() < .45) { var c2 = [x2, y2 - .3, z2, 0, R(1, 1.8), 1, R(1, 1.5)]; if (keep) cyp.push(c2); } else { var o2 = [x2, y2 - .3, z2, R(0, 6.28), R(1.2, 2.4)]; if (keep) ol.push(o2); }
       }
       for (var zc = 120; zc > -420; zc -= 9) cyp.push([-122 + R(-2, 2), 2.6, zc, 0, R(.9, 1.1), 1, R(1.1, 1.4)]);
       inst(cyG, cyM, cyp); inst(olG, olM, ol);

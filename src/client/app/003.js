@@ -951,6 +951,9 @@ var bh = "fyrus.net.token",
           });
           break;
         }
+        case "bank_air":
+          try { window.__fyrusAirNet && window.__fyrusAirNet(e); } catch {}
+          break;
         case "bank_hist":
           C({ bankHist: e.before ? [...ot().bankHist, ...e.list.filter((x) => !ot().bankHist.some((y) => y.id === x.id))] : e.list, bankHistMore: !!e.more });
           break;

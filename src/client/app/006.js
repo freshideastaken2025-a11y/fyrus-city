@@ -926,6 +926,8 @@ function cr(t, e, a, r, serverDoesIt) {
     (r.wallets = { ...r.wallets, [t]: Math.round(((r.wallets[t] || 0) + e) * 100) / 100 }),
     (r.txns = [...r.txns, { id: va("t"), userId: t, amount: e, label: a, at: Date.now() }]));
 }
+// 35: the airport add-on pays tickets through the same wallet debit (one call = one charge)
+typeof window !== "undefined" && (window.__fyrusPay = (t, e) => Jc(t, e));
 function Jc(t, e) {
   let a = V.session?.userId;
   if (!a) return !1;
