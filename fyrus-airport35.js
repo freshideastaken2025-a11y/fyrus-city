@@ -13,7 +13,7 @@
   if (Q.get('a35off') === '1') return;
   var T = null, W = null;
   var S = { built: 0, disposed: 0, aircraft: 0, people: 0, flights: 0, errors: 0, lastError: null, buildMs: 0 };
-  var API = window.__fyrusAir35 = { version: '35.6', stats: S };
+  var API = window.__fyrusAir35 = { version: '35.7', stats: S };
   // the city's legacy air tours (startFlight) board at the FCI curb and use runway 18/36 (read by the patched game code)
   window.__fyrusAirCurb = { x: 408, z: 40 }; window.__fyrusAirRunway = { x: 526, z: 80, len: 420, ry: -Math.PI / 2 };
   function st() { try { return window.__fyrus.getState(); } catch (e) { return null; } }
@@ -1349,11 +1349,26 @@
   API.build = ensureBuilt; API.dispose = disposeAirport;
   API.go = function (code) { var sp = spec(code), A = ensureBuilt(sp), Wd = window.__fyrusW; if (!A || !Wd) return false; var p = A.toWorld(-14, 0, 6), f = A.toWorld(0, 0, 6); Wd.teleport({ x: p.x, z: p.z, face: { x: f.x, z: f.z } }); return true; };
 
+  // the city can rebuild its landmarks (e.g. after signing in), which brings the old strip back: checked every 2 s
+  function retireOld(Wd) { try { var r = Wd.runway; if (r && r.group.parent) r.group.parent.remove(r.group); if (r && (r.group.visible || r.colliders.length || r.interacts.length)) { r.group.visible = false; r.colliders.length = 0; r.interacts.length = 0; if (Wd.refreshLmInteracts) Wd.refreshLmInteracts(); S.retired = (S.retired || 0) + 1; } } catch (e) {} }
+  // street furniture / signals / stalls placed by other modules before the airport hooks existed (or by modules that do
+  // not ask __fyrusNoProps) are folded away inside the airport footprints (instance matrix -> zero scale)
+  var ZM = null;
+  function sweepProps(Wd) {
+    if (!Wd.world) return; ZM = ZM || new T.Matrix4().makeScale(0, 0, 0); var m4 = new T.Matrix4(), p = new T.Vector3(), n = 0;
+    Wd.world.children.forEach(function (o) {
+      if (!o.isInstancedMesh || !/^(c21-|c22-|p22-)/.test(o.name || '')) return;
+      var ch = false;
+      for (var i = 0; i < o.count; i++) { o.getMatrixAt(i, m4); if (m4.elements[0] === 0 && m4.elements[5] === 0) continue; p.setFromMatrixPosition(m4); if (window.__fyrusNoProps && window.__fyrusNoProps(p.x, p.z)) { o.setMatrixAt(i, ZM); ch = true; n++; } }
+      if (ch) o.instanceMatrix.needsUpdate = true;
+    });
+    if (n) S.propsHidden = (S.propsHidden || 0) + n;
+  }
   var installedFor = null;
   function install(Wd) {
     installedFor = Wd;
     // retire the old 150 m airstrip: hidden, its colliders and check-in interact removed (its flights now leave from FCI)
-    try { if (Wd.runway) { Wd.runway.group.visible = false; Wd.runway.colliders.length = 0; Wd.runway.interacts.length = 0; Wd.refreshLmInteracts && Wd.refreshLmInteracts(); } } catch (e) {}
+    retireOld(Wd);
     // keep procedural blocks and traffic out of the airport footprints
     var zones = [];
     // 40 m cells with r = 29 circles; the landside edge stops at local X -50 so the ring road (r = 350) keeps its traffic
@@ -1401,7 +1416,8 @@
       var t = API.cur();
       if (t && t.status === 'checked' && t.from === sp.code) { var lp = A.toLocal(p.x, p.z); if (lp.x > 16.2 && p.y > (sp.base || 0) + PH - 1) { t.status = 'cleared'; t.clearedAt = Date.now(); saveTicket(t); toast('Security cleared · gate ' + t.gate + ' · follow the signs.', 'xp'); } }
     });
-    if ((API._tkT = (API._tkT || 0) - dt) <= 0) { API._tkT = 2; API._tk = API.ticket(); var on = API.net(); if (on && !API._wasOn) API.recover(); API._wasOn = on; }
+    if ((API._tkT = (API._tkT || 0) - dt) <= 0) { API._tkT = 2; API._tk = API.ticket(); var on = API.net(); if (on && !API._wasOn) API.recover(); API._wasOn = on; retireOld(Wd); }
+    if (Object.keys(API.airports).length && (API._swT = (API._swT || 0) - dt) <= 0) { API._swT = 1; try { sweepProps(Wd); } catch (e) {} }
   }
   requestAnimationFrame(frame);
 })();
