@@ -764,6 +764,18 @@ var server = http.createServer((req, res) => {
     res.writeHead(200, { ...SEC, "content-type": "text/html; charset=utf-8" });
     return res.end(legalPage(url.pathname.slice(1)));
   }
+  // SEO: serve a real robots.txt and sitemap.xml. Before this, the app fallback below answered both with index.html.
+  // Personal certificate pages (/verify/...) and APIs are kept out of search; the site URL can be overridden with SITE_URL.
+  if (url.pathname === "/robots.txt" || url.pathname === "/sitemap.xml") {
+    const site = String(process.env.SITE_URL || "https://fyrus.io").replace(/\/+$/, "");
+    if (url.pathname === "/robots.txt") {
+      res.writeHead(200, { ...SEC, "content-type": "text/plain; charset=utf-8", "cache-control": "public, max-age=3600" });
+      return res.end(`User-agent: *\nDisallow: /api/\nDisallow: /verify/\nDisallow: /ws\nAllow: /\n\nSitemap: ${site}/sitemap.xml\n`);
+    }
+    const urls = ["/", "/terms", "/privacy"].map((u) => `  <url><loc>${site}${u}</loc></url>`).join("\n");
+    res.writeHead(200, { ...SEC, "content-type": "application/xml; charset=utf-8", "cache-control": "public, max-age=3600" });
+    return res.end(`<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls}\n</urlset>\n`);
+  }
   if (edu.http(url.pathname, res)) return;
   let p = path2.normalize(decodeURIComponent(url.pathname)).replace(/^(\.\.[/\\])+/, "");
   // 30.8 security: never serve server source, build tooling, package metadata, docs or dot-files from the public dir
