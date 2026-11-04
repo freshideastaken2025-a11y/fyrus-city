@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>SKYLINE ONE by CITE BIRD — Interactive 3D property explorer (concept demonstration)</title>
+  <meta name="description" content="SKYLINE ONE is an original CITE BIRD concept tower: explore the building, walk every floor, view floor plans and take the guided tour in your browser." />
+  <link rel="icon" href="brand/cite-bird-mark.png" />
+  <script type="module" crossorigin src="./assets/index-C5ocArx0.js"></script>
+  <link rel="stylesheet" crossorigin href="./assets/index-Pf93K8IC.css">
+</head>
+<body>
+  <div id="stage" aria-label="Interactive 3D view of the SKYLINE ONE concept tower"></div>
+
+  <!-- landing -->
+  <section id="landing" class="landing">
+    <div class="landing-inner">
+      <div class="brandline"><img src="brand/cite-bird-mark-white.png" alt="" /><span>CITE BIRD</span></div>
+      <p class="eyebrow">Interactive property experience · Concept demonstration</p>
+      <h1>SKYLINE ONE</h1>
+      <p class="tagline">Explore the building. Experience every floor.</p>
+      <p class="lede">An original 15-storey residential tower, created by CITE BIRD to show what an interactive 3D sales experience can do: orbit the tower, open any floor, walk through furnished residences, read the floor plans and take the guided tour — in the browser, with nothing to install.</p>
+      <div class="cta-row">
+        <button id="btnExplore" class="btn primary">Explore in 3D</button>
+        <button id="btnTourLanding" class="btn ghost">Watch the guided tour</button>
+      </div>
+      <ul class="caps">
+        <li>Architectural floor-plan interpretation</li><li>Interactive 3D property exploration</li><li>Interior &amp; exterior visualisation</li><li>Digital property showrooms</li><li>Guided walkthroughs &amp; sales presentations</li>
+      </ul>
+      <p class="disclaimer"><strong>Concept demonstration.</strong> SKYLINE ONE is not a real building, client project, approved plan or property for sale. All plans, dimensions and areas are illustrative.</p>
+      <p class="disclaimer credits">3D credits: velvet sofa and potted plant models by Eric Chadwick / Wayfair LLC / Darmstadt Graphics Group GmbH, <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a>; chair and vase models CC0 — via Khronos glTF Sample Assets. <a href="/models/ASSET_LICENSES.md" target="_blank" rel="noopener">Asset licences</a>. All other geometry and materials are original CITE BIRD work.</p>
+      <p class="headline">Building intelligent worlds. Protecting the living one.</p>
+    </div>
+  </section>
+
+  <!-- loader -->
+  <div id="loader" class="loader" hidden>
+    <img src="brand/cite-bird-mark-white.png" alt="" />
+    <div class="ld-title">SKYLINE ONE</div>
+    <div class="ld-bar"><i id="ldFill"></i></div>
+    <div id="ldText" class="ld-text">Preparing…</div>
+  </div>
+
+  <!-- fade -->
+  <div id="fade" class="fade"></div>
+
+  <!-- top bar -->
+  <header id="topbar" class="topbar ui" hidden>
+    <a class="tb-brand" href="#" id="tbHome" title="Back to the introduction"><img src="brand/cite-bird-mark-white.png" alt="" /><span>SKYLINE ONE <em>by CITE BIRD</em></span></a>
+    <span class="badge">Concept demonstration · illustrative data</span>
+    <div class="tb-actions">
+      <button id="btnShare" class="btn small ghost">Share view</button>
+      <button id="btnPresent" class="btn small ghost">Presentation mode</button>
+      <a id="btnEnquire" class="btn small primary" target="_blank" rel="noopener">Enquire</a>
+    </div>
+  </header>
+
+  <!-- floors panel -->
+  <aside id="floors" class="floors ui" hidden>
+    <div class="fl-head"><strong>SKYLINE ONE</strong><span>by CITE BIRD</span></div>
+    <ol id="floorList" class="fl-list" aria-label="Floors"></ol>
+    <div class="fl-actions">
+      <button id="btnDayNight" class="btn small">Day / Night</button>
+      <button id="btnTour" class="btn small">3D Tour</button>
+      <button id="btnPlan" class="btn small">Floor Plan</button>
+      <button id="btnCut" class="btn small">Cutaway</button>
+      <button id="btnWalk" class="btn small primary">Walk this floor</button>
+    </div>
+  </aside>
+
+  <!-- view presets -->
+  <nav id="views" class="views ui" hidden aria-label="Camera views">
+    <button data-view="overview">Overview</button><button data-view="entrance">Entrance</button><button data-view="amenities">Amenities</button>
+    <button data-view="residence">Residence</button><button data-view="rooftop">Rooftop</button><button data-view="enter" class="gold">Enter building</button><button data-view="reset">Reset</button>
+  </nav>
+
+  <!-- info -->
+  <aside id="info" class="info ui" hidden>
+    <button class="close" id="infoClose" aria-label="Close">×</button>
+    <div id="infoBody"></div>
+  </aside>
+
+  <!-- plan -->
+  <aside id="plan" class="plan ui" hidden>
+    <div class="plan-head"><strong id="planTitle">Floor plan</strong><button id="planBack" class="btn small">Back to 3D</button></div>
+    <div id="planSvg" class="plan-svg-wrap"></div>
+    <p class="fine">Plan and areas (m²*) are illustrative concept data generated from the same model as the 3D view. Click a room to go there.</p>
+  </aside>
+
+  <!-- interior HUD -->
+  <div id="ihud" class="ihud ui" hidden>
+    <div class="ih-floor"><span id="ihLevel">L08</span><small id="ihRoom">Lift lobby</small></div>
+    <div class="ih-cross" id="cross"></div>
+    <div class="ih-hint" id="ihHint">Click to look around · W A S D to walk · click doors and <b>i</b> markers · Esc to release the mouse</div>
+    <div class="ih-actions">
+      <button id="btnLift" class="btn small">Lift</button><button id="btnIPlan" class="btn small">Plan</button><button id="btnExit" class="btn small">Exit to exterior</button>
+    </div>
+    <div id="mini" class="mini" aria-hidden="true"></div>
+  </div>
+  <div id="joy" class="joy" hidden><i></i></div>
+
+  <!-- tour bar -->
+  <div id="tourbar" class="tourbar ui" hidden>
+    <div id="caption" class="caption"></div>
+    <div class="tb-row">
+      <button id="tPlay" class="btn small">Pause</button><button id="tSkip" class="btn small">Skip ›</button><button id="tReplay" class="btn small">Replay</button>
+      <label class="narr"><input type="checkbox" id="tNarrate" /> Narration</label>
+      <div class="tprog"><i id="tProg"></i></div>
+      <span id="tChapter" class="tchapter"></span>
+      <button id="tExit" class="btn small ghost">Exit tour</button>
+    </div>
+  </div>
+  <div id="chapters" class="chapters" hidden></div>
+
+  <!-- end card -->
+  <div id="endcard" class="endcard" hidden>
+    <img src="brand/cite-bird-mark-white.png" alt="" />
+    <h2>SKYLINE ONE <span>by CITE BIRD</span></h2>
+    <p>Building intelligent worlds. Protecting the living one.</p>
+    <small>Concept demonstration — interactive 3D property experiences for developers.</small>
+  </div>
+
+  <!-- share -->
+  <div id="share" class="modal" hidden role="dialog" aria-label="Share this view">
+    <div class="modal-box">
+      <button class="close" id="shareClose" aria-label="Close">×</button>
+      <h3>Share this view</h3>
+      <input id="shareUrl" readonly />
+      <div class="cta-row"><button id="shareCopy" class="btn small primary">Copy link</button></div>
+      <div id="qr"></div>
+      <p id="shareNote" class="fine"></p>
+    </div>
+  </div>
+  <div id="toast" class="toast" hidden></div>
+  <div id="fallback" class="fallback" hidden>
+    <h2>3D view unavailable</h2>
+    <p>Your browser or device could not start WebGL, which this demonstration needs. Please try a current version of Chrome, Edge, Safari or Firefox on a desktop or recent phone.</p>
+    <p id="fallbackDetail" class="fine"></p>
+  </div>
+</body>
+</html>

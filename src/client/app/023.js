@@ -2437,6 +2437,7 @@ var qg = (t, e) =>
           { name: "Fyrus International Airport", x: 390, z: 0, h: 50 },
           { name: "Skyline Lounges & Gaming Arena", x: wn.lounge.x, z: wn.lounge.z, h: 34 },
           { name: "Starter Commons \u2014 free studios", x: 330, z: 260, h: 90 },
+          { name: "SKYLINE PLAZA \u2014 SKYLINE ONE", x: 360, z: 320, h: 65, look: { x: 295, y: 30, z: 462 } },
           { name: "Executive Enclave", x: 0, z: 470, h: 60 },
           { name: "Faith & Culture District", x: 0, z: 268, h: 40 },
           { name: "Creator City", x: -212, z: 212, h: 44 },
@@ -2463,9 +2464,9 @@ var qg = (t, e) =>
           d !== s && ((s = d), C({ trip: { kind: "tour", label: `Drone tour \xB7 ${e[d].name}` } }));
           let h = n.getPointAt(c),
             u = n.getPointAt(Math.min(0.999, c + 0.02)),
-            p = new W.Vector3(e[d].x, 4, e[d].z),
+            p = e[d].look ? new W.Vector3(e[d].look.x, e[d].look.y, e[d].look.z) : new W.Vector3(e[d].x, 4, e[d].z),
             v = h.clone().add(new W.Vector3(0, 6, 0)),
-            g = p.lerp(u.setY(0), 0.35);
+            g = e[d].look ? p.lerp(u, 0.2) : p.lerp(u.setY(0), 0.35);
           return { pos: v, look: g, body: i };
         },
         () => {
